@@ -6,6 +6,7 @@
     "types": [
       "bun"
     ],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "strict": true,
     "noEmit": true,
     "noUnusedLocals": true,
@@ -14,6 +15,8 @@
     "skipLibCheck": true
   },
   "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
     "bin/**/*.ts",
     "test/**/*.ts"
   ]

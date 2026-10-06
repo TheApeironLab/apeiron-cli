@@ -11,12 +11,15 @@
     "bun": ">=1.3.14"
   },
   "scripts": {
+    "build": "bun build ./bin/apeiron.ts --compile --outfile dist/apeiron",
     "test": "bun test",
+    "test:ui": "bun scripts/test-ui.ts",
     "typecheck": "tsc --noEmit"
   },
   "packageManager": "bun@1.3.14",
   "devDependencies": {
     "@types/bun": "^1.3.14",
+    "playwright": "1.58.2",
     "typescript": "^5.9.3"
   }
 }
