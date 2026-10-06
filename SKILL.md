@@ -23,7 +23,8 @@ Recovery:
 
 The init wizard writes ~/.config/apeiron/config.json (or XDG_CONFIG_HOME/apeiron/config.json).
 Use --config to change the destination. Keep it outside Git.
-Setup collects the Chentu checkout, external YAML values, and either kubeconfig/profile or Docker work directory/toolbox image.
+Setup defaults to K3s deployment (ubuntu profile), collecting the Chentu checkout, external YAML values and kubeconfig.
+The collapsed 开发测试 section contains 本地测试（k3d）; enabling it reveals the Docker work directory/toolbox image and a persistent test-mode indicator. No CLI flag is needed. Saved native/local profiles are preserved.
 Existing environment variables can prefill these fields. A prepared cluster, deployment tools, real images and external artifacts are required.
 The last step starts Chentu's native run.sh sync (or the lab Docker wrapper). It does not provision hosts or clusters.
 The model page is removed. Existing model declarations in the environment are preserved and validated by Chentu; legacy keys remain only on disk.

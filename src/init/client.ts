@@ -10,8 +10,8 @@ export function initWizard(): void {
   const slug = get<HTMLInputElement>('slug');
   const next = get<HTMLButtonElement>('next');
   const back = get<HTMLButtonElement>('back');
-  const runner = get<HTMLSelectElement>('runner');
-  const profile = get<HTMLSelectElement>('profile');
+  const localTest = get<HTMLInputElement>('local-test');
+  let nativeProfile = 'ubuntu';
   const fields = {
     root: get<HTMLInputElement>('chentu-root'), environment: get<HTMLInputElement>('environment'),
     kubeconfig: get<HTMLInputElement>('kubeconfig'), workDir: get<HTMLInputElement>('work-dir'), image: get<HTMLInputElement>('lab-image'),
@@ -27,20 +27,26 @@ export function initWizard(): void {
   const subtitles = ['填写运行 CLI 的这台机器上的路径，连接已有部署环境。', '确认应用后，直接开始 Helmfile 部署。'];
   function showError(message: string) { error.textContent = message; error.hidden = false; }
   function renderTarget() {
-    const docker = runner.value === 'docker';
+    const docker = localTest.checked;
     get('native-fields').hidden = docker; get('docker-fields').hidden = !docker;
     fields.kubeconfig.required = !docker;
     fields.workDir.required = docker; fields.image.required = docker;
+    get('deployment-mode').textContent = docker ? '本地测试 · k3d' : 'K3s 部署';
+    get('existing-profile').hidden = docker || nativeProfile !== 'local';
   }
-  runner.addEventListener('change', renderTarget);
+  localTest.addEventListener('change', renderTarget);
   function target(): Target {
-    return { runner: runner.value, profile: runner.value === 'docker' ? 'local' : profile.value,
+    return { runner: localTest.checked ? 'docker' : 'native', profile: localTest.checked ? 'local' : nativeProfile,
       root: fields.root.value.trim(), environment: fields.environment.value.trim(),
       kubeconfig: fields.kubeconfig.value.trim(), workDir: fields.workDir.value.trim(), image: fields.image.value.trim() };
   }
   function applyTarget(value: Target) {
-    runner.value = value.runner; profile.value = value.profile;
+    localTest.checked = value.runner === 'docker';
+    // Existing native local-path deployments must not silently switch storage profiles.
+    nativeProfile = value.runner === 'native' ? value.profile : 'ubuntu';
+    get<HTMLDetailsElement>('test-options').open = localTest.checked;
     for (const key of Object.keys(fields) as Array<keyof typeof fields>) fields[key].value = value[key];
+    if (!fields.image.value) fields.image.value = 'chentu-lab';
     renderTarget();
   }
   function renderStep(focus = true) {
@@ -84,7 +90,8 @@ export function initWizard(): void {
   }
   function validate(): boolean {
     if (step === 0) {
-      for (const field of [slug, fields.root, fields.environment, ...(runner.value === 'docker' ? [fields.workDir, fields.image] : [fields.kubeconfig])]) {
+      for (const field of [slug, fields.root, fields.environment, ...(localTest.checked ? [fields.workDir, fields.image] : [fields.kubeconfig])]) {
+        if (localTest.checked && !field.validity.valid) get<HTMLDetailsElement>('test-options').open = true;
         if (!field.reportValidity()) return false;
       }
     }

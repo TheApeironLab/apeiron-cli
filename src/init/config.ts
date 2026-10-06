@@ -44,10 +44,10 @@ export interface DeploymentTarget {
 
 export function deploymentDefaults(): DeploymentTarget {
   return {
-    runner: process.env.LAB_ENV ? 'docker' : 'native',
+    runner: 'native',
     root: resolve(process.env.APEIRON_CHENTU_ROOT || process.env.CHENTU_ROOT || '../chentu'),
     environment: process.env.CHENTU_ENV || process.env.LAB_ENV || '',
-    profile: process.env.CHENTU_PROFILE === 'ubuntu' ? 'ubuntu' : 'local',
+    profile: process.env.CHENTU_PROFILE === 'local' ? 'local' : 'ubuntu',
     kubeconfig: process.env.KUBECONFIG || '', workDir: process.env.LAB_WORK_DIR || '',
     image: process.env.LAB_IMAGE || 'chentu-lab',
   };

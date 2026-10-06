@@ -36,18 +36,20 @@ Nexus 与邮件分别满足平台应用和 Task 的现有依赖。重新打开�
 
 ### 部署目标
 
+页面默认面向 K3s 部署，使用 ubuntu profile。第一步底部的“开发测试”默认折叠；展开后可勾选“本地测试（k3d）”，显示工作目录和工具箱镜像，并在页头持续标识测试模式。不需要 CLI flag。
+
 所有路径均指运行 CLI 的机器；环境文件必须是仓库外的普通 YAML。setup 收集以下字段，不要求预先设置环境变量：
 
 | 方式 | 字段 | 实际执行入口 |
 | --- | --- | --- |
-| 直连 Kubernetes | 宸途仓库、环境文件、kubeconfig、`local` / `ubuntu` profile | `bash deploy/helmfile/run.sh sync` |
-| 本地 Docker 工具箱 | 宸途仓库、环境文件、外部工作目录、工具箱镜像 | `bash tests/lab/helmfile.sh sync` |
+| K3s 部署（默认） | 宸途仓库、环境文件、kubeconfig | `bash deploy/helmfile/run.sh sync` |
+| 本地测试（k3d） | 宸途仓库、环境文件、外部工作目录、工具箱镜像 | `bash tests/lab/helmfile.sh sync` |
 
-直连方式使用指定 kubeconfig 的 current-context，需要 PATH 内有 Helmfile、Helm 及宸途所需工具。
-Docker 方式使用已准备的集群和镜像，工作目录内必须有 `state/kubeconfig`；环境中的 `/work` 路径、集群名和网络等沿用宸途 lab 约定。
+K3s 部署使用指定 kubeconfig 的 current-context，需要 PATH 内有 Helmfile、Helm 及宸途所需工具。
+本地测试使用 Docker 工具箱与已准备的 k3d 集群和镜像，工作目录内必须有 `state/kubeconfig`；环境中的 `/work` 路径、集群名和网络等沿用宸途 lab 约定。
 本向导接入应用同步；主机、K3s/k3d 集群、私有镜像、离线制品、存储与域名需要事先准备。
 
-`APEIRON_CHENTU_ROOT`（或 `CHENTU_ROOT`）、`CHENTU_ENV`、`KUBECONFIG`、`CHENTU_PROFILE`，以及 `LAB_ENV`、`LAB_WORK_DIR`、`LAB_IMAGE` 可预填表单；已有保存配置优先。
+`APEIRON_CHENTU_ROOT`（或 `CHENTU_ROOT`）、`CHENTU_ENV`、`KUBECONFIG`、`CHENTU_PROFILE`，以及 `LAB_ENV`、`LAB_WORK_DIR`、`LAB_IMAGE` 可预填配置；已有保存配置优先。环境变量不会自动开启本地测试。已保存的本地测试配置会恢复勾选、展开测试设置并显示标识；已有 native/local 配置保留原 profile，避免自动改变存储设置。
 其他部署环境变量沿用启动 CLI 的终端，例如 `CHENTU_PYTHON`、`LAB_CLUSTER`、`LAB_NETWORK`、`LAB_HELMFILE_BIN`。
 
 ### 配置与进度
