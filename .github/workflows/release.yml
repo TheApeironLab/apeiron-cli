@@ -99,3 +99,5 @@ jobs:
       - run: bun scripts/publish-release.ts "$RUNNER_TEMP/release"
         env:
           GH_TOKEN: ${{ github.token }}
+          ALIBABA_CLOUD_REGION_ID: cn-beijing
+          ALIBABA_CLOUD_IGNORE_PROFILE: 'TRUE'
