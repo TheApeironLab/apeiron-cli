@@ -3,17 +3,24 @@ import { lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-// Application IDs match Chentu's application releases. Deployment dependencies
+// IDs match Chentu releases (Grafana is provided by kps). Deployment dependencies
 // remain owned by Helmfile; this is only the user's requested application set.
 export const APPS = [
-  { id: 'apeiron', name: 'Apeiron', description: 'AI 工作台与智能体', selected: true },
-  { id: 'ontology', name: 'Limani · Ontology', description: '本体建模、对象与关系', selected: true },
-  { id: 'corpus', name: 'Corpus', description: '知识库与文档检索', selected: false },
-  { id: 'task', name: 'Task', description: '任务与项目协作', selected: false },
-  { id: 'vasi', name: 'Vasi', description: 'Kubernetes 管理界面', selected: false },
-  { id: 'files', name: 'Files', description: '文件传输与共享', selected: false },
-  { id: 'filer', name: 'Filer', description: '对象存储文件管理', selected: false },
-  { id: 'gateway', name: 'Gateway', description: '模型接入与调用网关', selected: false },
+  { id: 'vasi', name: 'Vasi', description: '集群资源与 Kubernetes 管理', selected: true, required: true },
+  { id: 'apeiron', name: 'Apeiron', description: 'AI 工作台与平台管理（含 Ops）', selected: true, required: true },
+  { id: 'ontology', name: 'Limani', description: '本体与业务建模', selected: true, required: true },
+  { id: 'task', name: 'Task', description: '项目与任务协作', selected: true, required: true },
+  { id: 'corpus', name: 'Corpus', description: '文档、知识检索与团队资料', selected: true, required: true },
+  { id: 'matrix', name: 'Chat', description: '团队消息与房间协作', selected: true, required: true },
+  { id: 'files', name: 'Files', description: '私人文件与团队共享文件', selected: true, required: false },
+  { id: 'gateway', name: 'Gateway', description: '模型、访问凭证与用量管理', selected: true, required: false },
+  { id: 'nexus', name: 'Nexus', description: '制品与镜像仓库', selected: true, required: false },
+  { id: 'filer', name: 'Filer', description: '对象存储管理', selected: false, required: false },
+  { id: 'stalwart', name: '邮件', description: '收件箱与邮件收发', selected: false, required: false },
+  { id: 'git', name: '代码仓库', description: 'Git 代码托管与代码评审', selected: false, required: false },
+  { id: 'gpustack', name: 'GPUStack', description: 'GPU 模型部署与推理服务管理', selected: false, required: false },
+  { id: 'langfuse', name: 'Langfuse', description: '模型调用追踪、评测与提示词管理', selected: false, required: false },
+  { id: 'kps', name: 'Grafana', description: '监控仪表盘与运行指标', selected: false, required: false },
 ] as const;
 
 export interface Configuration {
@@ -123,6 +130,8 @@ export class ConfigStore {
       const snapshot = await this.read();
       if (body.revision !== snapshot.revision) throw new ConfigError('配置已在其他窗口或进程中更新，请刷新后重试。', 409);
       const config = validateConfig(body, snapshot.config);
+      const missing = APPS.filter(app => app.required && !config.apps.includes(app.id));
+      if (missing.length) throw new ConfigError(`以下应用为必选：${missing.map(app => app.name).join('、')}。`);
       const raw = JSON.stringify(config, null, 2) + '\n';
       await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
       try { lock = await open(this.path + '.lock', 'wx', 0o600); }

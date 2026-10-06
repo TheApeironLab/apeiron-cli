@@ -21,10 +21,18 @@ apeiron init
 命令监听 `127.0.0.1` 的空闲端口，自动打开本地网页，依次收集：
 
 1. **Slug name**：组织标识，小写字母、数字和连字符，最长 63 个字符。
-2. **应用**：Apeiron、Limani / Ontology、Corpus、Task、Vasi、Files、Filer、Gateway；至少选择一个。
+2. **应用**：按下表顺序展示，基础应用必选，其余可调整。
 3. **LLM 配置**：Base URL、API Key、Model ID。API Key 可以留空以支持无鉴权的本地模型。
 
-应用 ID 对应宸途 release；这里保存用户选择，部署依赖仍由宸途 Helmfile 负责。
+| 选择规则 | 应用（展示顺序） |
+| --- | --- |
+| 必选，不可取消 | Vasi、Apeiron（含 Ops）、Limani、Task、Corpus、Chat（团队聊天） |
+| 默认选中，可取消 | Files、Gateway、Nexus |
+| 默认不选 | Filer、邮件、代码仓库、GPUStack、Langfuse、Grafana |
+
+应用 ID 对应宸途 release：Limani 为 `ontology`，Chat 为 `matrix`，邮件为 `stalwart`，代码仓库为 `git`，Grafana 由 `kps` 提供；其余为小写应用名。Apeiron 包含 Ops，无需单独选择。
+这里保存用户选择，部署依赖仍由宸途 Helmfile 负责；应用访问权限仍由平台管理。
+重新打开会保留已保存的可选应用选择；旧配置缺少的必选应用会在界面自动勾选，确认保存后才写入配置。保存接口同样校验全部必选应用。
 界面、脚本和样式直接包含在 CLI 内，没有 CDN 或单独前端服务，也不依赖 LLM 完成配置。
 保存只写入配置，不调用模型、测试连接、部署或启动应用。
 

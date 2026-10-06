@@ -1,7 +1,7 @@
 // Kept self-contained so the CLI can embed this function in the local page.
 // Bun strips TypeScript; both source and compiled binary paths are browser-tested.
 export function initWizard(): void {
-  type App = { id: string; name: string; description: string; selected: boolean };
+  type App = { id: string; name: string; description: string; selected: boolean; required: boolean };
   type PublicConfig = { slug: string; apps: string[]; llm: { baseUrl: string; modelId: string; hasApiKey: boolean } };
   type Snapshot = { revision: string | null; config: PublicConfig | null; apps: App[]; path: string };
   const get = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -20,7 +20,7 @@ export function initWizard(): void {
   let hasApiKey = false;
   let path = '';
   const titles = ['给你的组织起个名字', '选择要启用的应用', '连接你的模型'];
-  const subtitles = ['这个标识会用于你的 Apeiron 配置。', '从你需要的功能开始，之后随时可以调整。', '填写模型服务提供的连接信息。'];
+  const subtitles = ['这个标识会用于你的 Apeiron 配置。', '基础应用已设为必选，其余应用可以按需调整。', '填写模型服务提供的连接信息。'];
   const endpoint = (name: string) => new URL('api/' + name, location.href).href;
 
   function showError(message: string) { error.textContent = message; error.hidden = false; }
@@ -36,7 +36,7 @@ export function initWizard(): void {
     get('step-subtitle').textContent = subtitles[step]!;
     back.hidden = step === 0;
     next.textContent = step === 2 ? '保存配置' : '下一步';
-    if (focus) (step === 0 ? slug : step === 2 ? baseUrl : document.querySelector<HTMLInputElement>('[name="app"]'))?.focus();
+    if (focus) (step === 0 ? slug : step === 2 ? baseUrl : document.querySelector<HTMLInputElement>('[name="app"]:not(:disabled)'))?.focus();
   }
 
   function selectedApps(): string[] {
@@ -44,7 +44,7 @@ export function initWizard(): void {
   }
 
   function updateSelection() {
-    get('selected-count').textContent = `已选择 ${selectedApps().length} 个应用`;
+    get('selected-count').textContent = `已选择 ${selectedApps().length} 个应用（${apps.filter(app => app.required).length} 个必选）`;
   }
 
   function renderApps(selected: string[]) {
@@ -53,9 +53,13 @@ export function initWizard(): void {
     apps.forEach(app => {
       const label = document.createElement('label');
       label.className = 'app-card';
+      label.dataset.required = String(app.required);
       const input = document.createElement('input');
       input.type = 'checkbox'; input.name = 'app'; input.value = app.id;
-      input.checked = selected.includes(app.id);
+      // Newly required apps are selected when loading an older config too.
+      // Optional selections retain the user's saved values.
+      input.checked = app.required || selected.includes(app.id);
+      input.disabled = app.required;
       input.addEventListener('change', updateSelection);
       const icon = document.createElement('span');
       icon.className = 'app-icon'; icon.textContent = app.name.slice(0, 1); icon.setAttribute('aria-hidden', 'true');
@@ -63,6 +67,10 @@ export function initWizard(): void {
       const name = document.createElement('strong'); name.textContent = app.name;
       const description = document.createElement('span'); description.textContent = app.description;
       copy.append(name, description); label.append(input, icon, copy); grid.append(label);
+      if (app.required) {
+        const badge = document.createElement('span'); badge.className = 'required-badge';
+        badge.textContent = '必选'; label.append(badge);
+      }
     });
     updateSelection();
   }
@@ -76,7 +84,9 @@ export function initWizard(): void {
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
       } catch { showError('请填写 HTTP/HTTPS Base URL，不要包含密钥、查询参数或片段。'); return false; }
     }
-    if (step === 1 && !selectedApps().length) { showError('请至少选择一个应用。'); return false; }
+    if (step === 1 && apps.some(app => app.required && !selectedApps().includes(app.id))) {
+      showError('请保留全部必选应用。'); return false;
+    }
     return true;
   }
 

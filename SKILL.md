@@ -26,4 +26,5 @@ Use --config to change the destination. Keep it outside Git; it contains an API 
 Never print the saved file or request the real key in chat. Let the user enter it in the password field.
 Existing keys are redacted in browser responses; leaving the field empty retains the key.
 Init saves preferences only: it does not deploy, start applications or invoke a model.
+Required apps: Vasi, Apeiron (including Ops), Limani, Task, Corpus and Chat. Files, Gateway and Nexus default to selected; Filer, Mail, Git, GPUStack, Langfuse and Grafana default to unselected. Optional choices persist across sessions; newly required apps are added only when the user saves.
 Finish in the browser or Ctrl+C closes the local server.

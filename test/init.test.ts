@@ -9,7 +9,7 @@ const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
 const input = {
   slug: 'example-team', llm: { baseUrl: 'https://models.example.internal/v1', modelId: 'example-model', apiKey: 'test-only-key' },
-  apps: ['ontology', 'apeiron'], revision: null,
+  apps: ['matrix', 'corpus', 'task', 'ontology', 'apeiron', 'vasi'], revision: null,
 };
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'apeiron-init-test-'));
@@ -35,7 +35,10 @@ test('wizard starts without creating config and serves local-only assets', async
   expect(html).not.toContain('<script src=');
   const snapshot = await fetch(server.url + 'api/config').then(r => r.json());
   expect(snapshot.config).toBeNull();
-  expect(snapshot.apps.some((a: { id: string }) => a.id === 'ontology')).toBe(true);
+  expect(snapshot.apps.map((app: { id: string }) => app.id)).toEqual([
+    'vasi', 'apeiron', 'ontology', 'task', 'corpus', 'matrix', 'files', 'gateway', 'nexus',
+    'filer', 'stalwart', 'git', 'gpustack', 'langfuse', 'kps',
+  ]);
   expect((await fetch(server.origin + '/')).status).toBe(404);
 });
 
@@ -49,7 +52,7 @@ test('save round trip has private permissions, redacts keys, and supports retain
   expect(saved.config.llm.hasApiKey).toBe(true);
   expect((await stat(path)).mode & 0o777).toBe(0o600);
   expect((await stat(join(path, '..'))).mode & 0o777).toBe(0o700);
-  expect(await Bun.file(path).json()).toEqual({ schemaVersion: 1, slug: input.slug, llm: input.llm, apps: ['apeiron', 'ontology'] });
+  expect(await Bun.file(path).json()).toEqual({ schemaVersion: 1, slug: input.slug, llm: input.llm, apps: ['vasi', 'apeiron', 'ontology', 'task', 'corpus', 'matrix'] });
   const retained = await post({ ...input, revision: saved.revision, llm: { baseUrl: input.llm.baseUrl, modelId: 'updated-model' } });
   expect(retained.status).toBe(200);
   const second = await retained.json();
@@ -80,6 +83,31 @@ test('stale browser data cannot overwrite a newer configuration', async () => {
   const before = await readFile(path, 'utf8');
   expect((await post({ ...input, slug: 'stale-edit' })).status).toBe(409);
   expect(await readFile(path, 'utf8')).toBe(before);
+});
+
+test('every required app is enforced on save without changing the existing configuration', async () => {
+  const { path, post } = await fixture();
+  const saved = await post(input).then(r => r.json());
+  const before = await readFile(path, 'utf8');
+  for (const id of input.apps) {
+    const response = await post({ ...input, revision: saved.revision, apps: input.apps.filter(app => app !== id) });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain('必选');
+  }
+  expect(await readFile(path, 'utf8')).toBe(before);
+});
+
+test('legacy selections can be read without writing and upgraded when the user saves', async () => {
+  const { dir } = await fixture();
+  const path = join(dir, 'legacy.json');
+  const legacy = JSON.stringify({ schemaVersion: 1, slug: input.slug, llm: input.llm, apps: ['apeiron', 'ontology', 'filer'] });
+  await writeFile(path, legacy, { mode: 0o600 });
+  const store = new ConfigStore(path);
+  const snapshot = await store.read();
+  expect(snapshot.config?.apps).toEqual(['apeiron', 'ontology', 'filer']);
+  expect(await readFile(path, 'utf8')).toBe(legacy);
+  await store.save({ ...input, revision: snapshot.revision, apps: [...input.apps, 'filer'] });
+  expect((await store.read()).config?.apps).toEqual(['vasi', 'apeiron', 'ontology', 'task', 'corpus', 'matrix', 'filer']);
 });
 
 test('existing unsupported files and symlinks are preserved', async () => {
