@@ -148,7 +148,7 @@ test('completed deployment binds access installation to its artifacts and blocks
   const post = (endpoint: string, body: unknown) => fetch(server.url + 'api/' + endpoint, { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   try {
     const response = await post('deploy', { revision: null, slug: 'example', apps: requiredApps, deployment: { offline: false,
-      installation: { ...installationDefaults(), topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1' } } });
+      installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' } } });
     expect(response.status).toBe(202);
     for (let i = 0; i < 400 && server.result.phase !== 'succeeded' && server.result.phase !== 'failed'; i++) await Bun.sleep(10);
     expect(server.result.phase).toBe('succeeded'); expect(server.result.access?.domain).toBe('example.internal');

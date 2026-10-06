@@ -223,7 +223,7 @@ test('offline installation uses bundled Chentu and cannot fall back to a stale s
 
 
 test('K3d public ports are validated and K3s keeps standard ports', () => {
-  const local = { ...installationDefaults(), topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1', nodes: [] };
+  const local = { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1', nodes: [] };
   expect(validateInstallation({ ...local, httpPort: undefined, httpsPort: undefined })).toMatchObject({ httpPort: 54320, httpsPort: 54321 });
   expect(validateInstallation({ ...local, httpPort: 54322, httpsPort: 54323 })).toMatchObject({ httpPort: 54322, httpsPort: 54323 });
   for (const port of [0, 65536, 1.5, '54321', true]) expect(() => validateInstallation({ ...local, httpsPort: port })).toThrow();

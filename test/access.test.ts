@@ -42,7 +42,7 @@ test('local hosts checks omit wildcard; DNS timeouts and cancellation are bounde
     await expect(checkDns({ ...input, domain })).rejects.toThrow();
   }
   expect(() => validateInstallation({ ...installationDefaults(), topology: 'single-k3s', domain: input.domain, entryIp: '127.0.0.1' })).toThrow();
-  expect(() => validateInstallation({ ...installationDefaults(), topology: 'single-k3d', domain: input.domain, entryIp: '192.0.2.10' })).toThrow();
+  expect(() => validateInstallation({ ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: input.domain, entryIp: '192.0.2.10' })).toThrow();
 });
 
 test('DNS and download routes keep origin and token protections and never accept arbitrary paths', async () => {
@@ -75,7 +75,7 @@ test('certificate export accepts only a valid public CA; private keys, leaf cert
     expect(() => publicCa(leaf)).toThrow();
     const fixture = await deploymentFixture(directory);
     await symlink(key, join(fixture.workDir, 'state/chentu-ca.crt'));
-    const result = await collectAccess({ ...fixture.target, installation: { ...installationDefaults(), topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1' } }, directory, new AbortController().signal);
+    const result = await collectAccess({ ...fixture.target, installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' } }, directory, new AbortController().signal);
     expect(result.ca).toBeUndefined(); expect(result.info.ca).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain(privateKey);
   } finally { await rm(directory, { recursive: true, force: true }); }

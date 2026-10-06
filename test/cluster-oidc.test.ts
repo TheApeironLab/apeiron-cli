@@ -18,7 +18,7 @@ test('fresh installation requires OIDC bundle support before any cluster operati
   const deployment = new Deployment(join(dir, 'config.json'), undefined, async () => setup.root);
   try {
     await deployment.start(async () => validateConfig({ slug: 'fixture', apps: requiredApps, deployment: {
-      offline: false, installation: { ...installationDefaults(), topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1' },
+      offline: false, installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' },
     } }));
     while (deployment.active) await Bun.sleep(10);
     expect(deployment.snapshot.phase).toBe('failed');
@@ -44,7 +44,7 @@ test('OIDC failure prevents success and credentials; retry finishes OIDC after H
   const oldPath = process.env.PATH; process.env.PATH = setup.bin + ':' + oldPath;
   const deployment = new Deployment(join(dir, 'config.json'), undefined, async () => setup.root);
   const config = validateConfig({ slug: 'fixture', apps: requiredApps, deployment: {
-    offline: false, installation: { ...installationDefaults(), topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1' },
+    offline: false, installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' },
   } });
   try {
     await deployment.start(async () => config);
@@ -81,7 +81,7 @@ test('installation can stop during OIDC finalization and retry without reporting
   const oldPath = process.env.PATH; process.env.PATH = setup.bin + ':' + oldPath;
   const deployment = new Deployment(join(dir, 'config.json'), undefined, async () => setup.root);
   const config = validateConfig({ slug: 'fixture', apps: requiredApps, deployment: { offline: false,
-    installation: { ...installationDefaults(), topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1' },
+    installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' },
   } });
   try {
     await deployment.start(async () => config);

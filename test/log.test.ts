@@ -20,7 +20,7 @@ test('preparation failures and three retries each expose the current log, with t
     for (let attempt = 0; attempt < 3; attempt++) {
       const response: Response = await fetch(server.url + 'api/deploy', { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' },
         body: JSON.stringify({ revision, slug: 'logs', apps: requiredApps, deployment: { offline: false,
-          installation: { ...installationDefaults(), topology: 'single-k3d', domain: 'logs.example.internal', entryIp: '127.0.0.1' } } }) });
+          installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'logs.example.internal', entryIp: '127.0.0.1' } } }) });
       expect(response.status).toBe(202);
       revision = (await response.json()).revision;
       for (let i = 0; i < 100 && server.result.phase !== 'failed'; i++) await Bun.sleep(10);

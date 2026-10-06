@@ -78,7 +78,7 @@ test('credential endpoint requires a successful deployment, same-origin POST and
     expect((await post('credentials', {}, 'https://untrusted.example')).status).toBe(403);
     expect((await post('verification')).status).toBe(409);
     expect((await post('deploy', { slug: 'fixture', apps: requiredApps, revision: null, deployment: { offline: false,
-      installation: { ...installationDefaults(), topology: 'single-k3d', domain: access.domain, entryIp: access.entryIp } } })).status).toBe(202);
+      installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: access.domain, entryIp: access.entryIp } } })).status).toBe(202);
     for (let i = 0; i < 400 && server.result.phase !== 'succeeded' && server.result.phase !== 'failed'; i++) await Bun.sleep(10);
     expect(server.result.phase).toBe('succeeded');
     expect((await post('credentials', { path: '/anywhere', secret: 'other' })).status).toBe(400);
