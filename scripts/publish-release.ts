@@ -57,8 +57,12 @@ if (existing.exitCode !== 0) {
   await run(['gh', 'release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', `Apeiron CLI ${version}`, '--notes-file', notes]);
 }
 // Re-runs can finish a draft/upload interrupted by network failure. Existing assets must match.
-// gh release view's asset projection omits digest in some CLI versions; read REST metadata.
-const assetsResult = Bun.spawnSync(['gh', 'api', `repos/${repo}/releases/tags/${tag}`, '--jq', '.assets']);
+// The tag REST endpoint excludes drafts. Resolve the release ID first; gh's asset
+// projection also omits digest in some versions, so read assets through REST.
+const releaseResult = Bun.spawnSync(['gh', 'release', 'view', tag, '--repo', repo, '--json', 'apiUrl', '--jq', '.apiUrl']);
+const apiUrl = releaseResult.stdout.toString().trim();
+if (releaseResult.exitCode !== 0 || !apiUrl.startsWith(`https://api.github.com/repos/${repo}/releases/`)) throw new Error('Cannot resolve GitHub release ID');
+const assetsResult = Bun.spawnSync(['gh', 'api', apiUrl, '--jq', '.assets']);
 if (assetsResult.exitCode !== 0) throw new Error('Cannot inspect GitHub release assets');
 const assets = JSON.parse(assetsResult.stdout.toString()) as { name: string; digest?: string }[];
 for (const name of names) {
