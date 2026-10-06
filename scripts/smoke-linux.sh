@@ -19,7 +19,17 @@ path=${BASH_REMATCH[2]}
 request() {
   exec 3<>"/dev/tcp/127.0.0.1/$port"
   printf 'GET %s HTTP/1.1\r\nHost: 127.0.0.1:%s\r\nConnection: close\r\n\r\n' "$1" "$port" >&3
-  cat <&3 > "$2"
+  # Read the declared response size; a server may keep the TCP connection open.
+  local line length=
+  : > "$2"
+  while IFS= read -r -t 10 line <&3; do
+    printf '%s\n' "$line" >> "$2"
+    line=${line%$'\r'}
+    [[ "$line" != Content-Length:* ]] || length=${line#Content-Length: }
+    [ -n "$line" ] || break
+  done
+  [[ "$length" =~ ^[0-9]+$ ]]
+  timeout 20 head -c "$length" <&3 >> "$2"
   exec 3>&-
   head -n 1 "$2" | grep -q '200 OK'
 }
