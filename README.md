@@ -1,13 +1,14 @@
 # Apeiron CLI
 
-统一入口：`apeiron <模块> <命令>`。首版接入现有 Ontology CLI，保留参数、输出、退出码和认证配置。Node.js 22+；onto 模块还需要 Bun 与已安装依赖的 ontology 仓库。
+统一入口：`apeiron <模块> <命令>`。首版接入现有 Ontology CLI，保留参数、输出、退出码和认证配置。TypeScript strict + Bun 1.3.14+；onto 模块需要已安装依赖的 ontology 仓库。
 
 ## 本地安装
 
 ```sh
 git clone https://github.com/TheApeironLab/apeiron-cli.git
 cd apeiron-cli
-npm link
+bun install --frozen-lockfile
+bun link
 apeiron --help
 ```
 
@@ -37,7 +38,8 @@ apeiron wlk <command>
 ## 验证
 
 ```sh
-npm test
+bun run typecheck
+bun test
 apeiron verify
 ```
 

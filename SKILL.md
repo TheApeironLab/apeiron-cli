@@ -3,7 +3,7 @@ name: apeiron-cli
 description: Use Apeiron CLI to dispatch ontology and configured product module commands.
 ---
 
-Install: clone TheApeironLab/apeiron-cli and run `npm link`.
+Install: clone TheApeironLab/apeiron-cli and run `bun install --frozen-lockfile`, then `bun link`.
 Set APEIRON_ONTO_ROOT to the ontology checkout when it is not adjacent.
 Authentication and endpoints follow each module's existing configuration.
 

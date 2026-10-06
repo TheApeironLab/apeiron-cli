@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [module, ...args] = process.argv.slice(2);
-function fail(message, code = 2) {
+function fail(message: string, code = 2): never {
   console.error(`schema: apeiron.v1\nerror: ${message}`);
   process.exit(code);
 }
@@ -24,7 +24,9 @@ if (module === 'status' || module === 'verify') {
 }
 if (!/^[a-z][a-z0-9-]*$/.test(module)) fail('Invalid module name');
 const configured = process.env[`APEIRON_${module.toUpperCase().replaceAll('-', '_')}_BIN`];
-let command, forwarded, cwd;
+let command: string;
+let forwarded: string[];
+let cwd: string | undefined;
 if (configured) {
   command = configured;
   forwarded = args;
@@ -38,7 +40,7 @@ if (configured) {
 }
 const child = spawn(command, forwarded, { cwd, stdio: 'inherit', env: process.env });
 child.on('error', error => fail(`Cannot start ${module}: ${error.message}`, 4));
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => child.kill(signal));
 child.on('exit', (code, signal) => {
   process.exit(code ?? (signal === 'SIGINT' ? 130 : signal === 'SIGTERM' ? 143 : 9));
 });

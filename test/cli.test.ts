@@ -1,11 +1,11 @@
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-const cli = new URL('../bin/apeiron.js', import.meta.url);
-function run(args, env = {}) {
+const cli = new URL('../bin/apeiron.ts', import.meta.url);
+function run(args: string[], env: Record<string, string> = {}) {
   return spawnSync(process.execPath, [cli.pathname, ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 test('help and unknown module', () => {
