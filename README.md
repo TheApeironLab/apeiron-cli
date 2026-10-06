@@ -2,7 +2,21 @@
 
 统一入口：`apeiron <模块> <命令>`。`apeiron init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。TypeScript strict + Bun 1.3.14+；onto 模块需要已安装依赖的 ontology 仓库。
 
-## 本地安装
+## 安装发行版
+
+macOS / Linux，ARM64 或 x64：
+
+```sh
+curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+apeiron init
+```
+
+安装器自动选择平台、校验 SHA-256，安装到 `~/.local/bin`，为支持的 shell 添加 PATH；不需要 sudo、Node.js 或 Bun。`apeiron init` 自动打开默认浏览器。重新运行安装命令可升级 CLI，不会重新部署平台或修改配置。独立文件也可从 GitHub Releases（需要仓库权限）或公开 OSS 下载；离线安装和固定版本见 [发布与安装说明](docs/releases.md)。
+
+CLI 可运行的平台与 Chentu 安装包支持的部署目标分别校验；当前预览包的全新部署目标为 **K3d ARM64**。Docker 等部署依赖仍需准备。
+
+## 源码开发安装
 
 ```sh
 git clone https://github.com/TheApeironLab/apeiron-cli.git
@@ -80,9 +94,9 @@ Mac 一键配置使用 [AppleScript 系统管理员授权](https://developer.app
 
 离线模式可选择 CLI 主机上的目录；macOS 桌面可打开目录选择器，远程／无桌面环境直接填写绝对路径。离线不下载资源，缺少所选应用或依赖的文件、大小或 SHA-256 不符即停止。在线模式只下载缺失或损坏的所需文件，必须收到完整 HTTP 200 响应并通过大小与 SHA-256 校验；404、截断响应与校验失败不能放行集群创建。公共网站卡片不充当资源检查门槛。
 
-**发行状态：默认在线安装仍等待兼容新版 CLI 的宸途发行包。** 当前固定下载的 [rc.4 安装包](https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/chentu/releases/0.1.0-rc.4/chentu-0.1.0-rc.4.tar.gz) 缺少新版所需的 `deploymentTopology` 和 `clusterOidc` 能力声明，会在创建集群前被拒绝。需要发布同时包含相应部署入口、集群 SSO 初始化和 `setup/install.json` 的新版包，再更新 CLI 的固定版本、URL 与 SHA-256；不能只给旧包补能力标记。开发联调可用下述 `APEIRON_CHENTU_ROOT` 显式指向兼容包，本机联调配置不会随 CLI 发布。
+**发行状态：CLI 固定使用兼容的 Chentu `0.1.0-rc.5` 预览包。** 包内提供 `deploymentTopology`、`clusterOidc`、自定义入口端口和 `setup/install.json`，按所选应用下载并校验资源。目前提供 `k3d-arm64` 目标，共 50 个资源文件，覆盖默认 9 个应用及可选 Gateway、Filer、代码仓库、Langfuse、Grafana；GPUStack 尚无对应资源，选择后会在修改集群前明确拒绝。
 
-rc.4 的历史资源基于 PR #87 提交 `3e297990e097c4463fd39ee5f41a8d62e3329e55`，归档 SHA-256 为 `393d0c6aa09970d1a69fe32579d46b4255296798adbb4c3fbf4a7dde0c676221`。其中 31 个资源文件约 4.2 GB，按应用及依赖选择；发布来源与修复摘要见 [release.json](https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/chentu/releases/0.1.0-rc.4/release.json)。新版消费契约见 [docs/install-package.md](docs/install-package.md)。Apeiron 模型配置可以显式延后，真实 LLM 需在部署后另行配置；开发包中的 Gateway 模型桩不代表真实对话已可用。原生 Ubuntu、多节点和断网安装仍需分别验收。
+源码基础提交为 `f109f8567b9df0cf1eeb1b6d6cbd7092be5f99c3`，具体修复以包内 `chentu-package.json.sourceOverlay` 的逐文件摘要为准。安装包 SHA-256：`f45a9a370a15e01697ba82d8ad1101853c040a3b1bbf1c0e1f557164d4706021`。来源、验证与限制见 [release.json](https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/chentu/releases/0.1.0-rc.5/release.json)，消费契约见 [docs/install-package.md](docs/install-package.md)。已验证本机 ARM64 K3d 部署与 Vasi 集群 SSO 权限；原生 Ubuntu、AMD64、多节点和断网安装尚需分别验收。Apeiron 的真实 LLM 需部署后配置，开发模型桩不代表真实对话已可用。
 
 环境 values、inventory、kubeconfig 由流程生成，不向用户索取。页面不再提供源码路径或开发选项：在线使用匹配版本的发行包，离线使用所选目录中的 `chentu/` 部署程序与应用资源。旧配置中的源码覆盖不会沿用到全新安装。仅 CLI 开发联调可显式设置进程变量 `APEIRON_CHENTU_ROOT`，该变量不写入安装配置，离线模式也不会使用它。
 
@@ -126,7 +140,7 @@ bun run build
 ```
 
 构建生成当前系统架构的可执行文件，包含本地配置页面和 Bun 运行时，使用向导无需在目标机器安装 Bun。
-`onto` 转发仍需要其源码/依赖或配置好的外部 CLI。构建产物不提交到 Git；暂未发布跨平台下载包。
+`onto` 转发仍需要其源码/依赖或配置好的外部 CLI。构建产物不提交到 Git。四个平台的发行构建、安装器与 GitHub/OSS 自动发布见 [发布说明](docs/releases.md)。
 
 ## Ontology 模块
 

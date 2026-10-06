@@ -1,6 +1,6 @@
 # 宸途全新安装资源契约
 
-CLI 当前仍固定下载 OSS `0.1.0-rc.4`，但该包不符合新版 `deploymentTopology` / `clusterOidc` 契约，会在创建集群前被拒绝。发布兼容包并更新 CLI 固定版本之前，开发联调需显式提供兼容的本地包。旧包包含 `k3d-arm64` 目标、部分应用资源、工具箱及系统镜像归档；基于 PR #87 提交，并以 `chentu-package.json.sourceOverlay` 逐文件记录修复摘要。其他目标和未提供资源的可选应用在变更集群前拒绝。
+CLI 固定下载 OSS `0.1.0-rc.5`，提供新版 `deploymentTopology` / `clusterOidc` 契约。目前包含 `k3d-arm64` 目标及 14 个应用（不含 GPUStack）的 50 个资源文件；其他架构、原生 K3s 和 GPUStack 会在变更集群前拒绝。源码基础为 `f109f8567b9df0cf1eeb1b6d6cbd7092be5f99c3`，修复以 `chentu-package.json.sourceOverlay` 的逐文件摘要记录。具体发布与验收范围见 README。
 
 发行包内 `setup/install.json` 使用 `schemaVersion: 1`，包含：
 

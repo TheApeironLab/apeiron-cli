@@ -1,6 +1,6 @@
 {
   "name": "@apeiron/cli",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.1",
   "private": true,
   "type": "module",
   "description": "Unified Apeiron command-line entry point",
@@ -12,6 +12,8 @@
   },
   "scripts": {
     "build": "bun build ./bin/apeiron.ts --compile --outfile dist/apeiron",
+    "build:release": "bun scripts/build-release.ts",
+    "test:release": "bun scripts/smoke-release.ts",
     "test": "bun test",
     "test:ui": "bun scripts/test-ui.ts",
     "typecheck": "tsc --noEmit"

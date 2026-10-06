@@ -6,12 +6,12 @@ import { ConfigError, ConfigStore } from '../init/config';
 
 // Pinned OSS branch preview. Update only after validating the published bytes.
 // The deployment package excludes images, tools, dependencies and credentials.
-// rc.4 adds public port propagation; verified resource archives remain pinned separately.
+// rc.5 includes topology entrypoints, cluster OIDC and a verified K3d ARM64 resource catalog.
 export const CHENTU_RELEASE = {
-  version: '0.1.0-rc.4',
-  revision: '3e297990e097c4463fd39ee5f41a8d62e3329e55',
-  url: 'https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/chentu/releases/0.1.0-rc.4/chentu-0.1.0-rc.4.tar.gz',
-  sha256: '393d0c6aa09970d1a69fe32579d46b4255296798adbb4c3fbf4a7dde0c676221',
+  version: '0.1.0-rc.5',
+  revision: 'f109f8567b9df0cf1eeb1b6d6cbd7092be5f99c3',
+  url: 'https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/chentu/releases/0.1.0-rc.5/chentu-0.1.0-rc.5.tar.gz',
+  sha256: 'f45a9a370a15e01697ba82d8ad1101853c040a3b1bbf1c0e1f557164d4706021',
 } as const;
 
 export type Release = { version: string; revision: string; url: string; sha256: string };
