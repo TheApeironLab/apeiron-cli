@@ -30,24 +30,25 @@ async function until<T>(get: () => Promise<T>, done: (value: T) => boolean): Pro
   throw new Error('Timed out waiting for deployment');
 }
 
-test('wizard serves two steps, complete catalog and no model fields without writing config', async () => {
+test('wizard serves six steps, complete catalog and no model fields without writing config', async () => {
   const { path, server } = await fixture();
   expect(await Bun.file(path).exists()).toBe(false);
   const page = await fetch(server.url);
   expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
   expect(page.headers.get('cache-control')).toBe('no-store');
   const html = await page.text();
-  expect(html).toContain('共 2 步');
+  expect(html).toContain('共 6 步');
   expect(html).not.toContain('id="base-url"');
   expect(html).not.toContain('id="api-key"');
   expect(html).not.toContain('<script src=');
   const snapshot = await fetch(server.url + 'api/config').then(r => r.json());
   expect(snapshot.config).toBeNull();
   expect(snapshot.apps.map((a: { id: string }) => a.id)).toEqual([
-    'vasi', 'apeiron', 'ontology', 'task', 'corpus', 'matrix', 'files', 'gateway', 'nexus',
-    'filer', 'stalwart', 'git', 'gpustack', 'langfuse', 'kps',
+    'nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart',
+    'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps',
   ]);
-  expect(snapshot.apps.filter((a: { required: boolean }) => a.required).length).toBe(8);
+  expect(snapshot.apps.filter((a: { required: boolean }) => a.required).map((a: { id: string }) => a.id)).toEqual(requiredApps);
+  expect(snapshot.apps.filter((a: { selected: boolean }) => a.selected).map((a: { id: string }) => a.id)).toEqual([...requiredApps, 'task', 'corpus', 'matrix', 'files', 'stalwart']);
   expect((await fetch(server.origin + '/')).status).toBe(404);
 });
 
@@ -134,7 +135,7 @@ test('deploy generates exact app flags, preserves base values, runs sync once an
   expect(records[0].values.tenantSlug).toBe(input.slug);
   expect(records[0].values.releases.apeiron.values.models).toEqual({ keep: true });
   expect(records[0].values.releases.postgres).toEqual({ enabled: true, values: { storage: '10Gi' } });
-  expect(records[0].values.releases.stalwart.enabled).toBe(true);
+  for (const name of ['task', 'corpus', 'matrix', 'files', 'stalwart', 'gateway']) expect(records[0].values.releases[name].enabled).toBe(false);
   expect(records[0].values.releases.nexus.enabled).toBe(true);
   for (const name of ['kps', 'loki', 'promtail']) expect(records[0].values.releases[name].enabled).toBe(false);
   expect(await readFile(environment, 'utf8')).toBe(source);
@@ -144,16 +145,18 @@ test('deploy generates exact app flags, preserves base values, runs sync once an
 
 test('failed native deployment exposes exit code, supports retry and never fabricates success', async () => {
   const { input, post, status, source, environment, workDir, calls } = await fixture();
-  const native = { ...input, deployment: { ...input.deployment, runner: 'native', kubeconfig: join(workDir, 'state/kubeconfig'), profile: 'ubuntu' } };
-  await writeFile(environment, source.replace('fixtureExit: 0', 'fixtureExit: 17'));
+  const native = { ...input, deployment: { ...input.deployment, runner: 'native', kubeconfig: join(workDir, 'state/kubeconfig') } };
+  const nativeSource = source.replace('topology: single-k3d', 'topology: single-k3s');
+  await writeFile(environment, nativeSource.replace('fixtureExit: 0', 'fixtureExit: 17'));
   const first = await post(native, {}, 'deploy').then(r => r.json());
   const failed = await until(status, s => s.phase === 'failed');
   expect(failed.exitCode).toBe(17);
-  await writeFile(environment, source);
+  await writeFile(environment, nativeSource);
   expect((await post({ ...native, revision: first.revision }, {}, 'deploy')).status).toBe(202);
   expect((await until(status, s => s.phase === 'succeeded')).exitCode).toBe(0);
   const record = JSON.parse((await readFile(calls, 'utf8')).trim().split('\n')[0]!);
-  expect(record.profile).toBe('ubuntu');
+  expect(record.legacyProfile).toBeUndefined();
+  expect(record.values.topology).toBe('single-k3s');
   expect(record.kubeconfig).toBe(join(workDir, 'state/kubeconfig'));
 });
 
@@ -179,4 +182,99 @@ test('separate wizard sessions cannot deploy the same environment concurrently',
   const failed = await until(async () => second.result, s => s.phase === 'failed');
   expect(failed.message).toContain('部署锁');
   await server.stop();
+});
+
+test('stop waits for cleanup, blocks concurrent work, survives reload and retries the saved configuration', async () => {
+  const { dir, input, post, status, calls, source, environment, server, bin, path } = await fixture();
+  const allow = join(dir, 'allow-cleanup');
+  const cleanupCalls = join(dir, 'cleanup-calls');
+  await writeFile(environment, source.replace('fixtureDelay: 700', 'fixtureDelay: 30000'));
+  await writeFile(join(bin, 'docker'), `#!/bin/sh\ncase "$*" in *"list --pending"*) echo '[]';; esac\nif [ "$1" = rm ]; then echo cleanup >> '${cleanupCalls}'; while [ ! -f '${allow}' ]; do sleep 0.02; done; fi\n`, { mode: 0o755 });
+  try {
+    expect((await post({}, {}, 'deployment/stop')).status).toBe(409);
+    expect((await post({}, {}, 'deployment/retry')).status).toBe(400);
+    const first = await post(input, {}, 'deploy').then(r => r.json());
+    await until(async () => Bun.file(calls).exists(), Boolean);
+    expect((await post({}, { Origin: 'https://untrusted.test' }, 'deployment/stop')).status).toBe(403);
+    expect((await post({ command: 'bad' }, {}, 'deployment/stop')).status).toBe(400);
+    const saved = await readFile(path, 'utf8');
+    const original = await status();
+    const stops = await Promise.all([post({}, {}, 'deployment/stop'), post({}, {}, 'deployment/stop')]);
+    expect(stops.map(r => r.status)).toEqual([202, 202]);
+    expect((await status()).phase).toBe('stopping');
+    expect((await fetch(server.url + 'api/config').then(r => r.json())).deployment.phase).toBe('stopping');
+    expect((await post({ revision: first.revision }, {}, 'deployment/retry')).status).toBe(409);
+    expect((await post({ ...input, revision: first.revision }, {}, 'deploy')).status).toBe(409);
+    expect((await post({ ...input, revision: first.revision })).status).toBe(409);
+    expect((await post({}, {}, 'finish')).status).toBe(409);
+    expect(await Bun.file(environment + '.apeiron-deploy.lock').exists()).toBe(true);
+    await writeFile(allow, '');
+    const stopped = await until(status, s => s.phase === 'cancelled');
+    expect(await readFile(cleanupCalls, 'utf8')).toBe('cleanup\n');
+    expect(stopped.log).toBe(original.log);
+    expect(await readFile(stopped.log, 'utf8')).toContain('重新部署会先检查 Helm 状态');
+    expect(await Bun.file(environment + '.apeiron-deploy.lock').exists()).toBe(false);
+    expect((await post({ revision: 'stale' }, {}, 'deployment/retry')).status).toBe(409);
+    expect((await status()).phase).toBe('cancelled');
+    await writeFile(environment, source);
+    expect((await post({ revision: first.revision }, {}, 'deployment/retry')).status).toBe(202);
+    expect((await post({ revision: first.revision }, {}, 'deployment/retry')).status).toBe(409);
+    const done = await until(status, s => s.phase === 'succeeded');
+    expect(done.log).not.toBe(stopped.log);
+    expect((await readFile(calls, 'utf8')).trim().split('\n')).toHaveLength(2);
+    expect(await readFile(path, 'utf8')).toBe(saved);
+  } finally { await writeFile(allow, ''); }
+}, 10_000);
+
+test('a pending Helm release blocks sync; the same saved configuration can retry after recovery', async () => {
+  const { dir, input, post, status, calls, bin } = await fixture();
+  const pending = join(dir, 'pending.json');
+  await writeFile(pending, JSON.stringify([{ name: 'apeiron', namespace: 'apeiron', status: 'pending-upgrade' }]));
+  await writeFile(join(bin, 'docker'), `#!/bin/sh\ncase "$*" in *"list --pending"*) cat '${pending}';; esac\nexit 0\n`, { mode: 0o755 });
+  const first = await post(input, {}, 'deploy').then(r => r.json());
+  expect((await until(status, s => s.phase === 'failed')).message).toContain('apeiron/apeiron（pending-upgrade）');
+  expect(await Bun.file(calls).exists()).toBe(false);
+  await writeFile(pending, '[]');
+  expect((await post({ revision: first.revision }, {}, 'deployment/retry')).status).toBe(202);
+  expect((await until(status, s => s.phase === 'succeeded')).exitCode).toBe(0);
+});
+
+test('failed Docker cleanup retains the lock and offers stop retry instead of allowing another deployment', async () => {
+  const { dir, input, post, status, source, environment, calls, bin } = await fixture();
+  const broken = join(dir, 'broken-docker'); await writeFile(broken, '');
+  await writeFile(environment, source.replace('fixtureDelay: 700', 'fixtureDelay: 30000'));
+  await writeFile(join(bin, 'docker'), `#!/bin/sh\ncase "$*" in *"list --pending"*) echo '[]';; esac\nif [ "$1" = ps ] && [ -f '${broken}' ]; then exit 1; fi\n`, { mode: 0o755 });
+  const first = await post(input, {}, 'deploy').then(r => r.json());
+  await until(async () => Bun.file(calls).exists(), Boolean);
+  try {
+    await post({}, {}, 'deployment/stop');
+    const blocked = await until(status, s => s.stopFailed === true);
+    expect(blocked.phase).toBe('stopping');
+    expect(await Bun.file(environment + '.apeiron-deploy.lock').exists()).toBe(true);
+    expect((await post({ revision: first.revision }, {}, 'deployment/retry')).status).toBe(409);
+    await rm(broken);
+    expect((await post({}, {}, 'deployment/stop')).status).toBe(202);
+    await until(status, s => s.phase === 'cancelled');
+    expect(await Bun.file(environment + '.apeiron-deploy.lock').exists()).toBe(false);
+  } finally { await rm(broken, { force: true }); }
+});
+
+test('cancelling resource preparation aborts the resolver before sync and allows retry', async () => {
+  const { dir, root, input, calls } = await fixture();
+  let waiting = false, cancelled = false, count = 0;
+  const server = await startInitServer({ path: join(dir, 'preparation.json'), resources: async (_root, signal) => {
+    if (++count > 1) return root;
+    waiting = true;
+    await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => { cancelled = true; reject(new Error('aborted')); }, { once: true }));
+    return root;
+  } });
+  cleanups.push(server.stop);
+  const post = (endpoint: string, body: unknown) => fetch(server.url + 'api/' + endpoint, { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const first = await post('deploy', input).then(r => r.json());
+  await until(async () => waiting, Boolean);
+  expect((await post('deployment/stop', {})).status).toBe(202);
+  await until(async () => server.result, s => s.phase === 'cancelled');
+  expect(cancelled).toBe(true); expect(await Bun.file(calls).exists()).toBe(false);
+  expect((await post('deployment/retry', { revision: first.revision })).status).toBe(202);
+  await until(async () => server.result, s => s.phase === 'succeeded');
 });

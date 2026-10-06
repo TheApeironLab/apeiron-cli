@@ -2,21 +2,22 @@ import { createHash, randomBytes } from 'node:crypto';
 import { lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { installationDefaults, validateInstallation, type Installation } from './installation';
 
 // IDs match Chentu releases (Grafana is provided by kps). Deployment dependencies
 // remain owned by Helmfile; this is only the user's requested application set.
 export const APPS = [
-  { id: 'vasi', name: 'Vasi', description: '集群资源与 Kubernetes 管理', selected: true, required: true },
-  { id: 'apeiron', name: 'Apeiron', description: 'AI 工作台与平台管理（含 Ops）', selected: true, required: true },
-  { id: 'ontology', name: 'Limani', description: '本体与业务建模', selected: true, required: true },
-  { id: 'task', name: 'Task', description: '项目与任务协作', selected: true, required: true },
-  { id: 'corpus', name: 'Corpus', description: '文档、知识检索与团队资料', selected: true, required: true },
-  { id: 'matrix', name: 'Chat', description: '团队消息与房间协作', selected: true, required: true },
-  { id: 'files', name: 'Files', description: '私人文件与团队共享文件', selected: true, required: false },
-  { id: 'gateway', name: 'Gateway', description: '模型、访问凭证与用量管理', selected: true, required: false },
   { id: 'nexus', name: 'Nexus', description: '制品与镜像仓库', selected: true, required: true },
+  { id: 'vasi', name: 'Vasi', description: '集群资源与 Kubernetes 管理', selected: true, required: true },
+  { id: 'ontology', name: 'Limani', description: '本体与业务建模', selected: true, required: true },
+  { id: 'apeiron', name: 'Apeiron', description: 'AI 工作台与平台管理（含 Ops）', selected: true, required: true },
+  { id: 'task', name: 'Task', description: '项目与任务协作', selected: true, required: false },
+  { id: 'corpus', name: 'Corpus', description: '文档、知识检索与团队资料', selected: true, required: false },
+  { id: 'matrix', name: 'Chat', description: '团队消息与房间协作', selected: true, required: false },
+  { id: 'files', name: 'Files', description: '私人文件与团队共享文件', selected: true, required: false },
+  { id: 'stalwart', name: '邮件', description: '收件箱与邮件收发', selected: true, required: false },
+  { id: 'gateway', name: 'Gateway', description: '模型、访问凭证与用量管理', selected: false, required: false },
   { id: 'filer', name: 'Filer', description: '对象存储管理', selected: false, required: false },
-  { id: 'stalwart', name: '邮件', description: '收件箱与邮件收发', selected: true, required: true },
   { id: 'git', name: '代码仓库', description: 'Git 代码托管与代码评审', selected: false, required: false },
   { id: 'gpustack', name: 'GPUStack', description: 'GPU 模型部署与推理服务管理', selected: false, required: false },
   { id: 'langfuse', name: 'Langfuse', description: '模型调用追踪、评测与提示词管理', selected: false, required: false },
@@ -33,23 +34,27 @@ export interface Configuration {
 }
 
 export interface DeploymentTarget {
+  installation?: Installation;
   runner: 'native' | 'docker';
   root: string;
   environment: string;
-  profile: 'local' | 'ubuntu';
   kubeconfig: string;
   workDir: string;
   image: string;
+  offline: boolean;
+  bundleDir: string;
 }
 
 export function deploymentDefaults(): DeploymentTarget {
+  const installation = installationDefaults();
   return {
-    runner: 'native',
-    root: resolve(process.env.APEIRON_CHENTU_ROOT || process.env.CHENTU_ROOT || '../chentu'),
+    installation,
+    runner: installation.topology === 'single-k3d' ? 'docker' : 'native',
+    root: '',
     environment: process.env.CHENTU_ENV || process.env.LAB_ENV || '',
-    profile: process.env.CHENTU_PROFILE === 'local' ? 'local' : 'ubuntu',
     kubeconfig: process.env.KUBECONFIG || '', workDir: process.env.LAB_WORK_DIR || '',
     image: process.env.LAB_IMAGE || 'chentu-lab',
+    offline: false, bundleDir: '',
   };
 }
 
@@ -61,17 +66,35 @@ function absolutePath(value: unknown, label: string): string {
 
 function deploymentTarget(value: unknown): DeploymentTarget {
   const input = object(value);
+  if ('profile' in input) throw new ConfigError('profile 已移除，请使用 installation.topology 选择部署拓扑。');
+  if ('CHENTU_PROFILE' in process.env) throw new ConfigError('CHENTU_PROFILE 已移除，请取消该环境变量并选择部署拓扑。');
+  if (input.installation !== undefined) {
+    const installation = validateInstallation(input.installation);
+    if (typeof input.offline !== 'boolean') throw new ConfigError('请选择在线或离线部署。');
+    const bundleDir = input.bundleDir ? absolutePath(input.bundleDir, '安装包目录') : '';
+    if (input.offline && !bundleDir) throw new ConfigError('离线部署请选择本机的安装包目录。');
+    if (input.offline && installation.topology === 'single-k3d') throw new ConfigError('宸途 k3d 准备脚本需要联网；离线部署请选择 K3s。');
+    return { installation, runner: installation.topology === 'single-k3d' ? 'docker' : 'native',
+      // Fresh installs resolve code from the release/offline package, including
+      // when migrating a saved config that once exposed a source override.
+      root: '',
+      environment: '', kubeconfig: '',
+      workDir: '', image: 'chentu-lab', offline: input.offline, bundleDir };
+  }
   if (input.runner !== 'native' && input.runner !== 'docker') throw new ConfigError('请选择部署方式。');
-  if (input.profile !== 'local' && input.profile !== 'ubuntu') throw new ConfigError('请选择 local 或 ubuntu profile。');
   const docker = input.runner === 'docker';
+  if (input.offline !== undefined && typeof input.offline !== 'boolean') throw new ConfigError('离线部署选项必须为布尔值。');
+  const offline = input.offline === true;
+  const bundleDir = input.bundleDir === undefined || input.bundleDir === '' ? '' : absolutePath(input.bundleDir, '本地 bundle 目录');
+  if (offline && !bundleDir) throw new ConfigError('离线部署请填写本地 bundle 目录。');
   const image = docker ? text(input.image, '工具箱镜像', 256) : '';
   if (docker && (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/.test(image))) throw new ConfigError('工具箱镜像名称不正确。');
   return {
-    runner: input.runner, root: absolutePath(input.root, '宸途仓库'),
+    runner: input.runner, root: input.root === undefined || input.root === '' ? '' : absolutePath(input.root, '本地宸途源码'),
     environment: absolutePath(input.environment, '环境 values 文件'),
-    profile: docker ? 'local' : input.profile,
     kubeconfig: docker ? '' : absolutePath(input.kubeconfig, 'Kubeconfig'),
     workDir: docker ? absolutePath(input.workDir, '工作目录') : '', image,
+    offline, bundleDir,
   };
 }
 

@@ -17,8 +17,8 @@ try {
   async function helmfile(command: string) {
     const child = Bun.spawn(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'helmfile',
       '-v', root + ':/repo:ro', '-v', dir + ':/input:ro', '-w', '/repo/deploy/helmfile',
-      '-e', 'CHENTU_ENV=/input/environment.yaml', '-e', 'CHENTU_PROFILE=local', toolboxImage,
-      '--environment', 'local', '--file', 'helmfile.yaml.gotmpl', command], { stdout: 'pipe', stderr: 'pipe' });
+      '-e', 'CHENTU_ENV=/input/environment.yaml', toolboxImage,
+      '--environment', 'single-k3d', '--file', 'helmfile.yaml.gotmpl', command], { stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     assert.equal(code, 0, err);
     return Bun.YAML.parse(out) as any;

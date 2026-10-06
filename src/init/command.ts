@@ -6,16 +6,22 @@ export function initHelp(): string {
   return `schema=apeiron.init.v1
 usage: apeiron init [--port <0..65535>] [--config <path>] [--no-open]
 
-Open a local browser wizard for organization, deployment environment and apps.
+Open a local browser wizard: environment, organization, apps, deploy, access, test.
 --port       Loopback port; 0 selects a free port (default).
 --config     Local config file; default $XDG_CONFIG_HOME/apeiron/config.json
              or ~/.config/apeiron/config.json. Keep it outside Git repositories.
 --no-open    Print the local URL without opening the system browser.
 
-The last step starts Chentu's Helmfile sync and displays deployment status.
-Configure paths in the browser. APEIRON_CHENTU_ROOT, CHENTU_ENV, KUBECONFIG,
-CHENTU_PROFILE or LAB_ENV, LAB_WORK_DIR, LAB_IMAGE prefill deployment fields.
-An existing cluster, environment values, images and deployment tools are required.
+Step 4 verifies release resources, creates a new cluster, then runs Helmfile.
+Choose online/offline and single K3s, local K3d or multi-node K3s in the browser.
+The organization slug generates an editable private domain; configure DNS/hosts.
+K3d uses local ports 54320/54321. Step 5 configures access after successful deployment.
+On a desktop Mac, click to install hosts and CA trust with system authorization.
+Other workstations can use the manual CA and hosts guide.
+Step 6 shows the initial admin credentials, tests HTTPS, and links to app login.
+Step 4 can stop deployment and rerun the saved configuration after Helm state checks.
+Rerun is not checkpoint resume; existing resources and cluster tasks may remain.
+A compatible Chentu install package and local deployment tools are required.
 Click Finish after deployment or press Ctrl+C to stop the server and active process.
 Exit codes: 0 success, 2 invalid input/configuration, 9 deployment/startup failure, 130 cancelled.`;
 }
@@ -62,7 +68,7 @@ export async function runInit(args: string[]): Promise<number> {
     await instance.closed;
     process.removeListener('SIGINT', stop);
     process.removeListener('SIGTERM', stop);
-    return instance.result.phase === 'failed' ? 9 : instance.result.phase === 'cancelled' ? 130 : 0;
+    return instance.result.phase === 'failed' || instance.result.phase === 'stopping' ? 9 : instance.result.phase === 'cancelled' ? 130 : 0;
   } catch (error) {
     console.error(`schema: apeiron.init.v1\nerror: ${error instanceof ConfigError ? error.message : 'Could not start the local wizard. Check the config path, permissions and port.'}\nretry: apeiron init --help`);
     return error instanceof ConfigError ? 2 : 9;
