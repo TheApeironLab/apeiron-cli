@@ -14,20 +14,65 @@ export const APPS = [
   { id: 'matrix', name: 'Chat', description: '团队消息与房间协作', selected: true, required: true },
   { id: 'files', name: 'Files', description: '私人文件与团队共享文件', selected: true, required: false },
   { id: 'gateway', name: 'Gateway', description: '模型、访问凭证与用量管理', selected: true, required: false },
-  { id: 'nexus', name: 'Nexus', description: '制品与镜像仓库', selected: true, required: false },
+  { id: 'nexus', name: 'Nexus', description: '制品与镜像仓库', selected: true, required: true },
   { id: 'filer', name: 'Filer', description: '对象存储管理', selected: false, required: false },
-  { id: 'stalwart', name: '邮件', description: '收件箱与邮件收发', selected: false, required: false },
+  { id: 'stalwart', name: '邮件', description: '收件箱与邮件收发', selected: true, required: true },
   { id: 'git', name: '代码仓库', description: 'Git 代码托管与代码评审', selected: false, required: false },
   { id: 'gpustack', name: 'GPUStack', description: 'GPU 模型部署与推理服务管理', selected: false, required: false },
   { id: 'langfuse', name: 'Langfuse', description: '模型调用追踪、评测与提示词管理', selected: false, required: false },
-  { id: 'kps', name: 'Grafana', description: '监控仪表盘与运行指标', selected: false, required: false },
+  { id: 'kps', name: 'Grafana', description: '监控仪表盘、指标与日志', selected: false, required: false, releases: ['kps', 'loki', 'promtail'] },
 ] as const;
 
 export interface Configuration {
-  schemaVersion: 1;
+  schemaVersion: 2;
   slug: string;
-  llm: { baseUrl: string; apiKey: string; modelId: string };
+  // Retain legacy credentials on disk during upgrades; the wizard never exposes them.
+  llm?: { baseUrl: string; apiKey: string; modelId: string };
+  deployment?: DeploymentTarget;
   apps: string[];
+}
+
+export interface DeploymentTarget {
+  runner: 'native' | 'docker';
+  root: string;
+  environment: string;
+  profile: 'local' | 'ubuntu';
+  kubeconfig: string;
+  workDir: string;
+  image: string;
+}
+
+export function deploymentDefaults(): DeploymentTarget {
+  return {
+    runner: process.env.LAB_ENV ? 'docker' : 'native',
+    root: resolve(process.env.APEIRON_CHENTU_ROOT || process.env.CHENTU_ROOT || '../chentu'),
+    environment: process.env.CHENTU_ENV || process.env.LAB_ENV || '',
+    profile: process.env.CHENTU_PROFILE === 'ubuntu' ? 'ubuntu' : 'local',
+    kubeconfig: process.env.KUBECONFIG || '', workDir: process.env.LAB_WORK_DIR || '',
+    image: process.env.LAB_IMAGE || 'chentu-lab',
+  };
+}
+
+function absolutePath(value: unknown, label: string): string {
+  const result = text(value, label, 4096);
+  if (!isAbsolute(result)) throw new ConfigError(`${label} 必须是运行 CLI 的这台机器上的绝对路径。`);
+  return resolve(result);
+}
+
+function deploymentTarget(value: unknown): DeploymentTarget {
+  const input = object(value);
+  if (input.runner !== 'native' && input.runner !== 'docker') throw new ConfigError('请选择部署方式。');
+  if (input.profile !== 'local' && input.profile !== 'ubuntu') throw new ConfigError('请选择 local 或 ubuntu profile。');
+  const docker = input.runner === 'docker';
+  const image = docker ? text(input.image, '工具箱镜像', 256) : '';
+  if (docker && (!/^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$/.test(image))) throw new ConfigError('工具箱镜像名称不正确。');
+  return {
+    runner: input.runner, root: absolutePath(input.root, '宸途仓库'),
+    environment: absolutePath(input.environment, '环境 values 文件'),
+    profile: docker ? 'local' : input.profile,
+    kubeconfig: docker ? '' : absolutePath(input.kubeconfig, 'Kubeconfig'),
+    workDir: docker ? absolutePath(input.workDir, '工作目录') : '', image,
+  };
 }
 
 export class ConfigError extends Error {
@@ -54,22 +99,18 @@ export function validateConfig(input: unknown, current?: Configuration): Configu
   if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug)) {
     throw new ConfigError('Slug 只能包含小写字母、数字和连字符，且不能以连字符开头或结尾。');
   }
-  const llm = object(body.llm);
-  const baseUrl = text(llm.baseUrl, 'Base URL', 2048);
-  let url: URL;
-  try { url = new URL(baseUrl); } catch { throw new ConfigError('请填写完整的 HTTP 或 HTTPS Base URL。'); }
-  if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) {
-    throw new ConfigError('Base URL 需使用 HTTP/HTTPS，且不能包含凭据、查询参数或片段。');
-  }
-  const modelId = text(llm.modelId, 'Model ID', 256);
-  const apiKey = llm.apiKey === undefined ? current?.llm.apiKey ?? '' : text(llm.apiKey, 'API Key', 4096, true);
   if (!Array.isArray(body.apps) || !body.apps.length || body.apps.length > APPS.length ||
       body.apps.some(id => typeof id !== 'string' || !APPS.some(app => app.id === id)) ||
       new Set(body.apps).size !== body.apps.length) {
     throw new ConfigError('请至少选择一个支持的应用，且不要重复选择。');
   }
   const requestedApps = body.apps;
-  return { schemaVersion: 1, slug, llm: { baseUrl, apiKey, modelId }, apps: APPS.filter(a => requestedApps.includes(a.id)).map(a => a.id) };
+  return {
+    schemaVersion: 2, slug,
+    ...(current?.llm ? { llm: current.llm } : {}),
+    ...(body.deployment !== undefined ? { deployment: deploymentTarget(body.deployment) } : {}),
+    apps: APPS.filter(a => requestedApps.includes(a.id)).map(a => a.id),
+  };
 }
 
 export function defaultConfigPath(): string {
@@ -114,8 +155,13 @@ export class ConfigStore {
     }
     try {
       const body = object(JSON.parse(raw));
-      if (body.schemaVersion !== 1) throw new Error('version');
-      return { config: validateConfig(body), revision: createHash('sha256').update(raw).digest('hex') };
+      if (body.schemaVersion !== 1 && body.schemaVersion !== 2) throw new Error('version');
+      const config = validateConfig(body);
+      if (body.llm !== undefined) {
+        const llm = object(body.llm);
+        config.llm = { baseUrl: text(llm.baseUrl, 'Base URL', 2048), modelId: text(llm.modelId, 'Model ID', 256), apiKey: text(llm.apiKey, 'API Key', 4096, true) };
+      }
+      return { config, revision: createHash('sha256').update(raw).digest('hex') };
     } catch { throw new ConfigError('现有配置格式或版本不支持，已保留原文件。请改用其他 --config 路径。', 409); }
   }
 
@@ -130,6 +176,7 @@ export class ConfigStore {
       const snapshot = await this.read();
       if (body.revision !== snapshot.revision) throw new ConfigError('配置已在其他窗口或进程中更新，请刷新后重试。', 409);
       const config = validateConfig(body, snapshot.config);
+      if (!config.deployment) throw new ConfigError('请填写部署环境。');
       const missing = APPS.filter(app => app.required && !config.apps.includes(app.id));
       if (missing.length) throw new ConfigError(`以下应用为必选：${missing.map(app => app.name).join('、')}。`);
       const raw = JSON.stringify(config, null, 2) + '\n';
@@ -159,7 +206,7 @@ export function publicSnapshot(snapshot: Snapshot) {
     revision: snapshot.revision,
     config: snapshot.config ? {
       slug: snapshot.config.slug, apps: snapshot.config.apps,
-      llm: { baseUrl: snapshot.config.llm.baseUrl, modelId: snapshot.config.llm.modelId, hasApiKey: Boolean(snapshot.config.llm.apiKey) },
+      deployment: snapshot.config.deployment,
     } : null,
   };
 }

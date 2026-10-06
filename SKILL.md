@@ -1,6 +1,6 @@
 ---
 name: apeiron-cli
-description: Use Apeiron CLI to configure a local Apeiron installation through its browser wizard and dispatch ontology or other configured application commands.
+description: Use Apeiron CLI to configure and deploy Apeiron through its local browser wizard and dispatch ontology or other configured application commands.
 ---
 
 Install: clone TheApeironLab/apeiron-cli and run `bun install --frozen-lockfile`, then `bun link`.
@@ -8,7 +8,7 @@ Set APEIRON_ONTO_ROOT to the ontology checkout when it is not adjacent.
 Authentication and endpoints follow each module's existing configuration.
 
 Common commands:
-- `apeiron init`: open the local wizard for slug, selected apps and LLM connection.
+- `apeiron init`: open setup for organization, deployment environment and apps, then run Helmfile sync.
 - `apeiron init --no-open`: print the local wizard URL for manual browser access.
 - `apeiron --help`: command table, schema=apeiron.v1.
 - `apeiron status`: module, entry, available table.
@@ -22,9 +22,18 @@ Recovery:
 - Unknown module: set APEIRON_<MODULE>_BIN to its executable.
 
 The init wizard writes ~/.config/apeiron/config.json (or XDG_CONFIG_HOME/apeiron/config.json).
-Use --config to change the destination. Keep it outside Git; it contains an API key.
-Never print the saved file or request the real key in chat. Let the user enter it in the password field.
-Existing keys are redacted in browser responses; leaving the field empty retains the key.
-Init saves preferences only: it does not deploy, start applications or invoke a model.
-Required apps: Vasi, Apeiron (including Ops), Limani, Task, Corpus and Chat. Files, Gateway and Nexus default to selected; Filer, Mail, Git, GPUStack, Langfuse and Grafana default to unselected. Optional choices persist across sessions; newly required apps are added only when the user saves.
-Finish in the browser or Ctrl+C closes the local server.
+Use --config to change the destination. Keep it outside Git.
+Setup collects the Chentu checkout, external YAML values, and either kubeconfig/profile or Docker work directory/toolbox image.
+Existing environment variables can prefill these fields. A prepared cluster, deployment tools, real images and external artifacts are required.
+The last step starts Chentu's native run.sh sync (or the lab Docker wrapper). It does not provision hosts or clusters.
+The model page is removed. Existing model declarations in the environment are preserved and validated by Chentu; legacy keys remain only on disk.
+Never print saved credentials, kubeconfig contents, environment values or raw deployment logs in chat.
+Each run writes a private environment copy and Helmfile log under deployments/run-*. The browser shows status, exit code and recognized progress only.
+Required apps: Vasi, Apeiron (including Ops), Limani, Task, Corpus, Chat, Nexus and Mail.
+Files and Gateway default to selected; Filer, Git, GPUStack, Langfuse and Grafana default to unselected.
+Grafana controls Chentu's kps/Loki/Promtail observability component. Disabling an app does not uninstall existing releases.
+Reloading the page resumes status polling without redeploying. Concurrent deployment of one source environment is locked.
+After failure, inspect the private log locally, correct configuration, and retry sync; completed changes are not automatically rolled back.
+Finish after deployment closes the server. Ctrl+C stops active deployment; closing a browser tab leaves it running.
+Validation: bun run typecheck; bun test; bun run build; bun run test:ui (isolated fixture deployer).
+For read-only real Helmfile integration: bun scripts/test-helmfile.ts /path/to/chentu toolbox-image.

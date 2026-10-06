@@ -1,17 +1,18 @@
 import { randomBytes } from 'node:crypto';
-import { APPS, ConfigError, ConfigStore, publicSnapshot } from './config';
+import { APPS, ConfigError, ConfigStore, deploymentDefaults, publicSnapshot } from './config';
+import { Deployment, type DeploymentStatus } from './deploy';
 import { renderPage } from './page';
 
-export async function startInitServer(options: { path: string; port?: number; onSaved?: () => void }) {
+export async function startInitServer(options: { path: string; port?: number; onSaved?: () => void; onDeployment?: (status: DeploymentStatus) => void }) {
   const store = new ConfigStore(options.path);
   await store.checkLocation();
   await store.read(); // Fail before opening a browser if an existing config is unsupported.
+  const deployment = new Deployment(options.path, options.onDeployment);
   const token = randomBytes(24).toString('hex');
   const base = `/setup/${token}/`;
   const nonce = randomBytes(24).toString('base64');
   const page = renderPage(nonce);
   let origin = '';
-  let saved = false;
   let stopping = false;
   let resolveClosed!: () => void;
   const closed = new Promise<void>(resolve => { resolveClosed = resolve; });
@@ -34,23 +35,34 @@ export async function startInitServer(options: { path: string; port?: number; on
       }
       try {
         if (url.pathname === base + 'api/config' && request.method === 'GET') {
-          return json({ ...publicSnapshot(await store.read()), apps: APPS, path: store.path });
+          return json({ ...publicSnapshot(await store.read()), apps: APPS, path: store.path, defaults: deploymentDefaults(), deployment: deployment.snapshot });
+        }
+        if (url.pathname === base + 'api/deployment' && request.method === 'GET') {
+          return json(deployment.snapshot);
         }
         if (request.method === 'POST') {
           if (request.headers.get('origin') !== origin ||
               request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') {
             return json({ error: '请求来源或格式不允许。' }, 403);
           }
-          if (url.pathname === base + 'api/config') {
+          if (url.pathname === base + 'api/config' || url.pathname === base + 'api/deploy') {
+            if (stopping || deployment.active) return json({ error: '部署正在进行，暂时不能修改配置或再次启动。' }, 409);
             let input: unknown;
             try { input = await request.json(); } catch { return json({ error: '请求需为有效 JSON。' }, 400); }
+            if (url.pathname === base + 'api/deploy') {
+              await deployment.start(async () => {
+                const saved = await store.save(input);
+                options.onSaved?.();
+                return saved.config!;
+              });
+              return json({ ...publicSnapshot(await store.read()), deployment: deployment.snapshot }, 202);
+            }
             const snapshot = await store.save(input);
-            saved = true;
             options.onSaved?.();
             return json(publicSnapshot(snapshot));
           }
           if (url.pathname === base + 'api/finish') {
-            if (!saved) return json({ error: '请先保存配置。' }, 409);
+            if (deployment.active || deployment.snapshot.phase === 'idle') return json({ error: '部署尚未结束。' }, 409);
             setTimeout(() => { void stop(); }, 50);
             return json({ ok: true });
           }
@@ -69,8 +81,9 @@ export async function startInitServer(options: { path: string; port?: number; on
   async function stop() {
     if (stopping) return;
     stopping = true;
+    await deployment.stop();
     await server.stop(false);
     resolveClosed();
   }
-  return { url: origin + base, origin, stop, closed };
+  return { url: origin + base, origin, stop, closed, get result() { return deployment.snapshot; } };
 }

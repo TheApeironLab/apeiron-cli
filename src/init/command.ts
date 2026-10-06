@@ -6,16 +6,18 @@ export function initHelp(): string {
   return `schema=apeiron.init.v1
 usage: apeiron init [--port <0..65535>] [--config <path>] [--no-open]
 
-Open a local browser wizard for slug, application selection and LLM connection.
+Open a local browser wizard for organization, deployment environment and apps.
 --port       Loopback port; 0 selects a free port (default).
 --config     Local config file; default $XDG_CONFIG_HOME/apeiron/config.json
              or ~/.config/apeiron/config.json. Keep it outside Git repositories.
 --no-open    Print the local URL without opening the system browser.
 
-Existing settings are loaded for editing; API keys are never sent back to the page.
-Saving writes configuration only; it does not deploy apps or call a model.
-Click Finish or press Ctrl+C to stop the local server.
-Exit codes: 0 success, 2 invalid input/configuration, 9 startup failure.`;
+The last step starts Chentu's Helmfile sync and displays deployment status.
+Configure paths in the browser. APEIRON_CHENTU_ROOT, CHENTU_ENV, KUBECONFIG,
+CHENTU_PROFILE or LAB_ENV, LAB_WORK_DIR, LAB_IMAGE prefill deployment fields.
+An existing cluster, environment values, images and deployment tools are required.
+Click Finish after deployment or press Ctrl+C to stop the server and active process.
+Exit codes: 0 success, 2 invalid input/configuration, 9 deployment/startup failure, 130 cancelled.`;
 }
 
 export async function runInit(args: string[]): Promise<number> {
@@ -40,7 +42,10 @@ export async function runInit(args: string[]): Promise<number> {
       }
     }
     const path = configPath(target);
-    const instance = await startInitServer({ path, port, onSaved: () => console.log('status\tsaved') });
+    const instance = await startInitServer({ path, port, onSaved: () => console.log('status\tsaved'), onDeployment: status => {
+      console.log(`deployment\t${status.phase}\nexit_code\t${status.exitCode ?? ''}`);
+      if (status.log) console.log(`log\t${status.log}`);
+    } });
     console.log(`schema=apeiron.init.v1\nkey\tvalue\nstatus\tlistening\nurl\t${instance.url}\nconfig\t${path}`);
     const stop = () => { void instance.stop(); };
     process.once('SIGINT', stop);
@@ -57,7 +62,7 @@ export async function runInit(args: string[]): Promise<number> {
     await instance.closed;
     process.removeListener('SIGINT', stop);
     process.removeListener('SIGTERM', stop);
-    return 0;
+    return instance.result.phase === 'failed' ? 9 : instance.result.phase === 'cancelled' ? 130 : 0;
   } catch (error) {
     console.error(`schema: apeiron.init.v1\nerror: ${error instanceof ConfigError ? error.message : 'Could not start the local wizard. Check the config path, permissions and port.'}\nretry: apeiron init --help`);
     return error instanceof ConfigError ? 2 : 9;
