@@ -8,7 +8,7 @@ Set APEIRON_ONTO_ROOT to the ontology checkout when it is not adjacent.
 Authentication and endpoints follow each module's existing configuration.
 
 Common commands:
-- `apeiron init`: open the local wizard for slug, LLM connection and selected apps.
+- `apeiron init`: open the local wizard for slug, selected apps and LLM connection.
 - `apeiron init --no-open`: print the local wizard URL for manual browser access.
 - `apeiron --help`: command table, schema=apeiron.v1.
 - `apeiron status`: module, entry, available table.

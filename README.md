@@ -21,8 +21,8 @@ apeiron init
 命令监听 `127.0.0.1` 的空闲端口，自动打开本地网页，依次收集：
 
 1. **Slug name**：组织标识，小写字母、数字和连字符，最长 63 个字符。
-2. **LLM 配置**：Base URL、API Key、Model ID。API Key 可以留空以支持无鉴权的本地模型。
-3. **应用**：Apeiron、Limani / Ontology、Corpus、Task、Vasi、Files、Filer、Gateway；至少选择一个。
+2. **应用**：Apeiron、Limani / Ontology、Corpus、Task、Vasi、Files、Filer、Gateway；至少选择一个。
+3. **LLM 配置**：Base URL、API Key、Model ID。API Key 可以留空以支持无鉴权的本地模型。
 
 应用 ID 对应宸途 release；这里保存用户选择，部署依赖仍由宸途 Helmfile 负责。
 界面、脚本和样式直接包含在 CLI 内，没有 CDN 或单独前端服务，也不依赖 LLM 完成配置。

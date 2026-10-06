@@ -6,7 +6,7 @@ export function initHelp(): string {
   return `schema=apeiron.init.v1
 usage: apeiron init [--port <0..65535>] [--config <path>] [--no-open]
 
-Open a local browser wizard for slug, LLM connection and application selection.
+Open a local browser wizard for slug, application selection and LLM connection.
 --port       Loopback port; 0 selects a free port (default).
 --config     Local config file; default $XDG_CONFIG_HOME/apeiron/config.json
              or ~/.config/apeiron/config.json. Keep it outside Git repositories.

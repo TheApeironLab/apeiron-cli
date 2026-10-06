@@ -19,8 +19,8 @@ export function initWizard(): void {
   let apps: App[] = [];
   let hasApiKey = false;
   let path = '';
-  const titles = ['给你的组织起个名字', '连接你的模型', '选择要启用的应用'];
-  const subtitles = ['这个标识会用于你的 Apeiron 配置。', '填写模型服务提供的连接信息。', '从你需要的功能开始，之后随时可以调整。'];
+  const titles = ['给你的组织起个名字', '选择要启用的应用', '连接你的模型'];
+  const subtitles = ['这个标识会用于你的 Apeiron 配置。', '从你需要的功能开始，之后随时可以调整。', '填写模型服务提供的连接信息。'];
   const endpoint = (name: string) => new URL('api/' + name, location.href).href;
 
   function showError(message: string) { error.textContent = message; error.hidden = false; }
@@ -36,7 +36,7 @@ export function initWizard(): void {
     get('step-subtitle').textContent = subtitles[step]!;
     back.hidden = step === 0;
     next.textContent = step === 2 ? '保存配置' : '下一步';
-    if (focus) (step === 0 ? slug : step === 1 ? baseUrl : document.querySelector<HTMLInputElement>('[name="app"]'))?.focus();
+    if (focus) (step === 0 ? slug : step === 2 ? baseUrl : document.querySelector<HTMLInputElement>('[name="app"]'))?.focus();
   }
 
   function selectedApps(): string[] {
@@ -68,15 +68,15 @@ export function initWizard(): void {
   }
 
   function validate(): boolean {
-    const fields = step === 0 ? [slug] : step === 1 ? [baseUrl, modelId, apiKey] : [];
+    const fields = step === 0 ? [slug] : step === 2 ? [baseUrl, modelId, apiKey] : [];
     for (const field of fields) if (!field.reportValidity()) return false;
-    if (step === 1) {
+    if (step === 2) {
       try {
         const url = new URL(baseUrl.value.trim());
         if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
       } catch { showError('请填写 HTTP/HTTPS Base URL，不要包含密钥、查询参数或片段。'); return false; }
     }
-    if (step === 2 && !selectedApps().length) { showError('请至少选择一个应用。'); return false; }
+    if (step === 1 && !selectedApps().length) { showError('请至少选择一个应用。'); return false; }
     return true;
   }
 
