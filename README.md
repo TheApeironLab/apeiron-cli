@@ -8,11 +8,10 @@ macOS / Linux，ARM64 或 x64：
 
 ```sh
 curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
 apeiron init
 ```
 
-安装器自动选择平台、校验 SHA-256，安装到 `~/.local/bin`，为支持的 shell 添加 PATH；不需要 sudo、Node.js 或 Bun。`apeiron init` 自动打开默认浏览器。重新运行安装命令可升级 CLI，不会重新部署平台或修改配置。独立文件也可从 GitHub Releases（需要仓库权限）或公开 OSS 下载；离线安装和固定版本见 [发布与安装说明](docs/releases.md)。
+安装器自动选择平台并校验 SHA-256，优先原位更新已能找到的 `apeiron`，否则选择当前 PATH 中的常用 bin 目录。用户目录可直接写入；系统目录不可写时会请求 sudo 授权。安装后当前终端即可直接运行 `apeiron`，无需手动修改 PATH。`apeiron init` 自动打开默认浏览器。重新运行安装命令可升级 CLI，不会重新部署平台或修改配置。独立文件也可从 GitHub Releases（需要仓库权限）或公开 OSS 下载；离线安装和固定版本见 [发布与安装说明](docs/releases.md)。
 
 CLI 可运行的平台与 Chentu 安装包支持的部署目标分别校验；当前预览包的全新部署目标为 **K3d ARM64**。Docker 等部署依赖仍需准备。
 

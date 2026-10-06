@@ -1,13 +1,13 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, lstat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const installer = new URL('../scripts/install.sh', import.meta.url).pathname;
-async function fixture(fn: (context: { directory: string; run: (...args: string[]) => ReturnType<typeof spawnSync>; archive: string; checksums: string; binary: string }) => Promise<void>) {
+async function fixture(fn: (context: { directory: string; run: (...args: string[]) => ReturnType<typeof spawnSync>; shell: (script: string, env?: Record<string, string>) => ReturnType<typeof spawnSync>; archive: string; checksums: string; binary: string }) => Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), 'apeiron-installer-test-'));
   try {
     for (const name of ['commands', 'source', 'home']) await mkdir(join(directory, name));
@@ -24,20 +24,58 @@ async function fixture(fn: (context: { directory: string; run: (...args: string[
     const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
     await writeFile(checksums, `${digest}  apeiron-1.2.3-linux-arm64.tar.gz\n`);
     await writeFile(join(directory, 'latest.txt'), '1.2.3\n');
-    const run = (...args: string[]) => spawnSync('/bin/sh', [installer, ...args], { encoding: 'utf8', env: {
-      PATH: `${commands}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: join(directory, 'home'), SHELL: '/bin/zsh', FIXTURE: directory,
-    } });
-    await fn({ directory, run, archive, checksums, binary });
+    const environment = {
+      PATH: `${commands}:${directory}/home/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: join(directory, 'home'), SHELL: '/bin/zsh', FIXTURE: directory,
+    };
+    const run = (...args: string[]) => spawnSync('/bin/sh', [installer, ...args], { encoding: 'utf8', env: environment });
+    const shell = (script: string, env: Record<string, string> = {}) => spawnSync('/bin/sh', ['-c', script, 'installer-test', installer], { encoding: 'utf8', env: { ...environment, ...env } });
+    await fn({ directory, run, shell, archive, checksums, binary });
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-test('installer selects native archive, installs without sudo, and updates PATH once', () => fixture(async ({ directory, run, binary }) => {
+test('installer selects a standard bin already in PATH and works in the same parent shell', () => fixture(async ({ directory, shell, binary }) => {
   for (let i = 0; i < 2; i++) {
-    const result = run(); assert.equal(result.status, 0, String(result.stderr));
+    const result = shell('/bin/sh "$1" && apeiron --version');
+    assert.equal(result.status, 0, String(result.stderr));
+    assert.match(String(result.stdout), /Ready in this terminal: apeiron init/);
+    assert.match(String(result.stdout), /1\.2\.3\n$/);
   }
   assert.equal(spawnSync(binary, ['--version'], { encoding: 'utf8' }).stdout.trim(), '1.2.3');
-  const profile = await readFile(join(directory, 'home/.zshrc'), 'utf8');
-  assert.equal(profile.split('# Apeiron CLI PATH').length, 2);
+  assert.equal(await Bun.file(join(directory, 'home/.zshrc')).exists(), false);
+  assert.equal(await Bun.file(join(directory, 'commands/apeiron')).exists(), false);
+}));
+
+test('installer updates an existing command in place without changing its symlink target or shell hash', () => fixture(async ({ directory, shell, binary }) => {
+  const bin = join(directory, 'home/.bun/bin'); await mkdir(bin, { recursive: true });
+  const source = join(directory, 'original-command');
+  await writeFile(source, '#!/bin/sh\necho old-version\n', { mode: 0o755 });
+  await symlink(source, join(bin, 'apeiron'));
+  const result = shell('apeiron --version; /bin/sh "$1" && apeiron --version', {
+    PATH: `${directory}/commands:${directory}/home/.local/bin:${bin}:/usr/bin:/bin`,
+  });
+  assert.equal(result.status, 0, String(result.stderr));
+  assert.match(String(result.stdout), /^old-version\n/);
+  assert.match(String(result.stdout), /1\.2\.3\n$/);
+  assert.equal((await lstat(join(bin, 'apeiron'))).isSymbolicLink(), false);
+  assert.equal(await readFile(source, 'utf8'), '#!/bin/sh\necho old-version\n');
+  assert.equal(await Bun.file(binary).exists(), false);
+}));
+
+test('installer refuses success when no supported bin exists in PATH', () => fixture(async ({ directory, shell, binary }) => {
+  const result = shell('/bin/sh "$1"', { PATH: `${directory}/commands:/usr/bin:/bin` });
+  assert.notEqual(result.status, 0);
+  assert.match(String(result.stderr), /No supported bin directory/);
+  assert.equal(await Bun.file(binary).exists(), false);
+  assert.equal(await Bun.file(join(directory, 'home/.zshrc')).exists(), false);
+}));
+
+test('installer does not overwrite an unrelated command in a project or temporary PATH directory', () => fixture(async ({ directory, run, binary }) => {
+  const command = join(directory, 'commands/apeiron');
+  await writeFile(command, '#!/bin/sh\necho project-command\n', { mode: 0o755 });
+  const result = run(); assert.notEqual(result.status, 0);
+  assert.match(String(result.stderr), /takes precedence/);
+  assert.equal(await readFile(command, 'utf8'), '#!/bin/sh\necho project-command\n');
+  assert.equal(await Bun.file(binary).exists(), false);
 }));
 
 test('installer rejects corrupt downloads without replacing an existing installation', () => fixture(async ({ run, archive, binary }) => {

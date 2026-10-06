@@ -39,6 +39,10 @@ jobs:
             docker run --rm --platform "linux/$platform" -v "$RUNNER_TEMP/smoke-$arch:/candidate:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/smoke-linux.sh
           done
       - run: bun scripts/finalize-release.ts "$RUNNER_TEMP/release"
+      - name: Verify system installation from a non-admin shell
+        run: |
+          release_version=$(bun -e 'console.log((await Bun.file("package.json").json()).version)')
+          docker run --rm --platform linux/amd64 -e APEIRON_TEST_VERSION="$release_version" -v "$RUNNER_TEMP/release:/release:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/test-system-install.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release

@@ -6,20 +6,23 @@
 
 ```sh
 curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
 apeiron init
 ```
 
-默认安装到 `~/.local/bin/apeiron`。安装器为 zsh/bash/sh 的启动文件添加 PATH；上面的 export 让当前终端立即生效。也可直接运行 `~/.local/bin/apeiron init`。向导在本机随机端口监听并自动打开默认浏览器。
+安装器使用当前终端已经包含在 PATH 中的目录，因此安装结束后直接运行 `apeiron init` 即可，向导自动打开默认浏览器。
 
-再次运行安装命令更新 CLI；不会修改安装配置、创建集群或升级已经部署的应用。指定版本和目录：
+已存在 `apeiron` 时，原位更新常用 bin 目录中的命令，保留父 shell 已缓存的命令路径；符号链接会被替换，链接原本指向的文件不变。首次安装选择 PATH 中可写的 `~/.local/bin`、`~/bin`、`/opt/homebrew/bin` 或 `/usr/local/bin`，缺失的用户 bin 目录会自动创建。不会把程序放入临时 PATH 目录、项目目录或版本管理器的 shims。
+
+没有可写目录时，可使用 PATH 中的 `/usr/local/bin` 或 `/opt/homebrew/bin`，下载、校验并试运行通过后才请求 sudo，仅授权最后的原子安装。缺少 sudo、授权失败或没有合适的 PATH 目录时返回失败，保留旧命令。默认安装不修改 shell 配置文件。
+
+再次运行安装命令更新 CLI；不会修改安装配置、创建集群或升级已经部署的应用。指定版本：
 
 ```sh
 curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh -o /tmp/apeiron-install.sh
-sh /tmp/apeiron-install.sh --version 0.1.0-rc.2 --install-dir "$HOME/.local/bin"
+sh /tmp/apeiron-install.sh --version 0.1.0-rc.3
 ```
 
-安装器自动识别 macOS/Linux、ARM64/x64，下载对应 tar.gz，校验 SHA-256，再验证新二进制能够运行且版本一致，最后替换旧文件。下载或校验失败保留旧安装。`--no-modify-path` 禁止修改 shell 配置，`APEIRON_DOWNLOAD_BASE` 可指定具有同样目录结构的 HTTPS 内网镜像。
+安装器自动识别 macOS/Linux、ARM64/x64，下载对应 tar.gz，校验 SHA-256，再验证新二进制能够运行且版本一致，最后替换旧文件。下载或校验失败保留旧安装。显式 `--install-dir /absolute/path` 或 `APEIRON_INSTALL_DIR` 可选择其他目录；自定义目录若不在当前 PATH 中，需自行配置访问方式。`--no-modify-path` 禁止自定义安装补写 shell 配置，`APEIRON_DOWNLOAD_BASE` 可指定具有同样目录结构的 HTTPS 内网镜像。
 
 当前是预览版，`latest.txt` 指向最新通过验证的预览发行版。macOS 文件尚未做 Developer ID 签名和公证；浏览器下载后如被 Gatekeeper 拦截，应在系统设置中核实来源后允许运行，不要求全局关闭 Gatekeeper。
 
@@ -43,8 +46,8 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 
 1. 更新 `package.json` 的 version。Chentu 更新时先发布并验证安装包，再更新 `src/resources/chentu.ts` 的版本、提交、URL 与 SHA-256。
 2. 运行 `bun install --frozen-lockfile`、`bun run typecheck`、`bun test`，提交推送代码。
-3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.1.0-rc.2`、`git push origin v0.1.0-rc.2`。不要求自动合并 PR。
-4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（glibc）。Linux x64 使用 baseline CPU 构建，Linux ARM64 在 QEMU 下测试，macOS 两种架构在对应原生 runner 测试。
+3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.1.0-rc.3`、`git push origin v0.1.0-rc.3`。不要求自动合并 PR。
+4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（glibc）。Linux x64 使用 baseline CPU 构建，Linux ARM64 在 QEMU 下测试，macOS 两种架构在对应原生 runner 测试。另在隔离 Ubuntu 容器内，从非管理员 shell 验证权限不足会失败、sudo 安装后同一 shell 可直接运行、重复更新和文件所有者/权限。
 5. 所有平台必须通过无 Bun 的独立启动、页面、favicon、配置 API 测试。发布 job 将相同产物保存到 OSS 与 GitHub Releases，逐文件下载校验后才更新 `install.sh` 和 `latest.txt`。
 
 手动构建（Bun 1.3.14）：
