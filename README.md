@@ -208,3 +208,26 @@ bun scripts/test-helmfile.ts /absolute/path/to/chentu chentu-lab
 `CHENTU_PROFILE`；旧配置明确报错，不自动转换。发行包 target 必须声明
 `deploymentTopology: true`，与新版 Chentu 一起构建。架构来自目标节点探针，
 K3d 来自运行 Docker 的本机架构；不同架构不混用安装包。原生 K3s 主机支持 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，发行包必须用 `hostPlatform` 声明匹配的 Ubuntu 版本和架构。当前公开 rc.5 仍只提供 K3d ARM64 资源；主机兼容不代表原生 K3s 资源已经发布。多机不会自动开启 Longhorn 或三副本存储。
+
+## 公网入口配对（新发行包）
+
+已有 Ubuntu ECS 安装 Caddy 2.10+、OpenSSH、sudo 和 Python 3 后，在 ECS 生成配对码：
+
+```sh
+sudo apeiron platform entry pair --domain team.example.com --public-ip <公网IPv4>
+```
+
+在 Spark 等部署主机运行 `apeiron init`，选择 ECS 转发，粘贴完整配对码。配对码 10 分钟有效，只绑定一个设备；同一设备可在有效期内重试。配对后不需要提供 ECS 管理员 SSH 私钥，域名与入口地址由配对记录限定。配对码含临时认证材料，不要分享或写入日志。
+
+部署环境与第 5 步提供状态、DNS/HTTPS 测试和确认撤销。终端也可使用：
+
+```sh
+apeiron platform connection list
+apeiron platform connection status --id <id>
+apeiron platform connection test --id <id>
+apeiron platform connection revoke --id <id>
+```
+
+自定义配置路径需附加相同的 `--config <path>`。撤销禁用设备凭据、关闭活动转发和所属路由，保留集群数据。ECS 管理员可用 `sudo apeiron platform entry status|revoke --domain team.example.com` 确认并重试清理。首版换密钥通过撤销再配对，会中断公网访问。DNS/安全组仍由管理员配置。
+
+需要同时发布包含 `bootstrap/public_pairing.py` 的 Chentu 安装包；当前固定的 rc.5 旧包不会被悄悄升级，缺少功能时明确拒绝。贡献者可通过显式 `APEIRON_CHENTU_ROOT` 验证对应 PR 的源码。

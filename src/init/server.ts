@@ -13,6 +13,7 @@ import { openDeploymentLog } from './log';
 import { LocalAccessInstaller } from './local-access';
 import { readInitialAdmin, verifyInstallation, type VerificationResult } from './verification';
 import faviconPath from './assets/apeiron-favicon.ico' with { type: 'file' };
+import { PairingManager } from './pairing';
 
 // Original browser icon from TheApeironLab/apeiron: frontend/fe-apeiron-app/public/favicon.ico.
 const favicon = await Bun.file(faviconPath).arrayBuffer();
@@ -24,6 +25,8 @@ export async function startInitServer(options: { path: string; port?: number; on
   const deployment = new Deployment(options.path, options.onDeployment, options.resources, options.adminReader);
   const probe = options.probe ?? new EnvironmentProbe();
   const localAccess = options.localAccess ?? new LocalAccessInstaller();
+  const pairing = new PairingManager(options.path, options.resources);
+  let pairingBusy = false;
   const nodeController = new AbortController();
   let checkingDeployment = false;
   let scanning = false;
@@ -63,7 +66,7 @@ export async function startInitServer(options: { path: string; port?: number; on
       }
       try {
         if (url.pathname === base + 'api/config' && request.method === 'GET') {
-          return json({ ...publicSnapshot(await store.read()), apps: APPS, path: store.path, host: cliHost(), defaults: deploymentDefaults(), deployment: deployment.snapshot });
+          return json({ ...publicSnapshot(await store.read()), connections: await pairing.list(), apps: APPS, path: store.path, host: cliHost(), defaults: deploymentDefaults(), deployment: deployment.snapshot });
         }
         if (url.pathname === base + 'api/deployment' && request.method === 'GET') {
           return json(deployment.snapshot);
@@ -92,6 +95,22 @@ export async function startInitServer(options: { path: string; port?: number; on
               request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') {
             return json({ error: '请求来源或格式不允许。' }, 403);
           }
+          if (url.pathname.startsWith(base + 'api/connections/')) {
+            if (pairingBusy || stopping || checkingDeployment || deployment.active || localAccess.active || verifying) return json({ error: '连接管理、部署或测试正在进行，请稍后重试。' }, 409);
+            pairingBusy = true;
+            try {
+              const input = await request.json();
+              if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1) throw new ConfigError('连接请求格式不正确。');
+              const action = url.pathname.slice((base + 'api/connections/').length);
+              const signal = AbortSignal.any([nodeController.signal, request.signal]);
+              let connection;
+              if (action === 'pair' && typeof input.code === 'string') connection = await pairing.pair(input.code, signal);
+              else if (['status', 'test', 'revoke'].includes(action) && typeof input.id === 'string') connection = await pairing.action(action as 'status' | 'test' | 'revoke', input.id, signal);
+              else throw new ConfigError('连接操作不支持。');
+              return json({ connection, connections: await pairing.list() });
+            } finally { pairingBusy = false; }
+          }
+          if (pairingBusy && ['api/config', 'api/deploy', 'api/deployment/retry', 'api/finish'].some(path => url.pathname === base + path)) return json({ error: '连接管理正在进行，请稍后重试。' }, 409);
           if (url.pathname === base + 'api/deployment/stop' || url.pathname === base + 'api/deployment/retry') {
             if (stopping || checkingDeployment || localAccess.active || readingAdmin || verifying) return json({ error: '向导正在关闭、配置或测试，请稍后重试。' }, 409);
             let input: unknown;
@@ -186,7 +205,7 @@ export async function startInitServer(options: { path: string; port?: number; on
             let input: unknown;
             try { input = await request.json(); } catch { return json({ error: '请求需为有效 JSON。' }, 400); }
             // Parsing the request yields; reserve preflight only after rechecking.
-            if (stopping || checkingDeployment || deployment.active || localAccess.active || readingAdmin || verifying) return json({ error: '部署、配置或测试正在进行，请稍后重试。' }, 409);
+            if (stopping || pairingBusy || checkingDeployment || deployment.active || localAccess.active || readingAdmin || verifying) return json({ error: '部署、配置或测试正在进行，请稍后重试。' }, 409);
             if (url.pathname === base + 'api/deploy') {
               checkingDeployment = true;
               try {

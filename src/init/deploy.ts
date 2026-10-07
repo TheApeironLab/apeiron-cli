@@ -257,7 +257,7 @@ export class Deployment {
           terminal = 'failed';
           this.status.exitCode = undefined;
           this.event('配置 Caddy 公网入口并验证 Apeiron / IAM 的 HTTPS。');
-          await publicAccessPhase('finish', target, dir, env, run, this.preparation.signal);
+          await publicAccessPhase('finish', target, dir, env, run, this.preparation.signal, this.configPath);
           terminal = 'succeeded';
           this.status.exitCode = 0;
         }

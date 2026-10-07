@@ -28,6 +28,7 @@ export interface PublicAccess {
   publicIp: string;
   gateway?: { host: string; sshUser: string; sshKey: string; sshPort: number };
   tunnelPort: number;
+  pairingId?: string;
 }
 
 export function validatePublicAccess(value: unknown): PublicAccess | undefined {
@@ -39,12 +40,14 @@ export function validatePublicAccess(value: unknown): PublicAccess | undefined {
   const tunnelPort = input.tunnelPort ?? 19444;
   if (!Number.isInteger(tunnelPort) || Number(tunnelPort) < 1024 || Number(tunnelPort) > 65535) throw new ConfigError('隧道端口需为 1024–65535。');
   let gateway: PublicAccess['gateway'];
-  if (input.mode === 'relay') {
+  const pairingId = input.pairingId;
+  if (pairingId !== undefined && (input.mode !== 'relay' || typeof pairingId !== 'string' || !/^[a-f0-9]{32}$/.test(pairingId) || input.gateway !== undefined)) throw new ConfigError('配对连接格式不正确。');
+  if (input.mode === 'relay' && !pairingId) {
     const g = input.gateway as Record<string, unknown> | undefined;
     if (!g || !safeHost(g.host)) throw new ConfigError('请填写 ECS 的 SSH 地址或别名。');
     gateway = { host: g.host, ...validateConnection(g) };
   }
-  return { mode: input.mode as PublicAccess['mode'], publicIp: input.publicIp, tunnelPort: Number(tunnelPort), ...(gateway ? { gateway } : {}) };
+  return { mode: input.mode as PublicAccess['mode'], publicIp: input.publicIp, tunnelPort: Number(tunnelPort), ...(gateway ? { gateway } : {}), ...(typeof pairingId === 'string' ? { pairingId } : {}) };
 }
 
 export const installationDefaults = (): Installation => ({
