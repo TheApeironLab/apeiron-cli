@@ -37,3 +37,20 @@ K3s 资源需包含兼容的系统包、K3s 二进制／安装脚本／airgap �
 本机 K3d 的工作目录按配置路径与域名固定。重试仅复用带有本安装归属记录且 Docker 集群标签匹配的集群；未持有该归属记录的同名集群会被拒绝，不删除卷。镜像推送前检查已存在的 manifest digest，一致时复用，写入后再比对 digest。
 
 K3d 目标的 `k3sAirgap` 指向资源闭包中已校验的基础镜像包，创建节点时挂载到 K3s 的自动导入目录。CLI 为 rc.5 的 K3s `v1.36.3+k3s1` / ARM64 补充固定大小、SHA-256 与 OSS 下载地址；版本不匹配即拒绝，不复用另一版本镜像。基础镜像与应用资源一起下载校验，Traefik 真正 Ready 后才进入 Helmfile sync，等待上限 600 秒。准备期间每 15 秒显示等待时长、基础 Pod 状态变化及拉取事件，并写入安装日志。该改动只解决 K3s 基础服务的离线启动，不代表完整应用部署已通过断网验收；已开放离线 K3d 供实际试跑。
+
+## OSS 资源存储与迁移
+
+新资源存放在同一公开 OSS bucket 的 `apeiron/blobs/sha256/<完整 SHA-256>`，对象名不附加文件名、版本号或平台。`setup/install.json` 继续作为安装资源的唯一清单：`path` 保留离线包内文件名，`size` 与 `sha256` 固定预期字节，`url` 指向该内容对象。平台、安装目标、组件依赖仍由原有 targets/components 描述，不能从 blob 路径推断。相同字节只上传一次，内容变化必须使用新摘要地址。
+
+发布者在包含 `chentu/setup/install.json` 的完整本地 bundle 上运行：
+
+```sh
+bun scripts/publish-resources.ts /absolute/bundle /absolute/output --plan
+bun scripts/publish-resources.ts /absolute/bundle /absolute/output --publish
+```
+
+输出目录必须位于输入 bundle 外。两种模式都先校验全部资源的大小、摘要和路径；`--plan` 只生成本地上传计划和 `install.plan.json`。`--publish` 使用已有 Aliyun CLI 身份上传缺失对象，随后通过公开 HTTPS 地址流式下载、校验全部字节；已有内容不匹配即失败。只有全部对象通过才输出 `install.json`。中断可重跑，已验证对象可复用；不删除旧资源。
+
+将输出清单纳入**新的**宸途发行包，并重新生成包的来源摘要、归档摘要和发行元数据。不能覆盖已发布包或原位修改它的清单；旧 rc.2 / rc.5 URL 继续保留，原有 CLI 和离线包无需迁移。新地址仍使用 schemaVersion 1，在线下载与离线校验无需另一套解析器。
+
+此次先迁移资源存储。统一发行组合 manifest、stable/preview channel 和按摘要的本地共享缓存是后续阶段；当前 CLI 固定的发行包不会因上传资源而自动切换。资源公开校验通过也不代表目标平台的实际部署验收通过。
