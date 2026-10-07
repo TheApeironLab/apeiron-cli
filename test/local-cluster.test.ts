@@ -85,6 +85,6 @@ test('owned cluster enters redeployment immediately, preserving the saved identi
     body: JSON.stringify({ revision: null, slug: 'team', apps: requiredApps, deployment: { offline: false, installation: f.installation } }) });
   expect(response.status).toBe(202);
   for (let count = 0; count < 100 && !server.result.events.some(event => event.includes('复用集群重新部署')); count++) await Bun.sleep(10);
-  expect(server.result.events).toContain('已识别本次安装的 K3d 集群，将复用集群重新部署，保留数据和凭据。');
+  expect(server.result.events).toContain('[INFO] 已识别本次安装的 K3d 集群，将复用集群重新部署，保留数据和凭据。');
   expect(await readFile(join(f.identity.workDir, 'installation.json'), 'utf8')).toBe(marker);
 });

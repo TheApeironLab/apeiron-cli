@@ -107,6 +107,8 @@ Mac 一键配置使用 [AppleScript 系统管理员授权](https://developer.app
 
 环境 values、inventory、kubeconfig 由流程生成，不向用户索取。页面不再提供源码路径或开发选项：在线使用匹配版本的发行包，离线使用所选目录中的 `chentu/` 部署程序与应用资源。旧配置中的源码覆盖不会沿用到全新安装。仅 CLI 开发联调可显式设置进程变量 `APEIRON_CHENTU_ROOT`，该变量不写入安装配置，离线模式也不会使用它。
 
+K3d 安装时，CLI 还会准备并校验与 K3s 版本匹配的官方 ARM64 基础镜像包（约 231 MiB），节点启动时直接导入 Traefik、CoreDNS 等镜像。基础镜像计入资源准备进度；Traefik 就绪后才安装应用。准备期间每 15 秒报告等待时长与基础服务状态，并记录镜像拉取事件。可选择离线 K3d 并提供完整本地安装包；完整应用的断网部署尚需验收。
+
 ### 配置与进度
 
 每次部署在配置目录的 `deployments/run-*/` 生成 `environment.yaml`、`inventory.yaml`（K3s）与 `install.log`。
@@ -125,7 +127,7 @@ Limani 对应 `ontology`，Chat 对应 `matrix`，邮件对应 `stalwart`，代�
 
 资源准备失败后也可返回修改。K3d 重试复用本次安装的集群和凭据；主机安装开始后已有的 K3s 数据仍会触发节点检查，需要人工确认恢复，不支持自动恢复任意阶段中断的 K3s 安装。
 
-默认配置路径为 `$XDG_CONFIG_HOME/apeiron/config.json`，未设置时为 `~/.config/apeiron/config.json`。
+默认配置路径为 `~/.apeiron/config.json`，部署日志与运行文件也保存在该目录下。可通过 `--config` 指定其他配置路径。
 当前配置为 schemaVersion 2，保存组织、应用与部署目标；旧版 LLM 配置只保留在磁盘，不回传网页。
 配置文件和部署副本使用 `0600`，新建目录为 `0700`，禁止将配置保存到 Git 工作目录。
 保存采用文件锁、版本检查和临时文件替换，防止旧窗口覆盖新配置。

@@ -12,6 +12,8 @@ import { safeEntryIp } from './installation';
 import { checkLocalCluster, localCluster } from './local-cluster';
 import { publicAccessPhase } from './public-access';
 import { prepareNativeTools } from './native-tools';
+import { watchK3dProgress } from './k3d-progress';
+import { includeK3dAirgap } from '../resources/k3d-airgap';
 export { checkLocalPort } from './local-cluster';
 
 export type RunCommand = (command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) => Promise<number>;
@@ -41,6 +43,7 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     if (installation.topology === 'single-k3s') nodes.push({ host: 'localhost', name: facts[0]!.name, address: facts[0]!.addresses.includes(installation.entryIp) ? installation.entryIp : facts[0]!.addresses[0]!, role: 'server' });
     for (const node of nodes) if (!facts.find(fact => fact.host === node.host)?.addresses.includes(node.address)) throw new ConfigError(`${node.host} 的内网地址已变化，请重新检测。`);
   }
+  if (docker) await includeK3dAirgap(catalog, target.root, architecture);
   const plan = installPlan(catalog, `${docker ? 'k3d' : 'k3s'}-${architecture}`, config.apps);
   if (!docker) validateNativeHostPlatform(plan.target, facts);
   if (config.apps.includes('vasi') && (plan.target.clusterOidc !== true || !plan.components.includes('cluster-access') ||
@@ -178,7 +181,22 @@ export async function bootstrapFresh(target: DeploymentTarget, environment: stri
       '-v', `${target.root}:/repo:ro`, '-v', `${environment}:/environment.yaml:ro`, '-v', `${target.workDir}:/work`,
       '-e', 'CHENTU_ENV=/environment.yaml', '-e', 'PYTHONPATH=/repo/cli/src',
       image, '/repo/deploy/helmfile/scripts/check.py'], '校验应用配置');
-    await checked('bash', [join(target.root, 'tests/lab/helmfile.sh'), 'prepare'], '创建本地 K3d 测试集群', labEnv);
+    const stopProgress = watchK3dProgress(cluster, context.signal, progress);
+    try {
+      // Keep the verified release intact. Adapt its launcher locally to forward
+      // the already-supported airgap input without enabling a second installer.
+      const original = await Bun.file(join(target.root, 'tests/lab/helmfile.sh')).text();
+      const rootLine = 'REPO=$(cd "$(dirname "$0")/../.." && pwd)';
+      const envLine = '-e CHENTU_ENV=/environment.yaml -e KUBECONFIG=/work/state/kubeconfig';
+      if (!original.includes(rootLine) || !original.includes(envLine)) throw new ConfigError('发行包的 K3d 启动入口不兼容基础镜像预装，请更新安装包。');
+      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+      const launcher = join(directory, 'k3d-prepare.sh');
+      await writeFile(launcher, original.replace(rootLine, `REPO=${quote(target.root)}`)
+        .replace(envLine, `${envLine}\n  -e LAB_K3S_AIRGAP=${quote(join(bundle, plan.target.k3sAirgap!))}\n  -v ${quote(`${bundle}:${bundle}:ro`)}`), { mode: 0o600 });
+      await checked('bash', [launcher, 'prepare'], '创建本地 K3d 测试集群（预装已校验的 K3s 基础镜像）', labEnv);
+      await checked('docker', ['exec', `k3d-${cluster}-server-0`, 'kubectl', '-n', 'kube-system',
+        'rollout', 'status', 'deployment/traefik', '--timeout=600s'], '等待 Traefik 入口服务就绪', labEnv);
+    } finally { stopProgress(); }
     return labEnv;
   }
   await checked('python3', [join(target.root, 'deploy/helmfile/scripts/check.py')], '校验应用配置');

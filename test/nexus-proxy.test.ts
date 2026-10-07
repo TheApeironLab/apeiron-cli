@@ -11,8 +11,6 @@ test('deployment mode overrides stale Nexus proxy settings and preserves other v
       postgres: { enabled: true, values: { storage: '10Gi' } },
     } });
     for (const offline of [false, true, false]) {
-      // K3d offline installs are rejected by validation, independently of proxy policy.
-      if (topology === 'single-k3d' && offline) continue;
       const config = validateConfig({ slug: 'example', apps: requiredApps, deployment: {
         offline, bundleDir: offline ? '/opt/fixture-bundle' : '',
         installation: { ...installationDefaults(), topology,

@@ -278,7 +278,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     get('bundle-fields').hidden = !offline.checked;
     get('resource-mode').textContent = offline.checked ? '检查本地应用及依赖包；缺少或校验失败时停止，不访问外网。' : '选择应用后检查实际安装资源，下载与校验通过后才会安装。';
     const supported = machine && supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture);
-    get('topology-note').textContent = mode === 'single-k3d' ? offline.checked ? '当前 K3d 准备脚本需要联网；离线安装请选择 K3s。' : '创建独立的本地测试集群，需要本机 Docker 正在运行。' : mode === 'multi-k3s' ? '管理机可以使用 macOS；节点需为 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，系统与架构一致，并提供匹配的安装包。' : machine && !supported ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '在当前 Ubuntu 主机上安装 K3s；需要匹配系统与架构的安装包，以及 root 或免密 sudo。';
+    get('topology-note').textContent = mode === 'single-k3d' ? offline.checked ? '使用本地完整安装包创建 K3d 测试集群，需要本机 Docker 正在运行。' : '创建独立的本地测试集群，需要本机 Docker 正在运行。' : mode === 'multi-k3s' ? '管理机可以使用 macOS；节点需为 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，系统与架构一致，并提供匹配的安装包。' : machine && !supported ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '在当前 Ubuntu 主机上安装 K3s；需要匹配系统与架构的安装包，以及 root 或免密 sudo。';
     renderSetup();
   }
   for (const input of document.querySelectorAll<HTMLInputElement>('[name="topology"]')) input.addEventListener('change', renderTarget);
@@ -444,7 +444,6 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     if (step === 0) {
       if (topology() === 'single-k3d' && (![fields.httpPort.value, fields.httpsPort.value].every(value => /^\d{1,5}$/.test(value) && Number(value) >= 1 && Number(value) <= 65535) || Number(fields.httpPort.value) === Number(fields.httpsPort.value) || Number(fields.httpPort.value) === 443 || Number(fields.httpsPort.value) === 80)) { showError('请填写不同的 HTTP / HTTPS 端口（1–65535）；HTTP 不能使用 443，HTTPS 不能使用 80。'); return false; }
       if (offline.checked && !fields.bundleDir.reportValidity()) return false;
-      if (topology() === 'single-k3d' && offline.checked) { showError('当前 K3d 准备脚本需要联网，请选择 K3s 进行离线部署。'); return false; }
       if (topology() === 'single-k3s' && (!machine || !supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture))) { showError(machine ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '请先完成当前主机的系统检测。'); return false; }
       if (topology() === 'multi-k3s') {
         if (nodesFingerprint !== fingerprint() || nodeFacts.length < 2 || nodeFacts.some(node => node.error)) { showError('请先成功检测至少 2 台 Ubuntu 节点。'); return false; }
@@ -479,7 +478,13 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     const active = ['preparing', 'running', 'stopping'].includes(status.phase);
     get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? '正在部署…' : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : '部署失败。';
     get('deployment-message').textContent = status.message;
-    get('deployment-events').textContent = status.events.join('\n');
+    get('deployment-events').replaceChildren(...status.events.map(message => {
+      const line = document.createElement('span');
+      const level = /^\[(INFO|WARNING|ERROR)\]/.exec(message)?.[1] || 'INFO';
+      line.className = `log-${level.toLowerCase()}`;
+      line.textContent = message + '\n';
+      return line;
+    }));
     get('deployment-log').textContent = status.log || '正在检查安装资源';
     const openLog = get<HTMLAnchorElement>('open-log');
     const downloadLog = get<HTMLAnchorElement>('download-log');
