@@ -137,6 +137,7 @@ test('deploy generates exact app flags, preserves base values, runs sync once an
   expect(records[0].values.releases.postgres).toEqual({ enabled: true, values: { storage: '10Gi' } });
   for (const name of ['task', 'corpus', 'matrix', 'files', 'stalwart', 'gateway']) expect(records[0].values.releases[name].enabled).toBe(false);
   expect(records[0].values.releases.nexus.enabled).toBe(true);
+  expect(records[0].values.releases.nexus.values.publicProxies).toBe(true);
   for (const name of ['kps', 'loki', 'promtail']) expect(records[0].values.releases[name].enabled).toBe(false);
   expect(await readFile(environment, 'utf8')).toBe(source);
   expect((await post({}, {}, 'finish')).status).toBe(200);

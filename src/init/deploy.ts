@@ -47,6 +47,11 @@ export function environmentFor(config: Configuration, source: string): string {
     const access = releases['cluster-access'] === undefined ? {} : mapping(releases['cluster-access']);
     releases['cluster-access'] = { ...access, enabled: true };
   }
+  if (config.deployment) {
+    const nexus = mapping(releases.nexus);
+    const nexusValues = nexus.values === undefined ? {} : mapping(nexus.values);
+    releases.nexus = { ...nexus, values: { ...nexusValues, publicProxies: !config.deployment.offline } };
+  }
   return Bun.YAML.stringify({ ...values, tenantSlug: config.slug, releases }, null, 2) + '\n';
 }
 
