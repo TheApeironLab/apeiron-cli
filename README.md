@@ -237,11 +237,11 @@ apeiron platform connection revoke --id <id>
 With the gateway portal running, generate a connection command for a reserved slug:
 
 ```sh
-apeiron connect --gateway https://gateway.example.com --enrollment-token <one-time-token>
+apeiron register --gateway https://gateway.example.com --enrollment-token <one-time-token>
 ```
 
 The target machine starts the existing loopback wizard and connects outbound over WSS. Keep the process running while using setup through the gateway. The reserved slug is prefilled and enforced by the local server. The gateway never receives the wizard's loopback capability URL, and account cookies never reach the machine.
 
-The command prints a connection-file path under `~/.apeiron/gateway/`. Reconnect with `apeiron connect --connection <path>`. That file contains a private agent token and has mode 0600; do not share it. Ctrl+C disconnects and stops the wizard, including any active deployment. Automatic systemd installation is not implemented in this initial version.
+The command prints a connection-file path under `~/.apeiron/gateway/`. Reconnect with `apeiron register --connection <path>`. That file contains a private agent token and has mode 0600; do not share it. Ctrl+C disconnects and stops the wizard, including any active deployment. Automatic systemd installation is not implemented in this initial version.
 
 Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.1` for local development. A localhost gateway URL works only when the CLI runs on the same machine. Production also needs gateway DNS/HTTPS and isolated setup subdomains. Application ingress provisioning remains separate from opening the deployment wizard.

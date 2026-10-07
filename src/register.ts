@@ -54,10 +54,10 @@ interface Connection {
   slug: string;
   domain: string;
 }
-export async function runConnect(args: string[]): Promise<number> {
+export async function runRegister(args: string[]): Promise<number> {
   if (args.includes("--help")) {
     console.log(
-      "apeiron connect --gateway <https://gateway> --enrollment-token <one-time-token>\napeiron connect --connection <saved-file>\nKeep this process running while using the remote deployment wizard. Ctrl+C disconnects and stops the wizard.",
+      "apeiron register --gateway <https://gateway> --enrollment-token <one-time-token>\napeiron register --connection <saved-file>\nKeep this process running while using the remote deployment wizard. Ctrl+C disconnects and stops the wizard.",
     );
     return 0;
   }
@@ -72,7 +72,7 @@ export async function runConnect(args: string[]): Promise<number> {
         value.startsWith("--") ||
         flags.has(key)
       )
-        throw new Error("Invalid arguments; run apeiron connect --help.");
+        throw new Error("Invalid arguments; run apeiron register --help.");
       flags.set(key, value);
     }
     let state: Connection;

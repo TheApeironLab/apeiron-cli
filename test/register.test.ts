@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { gatewayUrl, validTunnelRequest } from "../src/connect";
+import { gatewayUrl, validTunnelRequest } from "../src/register";
 test("gateway transport only allows HTTPS or explicit local development", () => {
   expect(gatewayUrl("https://gateway.apeironlab.cn").origin).toBe(
     "https://gateway.apeironlab.cn",
