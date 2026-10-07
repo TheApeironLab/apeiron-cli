@@ -1,3 +1,4 @@
+import { modelConfiguration, modelRequest } from './models';
 import { randomBytes } from 'node:crypto';
 import { APPS, ConfigError, ConfigStore, deploymentDefaults, publicSnapshot, validateConfig } from './config';
 import { Deployment, type DeploymentStatus } from './deploy';
@@ -94,6 +95,14 @@ export async function startInitServer(options: { path: string; port?: number; on
           if (request.headers.get('origin') !== origin ||
               request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') {
             return json({ error: '请求来源或格式不允许。' }, 403);
+          }
+          if (url.pathname === base + 'api/models/list' || url.pathname === base + 'api/models/test') {
+            if (deployment.active || stopping) throw new ConfigError('部署正在进行，请稍后测试模型。', 409);
+            const body = await request.json();
+            const saved = await store.read();
+            if (body.revision !== saved.revision) throw new ConfigError('配置已变化，请刷新后重试。', 409);
+            const model = modelConfiguration(body.models, saved.config?.models);
+            return json(await modelRequest(model, url.pathname.endsWith('/list') ? 'list' : 'test', AbortSignal.any([nodeController.signal, request.signal])));
           }
           if (url.pathname.startsWith(base + 'api/connections/')) {
             if (pairingBusy || stopping || checkingDeployment || deployment.active || localAccess.active || verifying) return json({ error: '连接管理、部署或测试正在进行，请稍后重试。' }, 409);
@@ -209,7 +218,7 @@ export async function startInitServer(options: { path: string; port?: number; on
             if (url.pathname === base + 'api/deploy') {
               checkingDeployment = true;
               try {
-                const config = validateConfig(input);
+                const config = validateConfig(input, (await store.read()).config);
                 const preflight = await preflightDeployment(config, store.path, nodeController.signal);
                 await deployment.start(async () => {
                   const saved = await store.save(input);

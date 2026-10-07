@@ -5,7 +5,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   type Target = import('./config').DeploymentTarget;
   type Installation = import('./installation').Installation;
   type NodeFacts = import('./nodes').NodeFacts;
-  type Config = { slug: string; apps: string[]; deployment?: Target };
+  type Config = { slug: string; apps: string[]; deployment?: Target; models?: { provider: string; baseUrl: string; fast: string; deep: string; hasApiKey: boolean } | null };
   type Status = import('./deploy').DeploymentStatus;
   type Connection = import('./pairing').Connection;
   type Snapshot = { revision: string | null; config: Config | null; apps: App[]; defaults: Target; deployment: Status; connections?: Connection[]; host: { name: string; addresses: string[] } };
@@ -42,8 +42,64 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   const error = get('error');
   form.addEventListener('input', () => { error.hidden = true; });
   form.addEventListener('change', () => { error.hidden = true; });
-  const titles = ['设置部署环境', '设置组织', '选择要启用的应用'];
-  const subtitles = ['检测当前主机，选择安装方式。', '设置团队标识与访问域名。', '准备所选应用的资源，然后创建集群并部署。'];
+  const titles = ['设置部署环境', '设置组织', '配置模型', '选择要启用的应用'];
+  const subtitles = ['检测当前主机，选择安装方式。', '设置团队标识与访问域名。', '选择快速与深度思考模型，测试后即可用于 Apeiron。', '准备所选应用的资源，然后创建集群并部署。'];
+  const modelProvider = get<HTMLInputElement>('model-provider');
+  const modelUrl = get<HTMLInputElement>('model-url'), modelKey = get<HTMLInputElement>('model-key');
+  const modelFast = get<HTMLSelectElement>('model-fast'), modelDeep = get<HTMLSelectElement>('model-deep');
+  const modelSkip = get<HTMLInputElement>('model-skip'), modelClear = get<HTMLInputElement>('model-clear-key');
+  let savedModelUrl = '', savedModelKey = false, modelPassed = '', modelSerial = 0;
+  let modelAbort: AbortController | undefined;
+  let modelChoices: string[] = [];
+  let preferredFast = '', preferredDeep = '';
+  const updateModelTest = () => { get<HTMLButtonElement>('model-test').disabled = !modelChoices.includes(modelFast.value) || !modelChoices.includes(modelDeep.value); };
+  function clearModelChoices() {
+    modelChoices = [];
+    for (const select of [modelFast, modelDeep]) { select.replaceChildren(new Option('请先获取模型列表', '')); select.disabled = true; }
+    updateModelTest();
+  }
+  const modelInput = () => ({ provider: modelProvider.value.trim(), baseUrl: modelUrl.value.trim().replace(/\/+$/, ''), fast: modelFast.value.trim(), deep: modelDeep.value.trim(),
+    ...(savedModelKey && savedModelUrl === modelUrl.value.trim().replace(/\/+$/, '') && !modelKey.value && !modelClear.checked ? {} : { apiKey: modelClear.checked ? '' : modelKey.value.trim() }) });
+  const modelFingerprint = () => JSON.stringify(modelInput());
+  function invalidateModels() { modelPassed = ''; modelSerial++; modelAbort?.abort(); get<HTMLButtonElement>('model-list').disabled = false; get('model-status').textContent = ''; get('model-status').className = 'hint'; }
+  for (const input of [modelUrl, modelKey, modelClear]) input.addEventListener('input', () => { invalidateModels(); clearModelChoices(); });
+  for (const select of [modelFast, modelDeep]) select.addEventListener('change', () => { invalidateModels(); updateModelTest(); });
+  modelProvider.addEventListener('input', invalidateModels);
+  modelSkip.addEventListener('change', () => { invalidateModels(); get('model-settings').hidden = modelSkip.checked; });
+  async function checkModels(action: 'list' | 'test') {
+    invalidateModels(); const serial = modelSerial;
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(modelProvider.value.trim())) { get('model-status').className = 'error'; get('model-status').textContent = '请填写有效的 Provider 标识。'; return; }
+    if (!modelUrl.value.trim() || !modelUrl.reportValidity()) { get('model-status').textContent = '请填写模型 API 地址。'; return; }
+    if (action === 'test' && (!modelFast.value.trim() || !modelDeep.value.trim())) { get('model-status').textContent = '请选择两种模式的模型。'; return; }
+    const input = modelInput(), fingerprint = modelFingerprint();
+    if (action === 'list') { preferredFast = modelFast.value || preferredFast; preferredDeep = modelDeep.value || preferredDeep; clearModelChoices(); }
+    modelAbort = new AbortController();
+    get<HTMLButtonElement>('model-list').disabled = get<HTMLButtonElement>('model-test').disabled = true;
+    get('model-status').textContent = action === 'list' ? '正在获取模型…' : '正在测试快速和深度思考…';
+    try {
+      const response = await fetch(endpoint('models/' + action), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revision, models: { ...input, fast: input.fast || 'list', deep: input.deep || 'list' } }), signal: modelAbort.signal });
+      const data = await response.json();
+      if (serial !== modelSerial) return;
+      if (!response.ok) throw new Error(data.error || '模型请求失败。');
+      if (action === 'list') {
+        if (!Array.isArray(data.models) || !data.models.length) throw new Error('模型服务未返回可用模型，请检查 API 地址、Key 和模型权限。');
+        modelChoices = data.models;
+        for (const [select, preferred] of [[modelFast, preferredFast], [modelDeep, preferredDeep]] as const) {
+          select.replaceChildren(new Option('请选择模型', ''), ...modelChoices.map(id => new Option(id, id)));
+          select.disabled = false;
+          if (modelChoices.includes(preferred)) select.value = preferred;
+        }
+        get('model-status').textContent = `已获取 ${modelChoices.length} 个模型，请选择两种模式。`;
+      } else {
+        modelPassed = fingerprint;
+        get('model-status').textContent = data.results.map((r: { mode: string; elapsedMs: number }) => `${r.mode === 'fast' ? '快速' : '深度思考'}：通过（${(r.elapsedMs / 1000).toFixed(1)} 秒）`).join('；');
+      }
+    } catch (cause) { if (serial === modelSerial) { get('model-status').className = 'error'; get('model-status').textContent = cause instanceof Error ? cause.message : '模型请求失败。'; } }
+    finally { if (serial === modelSerial) { get<HTMLButtonElement>('model-list').disabled = false; updateModelTest(); } }
+  }
+  get('model-list').addEventListener('click', () => { void checkModels('list'); });
+  get('model-test').addEventListener('click', () => { void checkModels('test'); });
   let probeRequest: AbortController | undefined;
   let probeSerial = 0;
   let cliHost: Snapshot['host'] = { name: '', addresses: [] };
@@ -396,11 +452,11 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     error.hidden = true;
     document.querySelectorAll<HTMLElement>('[data-panel]').forEach((panel, index) => { panel.hidden = index !== step; });
     renderProgress(step);
-    get('step-label').textContent = `第 ${step + 1} 步 / 共 6 步`;
+    get('step-label').textContent = `第 ${step + 1} 步 / 共 7 步`;
     get('step-title').textContent = titles[step]!;
     get('step-subtitle').textContent = subtitles[step]!;
     back.hidden = step === 0; next.textContent = step === titles.length - 1 ? '开始部署' : '下一步';
-    if (focus) (step === 0 ? get<HTMLInputElement>('online') : step === 1 ? slug : document.querySelector<HTMLInputElement>('[name="app"]:not(:disabled)'))?.focus();
+    if (focus) (step === 0 ? get<HTMLInputElement>('online') : step === 1 ? slug : step === 2 ? get<HTMLInputElement>('model-url') : document.querySelector<HTMLInputElement>('[name="app"]:not(:disabled)'))?.focus();
   }
   function renderProgress(active: number) {
     document.querySelectorAll<HTMLElement>('[data-step]').forEach((item, index) => {
@@ -462,7 +518,8 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
       if (!slug.reportValidity() || !domain.reportValidity()) return false;
       if (!validDomain()) { showError('请填写有效的平台域名。'); return false; }
     }
-    if (step === 2 && apps.some(app => app.required && !selectedApps().includes(app.id))) { showError('请保留全部必选应用。'); return false; }
+    if (step === 3 && apps.some(app => app.required && !selectedApps().includes(app.id))) { showError('请保留全部必选应用。'); return false; }
+    if (step === 2 && !modelSkip.checked && modelPassed !== modelFingerprint()) { showError('请先测试快速和深度思考模型，或选择稍后配置。'); return false; }
     return true;
   }
   function renderDeployment(status: Status) {
@@ -474,7 +531,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     const showAccess = Boolean(access && !viewingDeployment && !testingPage);
     get('deployment').hidden = showAccess || showTest;
     get('verification').hidden = !showTest;
-    renderProgress(showTest ? 5 : showAccess ? 4 : 3);
+    renderProgress(showTest ? 6 : showAccess ? 5 : 4);
     const active = ['preparing', 'running', 'stopping'].includes(status.phase);
     get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? '正在部署…' : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : '部署失败。';
     get('deployment-message').textContent = status.message;
@@ -728,7 +785,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     setBusy(true); next.textContent = topology() === 'single-k3d' ? '正在检查端口…' : '正在启动…'; error.hidden = true;
     try {
       const response = await fetch(endpoint('deploy'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), deployment: target() }) });
+        body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelSkip.checked ? null : modelInput(), deployment: target() }) });
       const result = await response.json() as Snapshot & { error?: string };
       if (!response.ok || !result.config) throw new Error(result.error || '启动失败，请检查配置。');
       revision = result.revision; viewingDeployment = false; testingPage = false; renderDeployment(result.deployment);
@@ -745,6 +802,13 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
       apps = result.apps; revision = result.revision;
       cliHost = result.host;
       if (result.config) slug.value = result.config.slug;
+      const savedModel = result.config?.models;
+      if (savedModel) {
+        modelProvider.value = savedModel.provider || '';
+        modelUrl.value = savedModel.baseUrl; preferredFast = savedModel.fast; preferredDeep = savedModel.deep;
+        savedModelUrl = savedModel.baseUrl; savedModelKey = savedModel.hasApiKey;
+        modelKey.placeholder = savedModelKey ? '已保存；留空保持不变' : '无鉴权服务可留空';
+      }
       applyTarget(result.config?.deployment ?? result.defaults);
       renderApps(result.config?.apps ?? apps.filter(app => app.selected).map(app => app.id));
       get('loading').hidden = true; setBusy(false); renderStep();

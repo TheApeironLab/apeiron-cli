@@ -272,6 +272,11 @@ try {
   await page.setViewportSize({ width: 1280, height: 920 });
   await page.screenshot({ path: join(dir, 'step-2-organization.png'), fullPage: true });
   await page.getByRole('button', { name: '下一步', exact: true }).click();
+  await page.getByRole('heading', { name: '配置模型', exact: true }).waitFor();
+  await page.getByRole('button', { name: '下一步', exact: true }).click();
+  assert.match(await page.locator('#error').innerText(), /请先测试/);
+  await page.getByRole('checkbox', { name: '稍后配置（安装后暂时无法对话）' }).check();
+  await page.getByRole('button', { name: '下一步', exact: true }).click();
   await page.getByRole('heading', { name: '选择要启用的应用', exact: true }).waitFor();
   const required = ['Nexus', 'Vasi', 'Limani', 'Apeiron'];
   const defaults = ['Task', 'Corpus', 'Chat', 'Files', '邮件'];
@@ -311,7 +316,7 @@ try {
   await page.getByRole('button', { name: '开始部署', exact: true }).click();
   await page.getByRole('heading', { name: '正在部署…', exact: true }).waitFor();
   assert.match(await page.locator('[aria-current=step]').innerText(), /4[\s\S]*部署/);
-  assert.equal(await page.locator('[data-step]').nth(4).getAttribute('data-state'), 'pending');
+  assert.equal(await page.locator('[data-step]').nth(5).getAttribute('data-state'), 'pending');
   assert.equal(await page.getByRole('button', { name: '完成并关闭向导' }).isDisabled(), true);
   await page.reload();
   await page.getByRole('heading', { name: '部署失败。', exact: true }).waitFor();
@@ -373,13 +378,14 @@ try {
   assert.equal(await page.getByRole('radio', { name: /单机 K3d/ }).isChecked(), true);
   await page.getByRole('button', { name: '下一步', exact: true }).click();
   await page.getByRole('button', { name: '下一步', exact: true }).click();
+  await page.getByRole('button', { name: '下一步', exact: true }).click();
   for (const name of [...required, ...optional]) assert.equal(await app(name).isChecked(), true);
   for (const name of defaults) assert.equal(await app(name).isChecked(), false);
   await freshInstallFixture(dir, setup, 0);
   await page.getByRole('button', { name: '开始部署', exact: true }).click();
   await page.getByRole('heading', { name: '配置访问', exact: true }).waitFor();
-  assert.match(await page.locator('[aria-current=step]').innerText(), /5[\s\S]*配置访问/);
-  assert.equal(await page.locator('[data-step]').nth(3).getAttribute('data-state'), 'done');
+  assert.match(await page.locator('[aria-current=step]').innerText(), /6[\s\S]*配置访问/);
+  assert.equal(await page.locator('[data-step]').nth(4).getAttribute('data-state'), 'done');
   assert.equal(await page.locator('#deployment').isVisible(), false);
   assert.equal(await page.getByRole('link', { name: '下载 CA 证书', exact: true }).isVisible(), false, 'Manual setup stays collapsed');
   assert.equal(accessRequests, 0, 'Deployment success never installs system configuration automatically');
