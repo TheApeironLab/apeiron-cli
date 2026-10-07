@@ -228,6 +228,9 @@ try {
   await page.screenshot({ path: join(dir, 'mobile-multi-host.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 920 });
   await page.getByRole('radio', { name: /单机 K3d/ }).check();
+  // The owned fixture has fixed ports; Linux starts with native K3s defaults.
+  await page.locator('#http-port').fill('54320');
+  await page.locator('#https-port').fill('54321');
   assert.equal(await page.locator('#node-section').isVisible(), false);
   await offline.check();
   assert.equal(await page.getByLabel('离线安装包目录', { exact: true }).isVisible(), true);
@@ -540,7 +543,7 @@ try {
 } catch (error) {
   // Keep failure diagnostics at the same public boundary as the assertions.
   const page = browser?.contexts()[0]?.pages()[0];
-  if (page) console.error('Wizard state:', await page.locator('h2, #error, #deployment-note, #deployment-events').allTextContents());
+  if (page) console.error('Wizard state:', await page.locator('h2, #error, #deployment-message, #deployment-note, #deployment-events').allTextContents());
   throw error;
 } finally {
   clearTimeout(timeout); await browser?.close(); child.kill(); await child.exited;
