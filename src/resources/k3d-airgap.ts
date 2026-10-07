@@ -16,7 +16,7 @@ export async function includeK3dAirgap(catalog: InstallCatalog, root: string, ar
   if (!target) throw new ConfigError('安装包不支持所选 K3d 架构。');
   if (target.k3sAirgap) {
     const declared = catalog.files.find(file => file.path === target.k3sAirgap);
-    if (declared?.path === K3D_AIRGAP.path && declared.sha256 === K3D_AIRGAP.sha256 && declared.size === K3D_AIRGAP.size) declared.url = K3D_AIRGAP.url;
+    if (declared?.path === K3D_AIRGAP.path && declared.sha256 === K3D_AIRGAP.sha256 && declared.size === K3D_AIRGAP.size && !declared.url) declared.url = K3D_AIRGAP.url;
     return;
   }
   if (architecture !== 'arm64') throw new ConfigError('当前 K3d 基础镜像包仅支持 ARM64。');

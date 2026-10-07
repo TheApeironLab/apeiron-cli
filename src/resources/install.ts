@@ -23,6 +23,7 @@ export interface InstallTarget {
   dockerArchives?: { file: string; images: { name: string; id: string }[] }[];
 }
 export interface InstallCatalog {
+  resourceDirectory?: string;
   schemaVersion: 1;
   targets: Record<string, InstallTarget>;
   components: Record<string, InstallComponent>;
@@ -32,14 +33,24 @@ export interface InstallPlan { components: string[]; files: InstallFile[]; targe
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const safeRelative = (value: string) => /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/.test(value) && value.split('/').every(part => part && part !== '.' && part !== '..');
 
-export async function readInstallCatalog(root: string): Promise<InstallCatalog> {
+export async function readInstallCatalog(root: string, target?: string): Promise<InstallCatalog> {
   let catalog: InstallCatalog;
   try {
     const file = join(root, 'setup/install.json');
     if ((await lstat(file)).size > 4 * 1024 * 1024) throw new Error();
     catalog = JSON.parse(await readFile(file, 'utf8'));
   } catch { throw new ConfigError('宸途安装包尚未提供 setup/install.json（应用版本、依赖及资源校验清单）。请使用支持全新安装的发行包；尚未修改任何集群。'); }
+  // A release may contain isolated catalogs whose relative paths overlap.
+  // Select before validating/planning so archives from another runtime cannot leak in.
+  const release: unknown = catalog;
+  if (object(release) && release.schemaVersion === 2) {
+    if (!object(release.catalogs) || !target || !Object.hasOwn(release.catalogs, target)) throw new ConfigError(`发行包未提供目标 ${target ?? '（未指定）'} 的安装清单。`);
+    if (!/^(k3d|k3s)-(arm64|amd64)$/.test(target)) throw new ConfigError('安装目标格式不正确。');
+    catalog = release.catalogs[target] as InstallCatalog;
+    if (!object(catalog) || !object(catalog.targets) || Object.keys(catalog.targets).length !== 1 || !Object.hasOwn(catalog.targets, target)) throw new ConfigError('目标清单与发行包索引不一致。');
+  }
   if (!object(catalog) || catalog.schemaVersion !== 1 || !object(catalog.targets) || !object(catalog.components) || !Array.isArray(catalog.files)) throw new ConfigError('宸途安装资源清单格式不正确。');
+  catalog.resourceDirectory = object(release) && release.schemaVersion === 2 ? `targets/${target}` : undefined;
   const paths = new Set<string>();
   for (const file of catalog.files) {
     if (!object(file) || typeof file.path !== 'string' || !safeRelative(file.path) || file.path === 'SHA256SUMS' || paths.has(file.path) ||
