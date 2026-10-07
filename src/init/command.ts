@@ -6,20 +6,20 @@ export function initHelp(): string {
   return `schema=apeiron.init.v1
 usage: apeiron init [--port <0..65535>] [--config <path>] [--no-open]
 
-Open a local browser wizard: environment, organization, apps, deploy, access, test.
+Open a local browser wizard: environment, organization, models, apps, deploy, access, test.
 --port       Loopback port; 0 selects a free port (default).
 --config     Local config file; default ~/.apeiron/config.json.
              Keep it outside Git repositories.
 --no-open    Print the local URL without opening the system browser.
 
-Step 4 verifies release resources, creates a new cluster, then runs Helmfile.
+Step 5 verifies release resources, creates a new cluster, then runs Helmfile.
 Choose online/offline and single K3s, local K3d or multi-node K3s in the browser.
 The organization slug generates an editable private domain; configure DNS/hosts.
-K3d uses local ports 54320/54321. Step 5 configures access after successful deployment.
+K3d uses local ports 54320/54321. Step 6 configures access after successful deployment.
 On a desktop Mac, click to install hosts and CA trust with system authorization.
 Other workstations can use the manual CA and hosts guide.
-Step 6 shows the initial admin credentials, tests HTTPS, and links to app login.
-Step 4 can stop deployment and rerun the saved configuration after Helm state checks.
+Step 7 shows the initial admin credentials, tests HTTPS, and links to app login.
+Step 5 can stop deployment and rerun the saved configuration after Helm state checks.
 Rerun is not checkpoint resume; existing resources and cluster tasks may remain.
 A compatible Chentu install package and local deployment tools are required.
 Click Finish after deployment or press Ctrl+C to stop the server and active process.

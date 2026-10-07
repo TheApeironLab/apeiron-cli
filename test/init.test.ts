@@ -30,14 +30,16 @@ async function until<T>(get: () => Promise<T>, done: (value: T) => boolean): Pro
   throw new Error('Timed out waiting for deployment');
 }
 
-test('wizard serves six steps, complete catalog and no model fields without writing config', async () => {
+test('wizard serves seven steps including model configuration without writing config', async () => {
   const { path, server } = await fixture();
   expect(await Bun.file(path).exists()).toBe(false);
   const page = await fetch(server.url);
   expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
   expect(page.headers.get('cache-control')).toBe('no-store');
   const html = await page.text();
-  expect(html).toContain('共 6 步');
+  expect(html).toContain('共 7 步');
+  expect(html).toContain('id="model-fast"');
+  expect(html).toContain('id="model-deep"');
   expect(html).not.toContain('id="base-url"');
   expect(html).not.toContain('id="api-key"');
   expect(html).not.toContain('<script src=');
