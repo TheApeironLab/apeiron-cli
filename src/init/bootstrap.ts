@@ -55,7 +55,7 @@ export async function prepareFreshInstallation(config: Configuration, context: C
   }
   if (installation.publicAccess) {
     progress('检查公网 DNS、Caddy 和入口 SSH 权限。');
-    await publicAccessPhase('check', target, directory, process.env, context.run, signal);
+    await publicAccessPhase('check', target, directory, process.env, context.run, signal, context.installationKey);
   } else if (!docker) {
     progress('检查管理机上的平台域名与泛解析。');
     if (!(await checkDns({ domain: installation.domain, entryIp: installation.entryIp, local: false }, { signal })).passed) {
@@ -205,7 +205,7 @@ export async function bootstrapFresh(target: DeploymentTarget, environment: stri
   await checked('ansible-playbook', ['-i', inventory, join(target.root, 'bootstrap/hosts.yaml')], '安装 K3s 并生成 kubeconfig');
   if (installation.publicAccess) {
     progress('配置集群内部解析，公网域名和 SSO 地址保持一致。');
-    await publicAccessPhase('prepare', target, directory, env, run, context.signal);
+    await publicAccessPhase('prepare', target, directory, env, run, context.signal, context.installationKey);
   }
   return env;
 }
