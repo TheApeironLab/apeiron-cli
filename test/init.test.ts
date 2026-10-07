@@ -8,7 +8,7 @@ import { deploymentFixture, requiredApps } from './fixtures';
 
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
-async function fixture() {
+async function fixture(gateway?: {slug:string}) {
   const dir = await mkdtemp(join(tmpdir(), 'apeiron-init-test-'));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const setup = await deploymentFixture(dir);
@@ -16,7 +16,7 @@ async function fixture() {
   process.env.PATH = setup.bin + ':' + oldPath;
   cleanups.push(async () => { process.env.PATH = oldPath; });
   const path = join(dir, 'config', 'config.json');
-  const server = await startInitServer({ path });
+  const server = await startInitServer({ path, gateway });
   cleanups.push(server.stop);
   const input = { slug: 'example-team', apps: [...requiredApps].reverse(), deployment: setup.target, revision: null };
   const post = (body: unknown, headers = {}, endpoint = 'config') => fetch(server.url + 'api/' + endpoint, {
@@ -278,4 +278,13 @@ test('cancelling resource preparation aborts the resolver before sync and allows
   expect(cancelled).toBe(true); expect(await Bun.file(calls).exists()).toBe(false);
   expect((await post('deployment/retry', { revision: first.revision })).status).toBe(202);
   await until(async () => server.result, s => s.phase === 'succeeded');
+});
+
+
+test('gateway-managed setup exposes and enforces its reserved slug', async () => {
+  const { server, input, post } = await fixture({slug:'assigned'});
+  const snapshot = await fetch(server.url+'api/config').then(r=>r.json());
+  expect(snapshot.gateway.slug).toBe('assigned');
+  expect((await post(input)).status).toBe(400);
+  expect((await post({...input,slug:'assigned'})).status).toBe(200);
 });

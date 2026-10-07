@@ -231,3 +231,17 @@ apeiron platform connection revoke --id <id>
 自定义配置路径需附加相同的 `--config <path>`。撤销禁用设备凭据、关闭活动转发和所属路由，保留集群数据。ECS 管理员可用 `sudo apeiron platform entry status|revoke --domain team.example.com` 确认并重试清理。首版换密钥通过撤销再配对，会中断公网访问。DNS/安全组仍由管理员配置。
 
 需要同时发布包含 `bootstrap/public_pairing.py` 的 Chentu 安装包；当前固定的 rc.5 旧包不会被悄悄升级，缺少功能时明确拒绝。贡献者可通过显式 `APEIRON_CHENTU_ROOT` 验证对应 PR 的源码。
+
+### Gateway-hosted setup (development)
+
+With the gateway portal running, generate a connection command for a reserved slug:
+
+```sh
+apeiron connect --gateway https://gateway.example.com --enrollment-token <one-time-token>
+```
+
+The target machine starts the existing loopback wizard and connects outbound over WSS. Keep the process running while using setup through the gateway. The reserved slug is prefilled and enforced by the local server. The gateway never receives the wizard's loopback capability URL, and account cookies never reach the machine.
+
+The command prints a connection-file path under `~/.apeiron/gateway/`. Reconnect with `apeiron connect --connection <path>`. That file contains a private agent token and has mode 0600; do not share it. Ctrl+C disconnects and stops the wizard, including any active deployment. Automatic systemd installation is not implemented in this initial version.
+
+Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.1` for local development. A localhost gateway URL works only when the CLI runs on the same machine. Production also needs gateway DNS/HTTPS and isolated setup subdomains. Application ingress provisioning remains separate from opening the deployment wizard.

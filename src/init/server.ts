@@ -18,7 +18,7 @@ import { PairingManager } from './pairing';
 // Original browser icon from TheApeironLab/apeiron: frontend/fe-apeiron-app/public/favicon.ico.
 const favicon = await Bun.file(faviconPath).arrayBuffer();
 
-export async function startInitServer(options: { path: string; port?: number; onSaved?: () => void; onDeployment?: (status: DeploymentStatus) => void; resources?: ResourceResolver; probe?: EnvironmentProbe; localAccess?: LocalAccessInstaller; adminReader?: typeof readInitialAdmin; verify?: typeof verifyInstallation }) {
+export async function startInitServer(options: { path: string; gateway?: { slug: string }; port?: number; onSaved?: () => void; onDeployment?: (status: DeploymentStatus) => void; resources?: ResourceResolver; probe?: EnvironmentProbe; localAccess?: LocalAccessInstaller; adminReader?: typeof readInitialAdmin; verify?: typeof verifyInstallation }) {
   const store = new ConfigStore(options.path);
   await store.checkLocation();
   await store.read(); // Fail before opening a browser if an existing config is unsupported.
@@ -66,7 +66,7 @@ export async function startInitServer(options: { path: string; port?: number; on
       }
       try {
         if (url.pathname === base + 'api/config' && request.method === 'GET') {
-          return json({ ...publicSnapshot(await store.read()), connections: await pairing.list(), apps: APPS, path: store.path, host: cliHost(), defaults: deploymentDefaults(), deployment: deployment.snapshot });
+          return json({ ...publicSnapshot(await store.read()), connections: await pairing.list(), gateway: options.gateway, apps: APPS, path: store.path, host: cliHost(), defaults: deploymentDefaults(), deployment: deployment.snapshot });
         }
         if (url.pathname === base + 'api/deployment' && request.method === 'GET') {
           return json(deployment.snapshot);
@@ -204,6 +204,7 @@ export async function startInitServer(options: { path: string; port?: number; on
             if (stopping || checkingDeployment || deployment.active || localAccess.active || readingAdmin || verifying) return json({ error: '部署、配置或测试正在进行，暂时不能修改配置或再次启动。' }, 409);
             let input: unknown;
             try { input = await request.json(); } catch { return json({ error: '请求需为有效 JSON。' }, 400); }
+            if (options.gateway && (!input || typeof input !== 'object' || !('slug' in input) || input.slug !== options.gateway.slug)) throw new ConfigError('组织标识必须与网关申请的名称一致。');
             // Parsing the request yields; reserve preflight only after rechecking.
             if (stopping || pairingBusy || checkingDeployment || deployment.active || localAccess.active || readingAdmin || verifying) return json({ error: '部署、配置或测试正在进行，请稍后重试。' }, 409);
             if (url.pathname === base + 'api/deploy') {

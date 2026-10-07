@@ -8,7 +8,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   type Config = { slug: string; apps: string[]; deployment?: Target };
   type Status = import('./deploy').DeploymentStatus;
   type Connection = import('./pairing').Connection;
-  type Snapshot = { revision: string | null; config: Config | null; apps: App[]; defaults: Target; deployment: Status; connections?: Connection[]; host: { name: string; addresses: string[] } };
+  type Snapshot = { gateway?: { slug: string }; revision: string | null; config: Config | null; apps: App[]; defaults: Target; deployment: Status; connections?: Connection[]; host: { name: string; addresses: string[] } };
   const get = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
   const form = get<HTMLFormElement>('setup-form');
   const slug = get<HTMLInputElement>('slug');
@@ -745,6 +745,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
       apps = result.apps; revision = result.revision;
       cliHost = result.host;
       if (result.config) slug.value = result.config.slug;
+      if (result.gateway) { slug.value = result.gateway.slug; slug.readOnly = true; }
       applyTarget(result.config?.deployment ?? result.defaults);
       renderApps(result.config?.apps ?? apps.filter(app => app.selected).map(app => app.id));
       get('loading').hidden = true; setBusy(false); renderStep();
