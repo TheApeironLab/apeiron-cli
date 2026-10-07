@@ -8,7 +8,7 @@ test('iframe origins follow the configured domain across deployments and allow H
   let source = 'releases: {}\nembedAllowedOrigins: ["https://old.example.com:443"]\n';
   for (const domain of ['alpha.apeironlab.internal', 'beta.apeironlab.internal', 'platform.example.com']) {
     const config = validateConfig({ slug: 'team', apps: requiredApps, deployment: {
-      offline: false, installation: { ...installationDefaults(), domain, entryIp: '127.0.0.1', httpsPort: 54321 },
+      offline: false, installation: { ...installationDefaults(), topology: 'single-k3d', domain, entryIp: '127.0.0.1', httpsPort: 54321 },
     } });
     source = environmentFor(config, source);
     expect((Bun.YAML.parse(source) as any).embedAllowedOrigins).toEqual([
