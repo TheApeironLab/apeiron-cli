@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { version } from '../package.json';
+import { version } from './version';
 
 // Publication uses GitHub OIDC credentials scoped to this OSS prefix. Never use root keys in CI.
 const out = process.argv[2];

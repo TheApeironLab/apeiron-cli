@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const cli = new URL('../bin/apeiron.ts', import.meta.url);
 function run(args: string[], env: Record<string, string> = {}) {
-  return spawnSync(process.execPath, [cli.pathname, ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
+  return spawnSync(process.env.APEIRON_TEST_BIN || process.execPath, process.env.APEIRON_TEST_BIN ? args : [cli.pathname, ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
 }
 test('help and unknown module', () => {
   assert.equal(run(['--help']).status, 0);

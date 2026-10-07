@@ -173,7 +173,12 @@ macro_rules! log {
     ($($arg:tt)*) => { eprintln!("[apeiron] {}", format!($($arg)*)) };
 }
 
+mod app;
+
 fn main() -> Result<()> {
+    if let Some(code) = app::run() {
+        std::process::exit(code);
+    }
     let args = Args::parse();
     match &args.command {
         Some(Cli::Status) => service::status(),

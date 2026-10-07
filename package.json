@@ -1,22 +1,19 @@
 {
   "name": "@apeiron/cli",
-  "version": "0.1.0-rc.4",
   "private": true,
   "type": "module",
-  "description": "Unified Apeiron command-line entry point",
-  "bin": {
-    "apeiron": "bin/apeiron.ts"
-  },
+  "description": "Development tools and TypeScript equivalence oracle for the Rust Apeiron CLI",
   "engines": {
     "bun": ">=1.3.14"
   },
   "scripts": {
-    "build": "bun build ./bin/apeiron.ts --compile --outfile dist/apeiron",
+    "build": "cargo build --release --locked",
     "build:release": "bun scripts/build-release.ts",
     "test:release": "bun scripts/smoke-release.ts",
     "test": "bun test",
     "test:ui": "bun scripts/test-ui.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:rust": "cargo test --locked && cargo build --locked && APEIRON_TEST_BIN=$PWD/target/debug/apeiron bun test test/chat.test.ts test/cli.test.ts test/init.test.ts"
   },
   "packageManager": "bun@1.3.14",
   "devDependencies": {

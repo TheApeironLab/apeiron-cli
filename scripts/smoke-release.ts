@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { version } from '../package.json';
+import { version } from './version';
 
 const binary = process.argv[2] && resolve(process.argv[2]);
 if (!binary) throw new Error('Usage: bun run test:release /path/to/apeiron');

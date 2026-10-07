@@ -3,13 +3,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile, copyFile } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { version } from '../package.json';
+import { version } from './version';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const targets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'] as const;
 const options = process.argv.slice(2);
 const out = options[0];
-const selected = options[1] ? [options[1]] : [...targets];
+const selected = [options[1] || `${process.platform}-${process.arch}`];
+const triples: Record<string,string> = { 'darwin-arm64': 'aarch64-apple-darwin', 'darwin-x64': 'x86_64-apple-darwin', 'linux-arm64': 'aarch64-unknown-linux-musl', 'linux-x64': 'x86_64-unknown-linux-musl' };
 if (!out || !isAbsolute(out) || options.length > 2 || selected.some(t => !targets.includes(t as typeof targets[number]))) {
   throw new Error('Usage: bun run build:release /absolute/output [darwin-arm64|darwin-x64|linux-arm64|linux-x64]');
 }
@@ -21,12 +22,15 @@ for (const target of selected) {
   if (await Bun.file(join(out, name)).exists()) throw new Error(`Refusing to replace ${name}`);
   const stage = await mkdtemp(join(tmpdir(), 'apeiron-release-'));
   try {
-    // Baseline avoids requiring AVX2 on older x64 servers.
-    const bunTarget = `bun-${target}${target === 'linux-x64' ? '-baseline' : ''}`;
-    const build = Bun.spawn([process.execPath, 'build', './bin/apeiron.ts', '--compile', `--target=${bunTarget}`, '--outfile', join(stage, 'apeiron')], {
+    const triple = triples[target]!;
+    const build = Bun.spawn(['cargo', 'build', '--release', '--locked', '--target', triple], {
       cwd: root, stdout: 'inherit', stderr: 'inherit',
     });
     if (await build.exited !== 0) throw new Error(`Build failed for ${target}`);
+    const metadata = Bun.spawnSync(['cargo', 'metadata', '--no-deps', '--format-version', '1'], { cwd: root });
+    if (metadata.exitCode !== 0) throw new Error('Cannot locate Cargo output');
+    const targetDirectory = JSON.parse(metadata.stdout.toString()).target_directory as string;
+    await copyFile(join(targetDirectory, triple, 'release/apeiron'), join(stage, 'apeiron'));
     await writeFile(join(stage, 'README.md'), readme);
     const archive = Bun.spawn(['tar', '-czf', join(out, name), '-C', stage, 'apeiron', 'README.md'], { stdout: 'inherit', stderr: 'inherit' });
     if (await archive.exited !== 0) throw new Error(`Archive failed for ${target}`);

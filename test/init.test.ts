@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, stat, symlink, writeFile, mkdir } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigStore } from '../src/init/config';
-import { startInitServer } from '../src/init/server';
+import { startInitServer } from './rust-server';
 import { deploymentFixture, requiredApps } from './fixtures';
 
 const cleanups: Array<() => Promise<unknown>> = [];

@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { runChat } from '../src/chat/command';
 import { runInit } from '../src/init/command';
 import { runEntry } from '../src/entry-command';
-import { version } from '../package.json';
+import { version } from '../scripts/version';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [module, ...args] = process.argv.slice(2);

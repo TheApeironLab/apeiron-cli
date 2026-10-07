@@ -13,52 +13,84 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  checks:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.3.14
+      - run: rustup show
       - run: bun install --frozen-lockfile
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
       - run: bun run typecheck && bun test
+      - run: cargo build --locked
+      - name: Replay CLI and wizard HTTP contracts against Rust
+        run: APEIRON_TEST_BIN="$PWD/target/debug/apeiron" bun test test/chat.test.ts test/cli.test.ts test/init.test.ts
+      - name: Browser wizard against Rust
+        run: |
+          bunx playwright install --with-deps chromium
+          bun scripts/test-ui.ts "$PWD/target/debug/apeiron"
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/')
-        run: bun -e 'if (process.env.GITHUB_REF !== "refs/tags/v" + (await Bun.file("package.json").json()).version) process.exit(1)'
-      - run: bun run build:release "$RUNNER_TEMP/release"
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+        run: bun -e 'import {version} from "./scripts/version.ts"; if (process.env.GITHUB_REF !== "refs/tags/v" + version) process.exit(1)'
+
+  build:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: linux-x64
+            triple: x86_64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+            triple: aarch64-unknown-linux-musl
+          - runner: macos-15
+            target: darwin-arm64
+            triple: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: darwin-x64
+            triple: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
-          platforms: arm64
-      - name: Smoke test both Linux architectures without Bun
+          bun-version: 1.3.14
+      - name: Install native build target
+        env:
+          RUST_TARGET: ${{ matrix.triple }}
+        run: rustup target add "$RUST_TARGET"
+      - name: Install static Linux linker
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build Rust release archive
+        env:
+          TARGET: ${{ matrix.target }}
+        run: bun run build:release "$RUNNER_TEMP/release" "$TARGET"
+      - name: Smoke test executable without Bun on PATH
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          for arch in x64 arm64; do
-            mkdir -p "$RUNNER_TEMP/smoke-$arch"
-            tar -xzf "$RUNNER_TEMP/release/apeiron-"*"-linux-$arch.tar.gz" -C "$RUNNER_TEMP/smoke-$arch"
-            platform=amd64
-            [ "$arch" != arm64 ] || platform=arm64
-            docker run --rm --platform "linux/$platform" -v "$RUNNER_TEMP/smoke-$arch:/candidate:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/smoke-linux.sh
-          done
-      - run: bun scripts/finalize-release.ts "$RUNNER_TEMP/release"
-      - name: Verify system installation from a non-admin shell
-        run: |
-          release_version=$(bun -e 'console.log((await Bun.file("package.json").json()).version)')
-          docker run --rm --platform linux/amd64 -e APEIRON_TEST_VERSION="$release_version" -v "$RUNNER_TEMP/release:/release:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/test-system-install.sh
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+          mkdir -p "$RUNNER_TEMP/smoke"
+          tar -xzf "$RUNNER_TEMP/release/apeiron-"*"-$TARGET.tar.gz" -C "$RUNNER_TEMP/smoke"
+          bun run test:release "$RUNNER_TEMP/smoke/apeiron"
+      - name: Smoke test minimal Linux image
+        if: runner.os == 'Linux'
+        run: docker run --rm -v "$RUNNER_TEMP/smoke:/candidate:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/smoke-linux.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release
+          name: release-${{ matrix.target }}
           path: ${{ runner.temp }}/release
           retention-days: 7
 
-  macos:
+  package:
     needs: build
-    strategy:
-      matrix:
-        include:
-          - runner: macos-15
-            target: darwin-arm64
-          - runner: macos-15-intel
-            target: darwin-x64
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -66,19 +98,23 @@ jobs:
           bun-version: 1.3.14
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
+          pattern: release-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/release
+      - run: bun scripts/finalize-release.ts "$RUNNER_TEMP/release"
+      - name: Verify system installation from a non-admin shell
+        run: |
+          release_version=$(bun -e 'import {version} from "./scripts/version.ts"; console.log(version)')
+          docker run --rm -e APEIRON_TEST_VERSION="$release_version" -v "$RUNNER_TEMP/release:/release:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/test-system-install.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
           name: release
           path: ${{ runner.temp }}/release
-      - name: Smoke test macOS binary
-        env:
-          TARGET: ${{ matrix.target }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/smoke"
-          tar -xzf "$RUNNER_TEMP/release/apeiron-"*"-$TARGET.tar.gz" -C "$RUNNER_TEMP/smoke"
-          bun run test:release "$RUNNER_TEMP/smoke/apeiron"
+          retention-days: 7
 
   publish:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, macos]
+    needs: package
     runs-on: ubuntu-22.04
     permissions:
       contents: write

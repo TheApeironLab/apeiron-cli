@@ -1,0 +1,9 @@
+schema=apeiron.platform.entry.v1
+usage
+apeiron platform entry pair --domain team.example.com --public-ip <IPv4> [--ssh-host <host>] [--ssh-port 22]
+apeiron platform entry status|revoke --domain team.example.com
+apeiron platform connection list [--config <path>]
+apeiron platform connection status|test|revoke --id <id> [--config <path>]
+Entry commands run on the ECS as root; pairing codes expire after 10 minutes.
+Connection commands run on the CLI host. Add --json for machine-readable output.
+Exit codes: 0 success, 2 invalid input, 9 operation not confirmed.

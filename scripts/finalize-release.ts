@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { version } from '../package.json';
+import { version } from './version';
 
 const out = process.argv[2];
 if (!out || !isAbsolute(out)) throw new Error('Usage: bun scripts/finalize-release.ts /absolute/output');
@@ -17,7 +17,7 @@ for (const name of [...targets.map(target => `apeiron-${version}-${target}.tar.g
 }
 const revision = Bun.spawnSync(['git', 'rev-parse', 'HEAD']);
 if (revision.exitCode !== 0) throw new Error('Cannot determine source revision');
-const manifest = JSON.stringify({ schemaVersion: 1, version, revision: revision.stdout.toString().trim(), bun: Bun.version, targets, files }, null, 2) + '\n';
+const manifest = JSON.stringify({ schemaVersion: 1, version, revision: revision.stdout.toString().trim(), toolchain: (await Bun.file(new URL('../rust-toolchain.toml', import.meta.url)).text()).match(/channel = "([^"]+)"/)?.[1], targets, files }, null, 2) + '\n';
 await writeFile(join(out, 'release.json'), manifest);
 const manifestHash = createHash('sha256').update(manifest).digest('hex');
 await writeFile(join(out, 'SHA256SUMS'), Object.entries(files).map(([name, file]) => `${file.sha256}  ${name}\n`).join('') + `${manifestHash}  release.json\n`);

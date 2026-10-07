@@ -25,7 +25,8 @@ async function fixture(work: (f: { run: (args: string[]) => Promise<{ code: numb
     return Response.json({ event_id: '$event' });
   } });
   const run = async (args: string[]) => {
-    const process = Bun.spawn([Bun.which('bun')!, cli, 'chat', ...args], {
+    const invocation = globalThis.process.env.APEIRON_TEST_BIN ? [globalThis.process.env.APEIRON_TEST_BIN!, 'chat', ...args] : [Bun.which('bun')!, cli, 'chat', ...args];
+    const process = Bun.spawn(invocation, {
       env: { ...globalThis.process.env, APEIRON_CHAT_SERVER: server.url.origin, APEIRON_CHAT_TOKEN_FILE: token }, stdout: 'pipe', stderr: 'pipe',
     });
     const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
