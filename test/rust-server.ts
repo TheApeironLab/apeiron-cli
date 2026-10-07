@@ -4,7 +4,7 @@ import { startInitServer as legacyStart } from '../src/init/server';
 // Replay the existing HTTP assertions against an actual Rust child. Tests that
 // inject in-process TS functions remain reference tests, alongside Rust boundary tests.
 export const startInitServer: typeof legacyStart = async options => {
-  if (!process.env.APEIRON_TEST_BIN || options.resources) return legacyStart(options);
+  if (!process.env.APEIRON_TEST_BIN || options.resources || options.gateway) return legacyStart(options);
   const child = spawn(process.env.APEIRON_TEST_BIN, ['init', '--no-open', '--config', options.path, ...(options.port === undefined ? [] : ['--port', String(options.port)])], { stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '', errors = '', result: any = { phase: 'idle' };
   child.stderr.on('data', chunk => { errors += chunk; });

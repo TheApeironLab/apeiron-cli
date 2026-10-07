@@ -1,6 +1,6 @@
 # Apeiron CLI
 
-统一入口：`apeiron <模块> <命令>`。`apeiron init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。TypeScript strict + Bun 1.3.14+；onto 模块需要已安装依赖的 ontology 仓库。
+统一入口：`apeiron <模块> <命令>`。`apeiron init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。Rust 单文件程序，内嵌浏览器向导；运行不需要 Bun/Node。onto 模块需要外部 CLI 或已安装依赖的 ontology 仓库。
 
 ## 安装发行版
 
@@ -28,8 +28,7 @@ Caddy 自动管理公网证书，ECS 转发使用由 systemd 管理的受限 SSH
 ```sh
 git clone https://github.com/TheApeironLab/apeiron-cli.git
 cd apeiron-cli
-bun install --frozen-lockfile
-bun link
+cargo install --path runtime --locked
 apeiron --help
 ```
 
@@ -147,16 +146,16 @@ apeiron init --help
 ## 独立可执行文件
 
 ```sh
-bun run build
-./dist/apeiron init
+cargo build --release --locked
+./target/release/apeiron init
 ```
 
-构建生成当前系统架构的可执行文件，包含本地配置页面和 Bun 运行时，使用向导无需在目标机器安装 Bun。
+构建生成当前系统架构的可执行文件，包含本地配置页面；Linux 使用 musl 静态构建，macOS 只使用系统库。使用向导无需在目标机器安装 Bun。
 `onto` 转发仍需要其源码/依赖或配置好的外部 CLI。构建产物不提交到 Git。四个平台的发行构建、安装器与 GitHub/OSS 自动发布见 [发布说明](docs/releases.md)。
 
 ## Ontology 模块
 
-默认寻找相邻的 `../ontology` 仓库，也可以指定：
+默认从可执行文件目录寻找 `../ontology` 仓库，也可以指定：
 
 ```sh
 export APEIRON_ONTO_ROOT=/absolute/path/to/ontology
@@ -167,7 +166,7 @@ apeiron onto schema
 apeiron onto --help
 ```
 
-连接与认证沿用 Ontology CLI 的配置，不内置服务地址或凭据。顶层 `apeiron status` / `apeiron verify` 检查本地入口；`apeiron onto status` 查看业务服务。
+连接与认证沿用 Ontology CLI 的配置，不内置服务地址或凭据。顶层 `apeiron verify` 检查 Ontology 入口，`apeiron status` 查看本机连接运行时；`apeiron onto status` 查看业务服务。
 
 ## 扩展模块
 
@@ -182,12 +181,20 @@ apeiron wlk <command>
 ## 验证
 
 ```sh
+bun install --frozen-lockfile
+bun scripts/embed-assets.ts --check
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
 bun run typecheck
 bun test
-bun run build
+bun run test:rust
+cargo build --release --locked
 bun run test:ui
 apeiron verify
 ```
+
+开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.ts`、`page.ts` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.ts` 更新嵌入资源。Cargo 构建直接使用已提交资源。其余 TS 服务端暂作等价性测试对照，不进入发行二进制；待这些边界场景全部由 Rust 实际进程测试覆盖后删除对照实现，保留测试断言。
 
 首次浏览器验证需先运行 `bunx playwright install chromium`。`test:ui` 从临时目录启动编译后的二进制，
 用隔离的部署替身验证七步配置、必选项、失败/重试、刷新恢复、部署后进入访问配置、系统授权取消/重试的页面状态、凭据读取／隐藏／复制／下载、连接检查失败与重试、完成退出、桌面/手机布局以及没有外部网络请求。授权测试使用隔离替身，不弹出真实管理员授权或修改开发机信任库。它不对真实集群执行 sync。
@@ -201,7 +208,7 @@ bun scripts/test-helmfile.ts /absolute/path/to/chentu chentu-lab
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
 
-当前尚未发布到 npm registry。顶层 `status` / `verify` 仍沿用早期 Ontology 入口检查含义；
+当前尚未发布到 npm registry。`connect` / `status` / `disconnect` 使用 Rust 连接运行时；
 `platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
 
 部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）

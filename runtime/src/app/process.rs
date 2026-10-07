@@ -15,6 +15,11 @@ impl Cancellation {
     pub fn cancel(&self) {
         self.0.store(true, Ordering::Release);
     }
+    pub async fn cancelled(&self) {
+        while self.check().is_ok() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
     pub fn check(&self) -> Result<()> {
         if self.0.load(Ordering::Acquire) {
             Err(fail("操作已取消。", 499))
@@ -46,14 +51,24 @@ pub fn capture(
     let mut child = command.spawn().map_err(|_| fail("无法启动所需的本地工具。", 502))?;
     let mut stdin = child.stdin.take().unwrap();
     let input = input.to_vec();
-    let writer = thread::spawn(move || stdin.write_all(&input));
+    let (write_tx, write_rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let _ = write_tx.send(stdin.write_all(&input));
+    });
     let stdout = child.stdout.take().unwrap();
-    let reader = thread::spawn(move || {
+    let (read_tx, read_rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
         let mut data = Vec::new();
-        stdout.take(limit as u64 + 1).read_to_end(&mut data).map(|_| data)
+        let result = stdout.take(limit as u64 + 1).read_to_end(&mut data).map(|_| data);
+        let _ = read_tx.send(result);
     });
     let start = Instant::now();
-    let result = loop {
+    let mut status = None;
+    let mut output = None;
+    let mut written = false;
+    // The deadline includes pipe draining: descendants can inherit the pipes even
+    // after the direct child exits. Never join a potentially blocked I/O thread.
+    let bytes = loop {
         if cancel.check().is_err() || start.elapsed() >= timeout {
             #[cfg(unix)]
             unsafe {
@@ -61,30 +76,38 @@ pub fn capture(
             }
             let _ = child.kill();
             let _ = child.wait();
-            break Err(fail("操作已取消或超过时间限制。", 502));
+            return Err(fail("操作已取消或超过时间限制。", 502));
         }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                break if status.success() {
-                    Ok(())
-                } else {
-                    Err(fail("本地工具未确认操作成功。", 502))
+        if output.is_none() {
+            if let Ok(value) = read_rx.try_recv() {
+                output = Some(value);
+            }
+        }
+        if !written {
+            written = write_rx.try_recv().is_ok();
+        }
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(value) => status = value,
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(fail("无法等待本地工具退出。", 502));
                 }
             }
-            Ok(None) => thread::sleep(Duration::from_millis(20)),
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break Err(fail("无法等待本地工具退出。", 502));
+        }
+        if let Some(status) = status {
+            if written && output.is_some() {
+                if !status.success() {
+                    return Err(fail("本地工具未确认操作成功。", 502));
+                }
+                if let Some(output) = output.take() {
+                    break output.map_err(|_| fail("无法读取工具输出。", 502))?;
+                }
             }
         }
+        thread::sleep(Duration::from_millis(20));
     };
-    let _ = writer.join();
-    let bytes = reader
-        .join()
-        .map_err(|_| fail("无法读取工具输出。", 502))?
-        .map_err(|_| fail("无法读取工具输出。", 502))?;
-    result?;
     if bytes.len() > limit {
         return Err(fail("工具响应超过大小限制。", 502));
     }
@@ -124,4 +147,44 @@ pub fn config_path(value: Option<&String>) -> Result<std::path::PathBuf> {
             .map_err(|_| fail("无法读取当前目录。", 500))?
             .join(path)
     })
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inherited_pipe_obeys_deadline_after_parent_exit() {
+        let start = Instant::now();
+        let result = capture(
+            Command::new("sh").args(["-c", "sleep 20 & exit 0"]),
+            b"",
+            Duration::from_millis(150),
+            1024,
+            &Cancellation::default(),
+        );
+        assert!(result.is_err());
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
+
+    #[test]
+    fn blocked_stdin_obeys_cancellation() {
+        let cancel = Cancellation::default();
+        let trigger = cancel.clone();
+        let worker = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            trigger.cancel();
+        });
+        let start = Instant::now();
+        let result = capture(
+            Command::new("sh").args(["-c", "sleep 20"]),
+            &vec![0; 1024 * 1024],
+            Duration::from_secs(10),
+            1024,
+            &cancel,
+        );
+        worker.join().unwrap();
+        assert!(result.is_err());
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
 }

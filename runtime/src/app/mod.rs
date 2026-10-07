@@ -8,6 +8,7 @@ mod discovery;
 mod models;
 mod pairing;
 mod process;
+mod register;
 mod resources;
 mod wizard;
 use serde_json::{json, Value};
@@ -198,6 +199,7 @@ pub fn run() -> Option<i32> {
     }
     let result = match module {
         "chat" => chat::run(&args[1..]),
+        "register" => register::run(&args[1..]),
         "init" => wizard::run(&args[1..]),
         "platform" => pairing::run(&args[1..]),
         "--version" => {
@@ -205,7 +207,7 @@ pub fn run() -> Option<i32> {
             Ok(())
         }
         "--help" | "-h" | "describe" => {
-            println!("schema=apeiron.v1\ncommand\tusage\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
+            println!("schema=apeiron.v1\ncommand\tusage\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
             Ok(())
         }
         _ => forward(module, &args[1..]),
@@ -230,7 +232,12 @@ fn forward(module: &str, args: &[String]) -> Result<()> {
     }
     let root = std::env::var_os("APEIRON_ONTO_ROOT")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../ontology"));
+        .unwrap_or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.join("../ontology")))
+                .unwrap_or_else(|| std::path::PathBuf::from("../ontology"))
+        });
     let entry = root.join("apps/onto/cli/main.ts");
     if module == "verify" {
         let present = entry.is_file();

@@ -3,7 +3,6 @@ use super::*;
 use base64::Engine;
 use std::{
     fs,
-    net::ToSocketAddrs,
     process::Command,
     sync::{Arc, Mutex},
     thread,
@@ -202,12 +201,9 @@ pub fn verify(info: &Value, cancel: &Cancellation) -> Result<Value> {
         let mut check = json!({"name":name,"host":host,"url":url,"dns":"failed","https":"skipped","message":"解析失败或地址与部署入口不一致，请检查 hosts / DNS。"});
         let (sender, receiver) = std::sync::mpsc::channel();
         let host_copy = host.clone();
+        let dns_only = info["public"] == true;
         thread::spawn(move || {
-            let _ = sender.send(
-                (host_copy.as_str(), 443)
-                    .to_socket_addrs()
-                    .map(|a| a.map(|s| s.ip().to_string()).collect::<Vec<_>>()),
-            );
+            let _ = sender.send(discovery::lookup(&host_copy, dns_only));
         });
         if receiver
             .recv_timeout(Duration::from_secs(4))

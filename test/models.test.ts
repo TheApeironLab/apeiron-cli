@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { ConfigStore, publicSnapshot, validateConfig } from '../src/init/config';
 import { environmentFor } from '../src/init/deploy';
 import { installModelKey, modelConfiguration, modelRequest } from '../src/init/models';
-import { startInitServer } from '../src/init/server';
+import { startInitServer } from './rust-server';
 
 const models = { provider: 'bigmodel', baseUrl: 'https://models.example.internal/v1', apiKey: 'test-model-secret', fast: 'fast-model', deep: 'reasoning-model' };
 const deployment = { runner: 'native' as const, root: '', environment: '/tmp/environment.yaml', kubeconfig: '/tmp/kubeconfig', workDir: '', image: '', offline: true, bundleDir: '/tmp/bundle' };
@@ -96,4 +96,34 @@ test('native and Docker model credentials travel only via stdin, with failures r
     }
     await expect(installModelKey(models, deployment, { ...env, FAIL: '1' }, new AbortController().signal)).rejects.toThrow('无法写入模型 Secret');
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+
+test('wizard model HTTP boundary preserves responses, redacts errors, and cancels a stalled provider on shutdown', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'setup-model-transport-'));
+  const provider = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => Response.json({ data: [{ id: 'fast-model' }] }) });
+  const server = await startInitServer({ path: join(dir, 'config.json') });
+  const configured = { ...models, baseUrl: `http://127.0.0.1:${provider.port}/v1` };
+  const post = () => fetch(server.url + 'api/models/list', { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ models: configured, revision: null }) });
+  let release: (() => void) | undefined;
+  try {
+    expect(await (await post()).json()).toEqual({ models: ['fast-model'] });
+    provider.reload({ fetch: () => new Response(models.apiKey, { status: 401 }) });
+    const denied = await post();
+    expect(denied.status).toBe(400);
+    const body = await denied.text();
+    expect(body).toContain('HTTP 401');
+    expect(body).not.toContain(models.apiKey);
+    let received!: () => void;
+    const started = new Promise<void>(resolve => { received = resolve; });
+    provider.reload({ async fetch() { received(); await new Promise<void>(resolve => { release = resolve; }); return Response.json({ data: [] }); } });
+    const pending = post().then(r => r.text()).catch(() => 'closed');
+    await started;
+    const before = Date.now();
+    await server.stop();
+    expect(Date.now() - before).toBeLessThan(3000);
+    await pending;
+  } finally {
+    release?.(); provider.stop(true); await server.stop(); await rm(dir, { recursive: true, force: true });
+  }
 });

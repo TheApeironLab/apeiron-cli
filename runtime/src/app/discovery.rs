@@ -17,8 +17,8 @@ pub fn architecture(s: &str) -> &str {
 pub fn supported(os: &str, version: &str, arch: &str) -> bool {
     os == "ubuntu"
         && match architecture(arch) {
-            "amd64" => version.starts_with("22.04"),
-            "arm64" => version.starts_with("24.04"),
+            "amd64" => config::matches(r"^22\.04(?:\.[0-9]+)?$", version),
+            "arm64" => config::matches(r"^24\.04(?:\.[0-9]+)?$", version),
             _ => false,
         }
 }
@@ -134,12 +134,21 @@ pub fn probe(offline: bool, cancel: &Cancellation) -> Result<Value> {
             .map(|(name, host, notfound)| {
                 scope.spawn(move || {
                     let start = Instant::now();
-                    let result = client(4).and_then(|c| {
-                        c.head(format!("https://{host}/"))
-                            .header("User-Agent", "apeiron-cli-connectivity")
-                            .send()
-                            .map_err(|e| fail(if e.is_timeout() { "timeout" } else { "unreachable" }, 400))
-                    });
+                    let result = (|| {
+                        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
+                            .map_err(|_| fail("unreachable", 400))?;
+                        runtime.block_on(async {
+                            let client = reqwest::Client::builder().timeout(Duration::from_secs(4))
+                                .redirect(reqwest::redirect::Policy::none()).build()
+                                .map_err(|_| fail("unreachable", 400))?;
+                            tokio::select! {
+                                _ = cancel.cancelled() => Err(fail("cancelled", 400)),
+                                response = client.head(format!("https://{host}/"))
+                                    .header("User-Agent", "apeiron-cli-connectivity").send() =>
+                                    response.map_err(|e| fail(if e.is_timeout() { "timeout" } else { "unreachable" }, 400)),
+                            }
+                        })
+                    })();
                     let mut check = json!({"name":name,"host":host,"elapsedMs":start.elapsed().as_millis()});
                     if cancel.check().is_err() {
                         check["status"] = json!("cancelled");
@@ -208,9 +217,7 @@ pub fn dns(input: &Value, include_root: bool, cancel: &Cancellation) -> Result<V
                     let (send, receive) = mpsc::channel();
                     let name = host.clone();
                     thread::spawn(move || {
-                        let addresses = (name.as_str(), 443)
-                            .to_socket_addrs()
-                            .map(|a| a.map(|v| v.ip().to_string()).collect::<std::collections::BTreeSet<_>>());
+                        let addresses = lookup(&name, !local);
                         let _ = send.send(addresses);
                     });
                     let start = Instant::now();
@@ -359,4 +366,30 @@ pub fn nodes(input: &Value, cancel: &Cancellation) -> Result<Value> {
         nodes.extend(batch);
     }
     Ok(json!({"nodes":nodes}))
+}
+
+// Public ingress must be verified through DNS, never a workstation's hosts file.
+// Local/private ingress deliberately uses the OS resolver so installed hosts work.
+pub fn lookup(name: &str, dns_only: bool) -> std::io::Result<std::collections::BTreeSet<String>> {
+    if !dns_only {
+        return (name, 443)
+            .to_socket_addrs()
+            .map(|a| a.map(|v| v.ip().to_string()).collect());
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    runtime.block_on(async {
+        use hickory_resolver::{
+            config::{LookupIpStrategy, ResolveHosts},
+            TokioResolver,
+        };
+        let mut builder = TokioResolver::builder_tokio().map_err(std::io::Error::other)?;
+        builder.options_mut().use_hosts_file = ResolveHosts::Never;
+        builder.options_mut().ip_strategy = LookupIpStrategy::Ipv4AndIpv6;
+        let resolver = builder.build();
+        let result = tokio::time::timeout(Duration::from_secs(4), resolver.lookup_ip(format!("{name}.")))
+            .await
+            .map_err(std::io::Error::other)?
+            .map_err(std::io::Error::other)?;
+        Ok(result.iter().map(|ip| ip.to_string()).collect())
+    })
 }

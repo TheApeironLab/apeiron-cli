@@ -1,8 +1,25 @@
 use super::*;
 use std::time::Instant;
-pub fn request(model: &Value, action: &str) -> Result<Value> {
-    let client = client(45)?;
-    let call = |path: &str, body: Option<Value>| -> Result<Value> {
+pub fn request(model: &Value, action: &str, cancel: &process::Cancellation) -> Result<Value> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| fail("无法启动模型请求。", 500))?;
+    runtime.block_on(async {
+        tokio::select! {
+            _ = cancel.cancelled() => Err(fail("操作已取消。", 499)),
+            result = request_inner(model, action) => result,
+        }
+    })
+}
+async fn request_inner(model: &Value, action: &str) -> Result<Value> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(45))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| fail("无法启动模型请求。", 500))?;
+    let client = &client;
+    let call = |path: &'static str, body: Option<Value>| async move {
         let url = format!("{}/{}", model["baseUrl"].as_str().unwrap(), path);
         let mut req = if let Some(body) = body {
             client.post(url).json(&body)
@@ -13,8 +30,9 @@ pub fn request(model: &Value, action: &str) -> Result<Value> {
         if let Some(key) = model["apiKey"].as_str().filter(|s| !s.is_empty()) {
             req = req.bearer_auth(key);
         }
-        let response = req
+        let mut response = req
             .send()
+            .await
             .map_err(|_| fail("无法完成模型请求：检查网络、地址和接口兼容性（45 秒超时）。", 400))?;
         if !response.status().is_success() {
             return Err(fail(
@@ -26,17 +44,16 @@ pub fn request(model: &Value, action: &str) -> Result<Value> {
             ));
         }
         let mut bytes = Vec::new();
-        response
-            .take(1_048_577)
-            .read_to_end(&mut bytes)
-            .map_err(|_| fail("无法读取模型响应。", 400))?;
-        if bytes.len() > 1_048_576 {
-            return Err(fail("模型响应超过大小限制。", 400));
+        while let Some(chunk) = response.chunk().await.map_err(|_| fail("无法读取模型响应。", 400))? {
+            if bytes.len() + chunk.len() > 1_048_576 {
+                return Err(fail("模型响应超过大小限制。", 400));
+            }
+            bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes).map_err(|_| fail("模型响应格式不正确。", 400))
+        serde_json::from_slice::<Value>(&bytes).map_err(|_| fail("模型响应格式不正确。", 400))
     };
     if action == "list" {
-        let data = call("models", None)?;
+        let data = call("models", None).await?;
         let rows = data["data"]
             .as_array()
             .ok_or_else(|| fail("模型服务未返回有效模型列表。", 400))?;
@@ -67,7 +84,7 @@ pub fn request(model: &Value, action: &str) -> Result<Value> {
             Some(
                 json!({"model":model[mode],"messages":[{"role":"user","content":"Reply OK."}],"max_tokens":64,"stream":false}),
             ),
-        )?;
+        ).await?;
         let message = &data["choices"][0]["message"];
         if ["content", "reasoning_content"]
             .iter()

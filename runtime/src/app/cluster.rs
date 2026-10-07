@@ -24,23 +24,8 @@ pub fn preflight(config: &Path, installation: &Value, cancel: &Cancellation) -> 
 }
 pub fn check(work: &Path, cluster: &str, i: &Value, cancel: &Cancellation) -> Result<String> {
     let name = format!("k3d-{cluster}-serverlb");
-    let names = process::text(
-        Command::new("docker").args([
-            "ps",
-            "-a",
-            "--filter",
-            &format!("name=^/{name}$"),
-            "--format",
-            "{{.Names}}",
-        ]),
-        b"",
-        10,
-        4096,
-        cancel,
-    )
-    .map_err(|_| fail("无法检查 Docker，请确认 Docker 已启动。", 400))?;
-    if !names.trim().is_empty() {
-        let output=process::text(Command::new("docker").args(["inspect","--format",r#"{"cluster":{{json (index .Config.Labels "k3d.cluster")}},"bindings":{{json .HostConfig.PortBindings}},"running":{{json .State.Running}}}"#,&name]),b"",10,65536,cancel)?;
+    let observed=process::text(Command::new("docker").args(["inspect","--format",r#"{"cluster":{{json (index .Config.Labels "k3d.cluster")}},"bindings":{{json .HostConfig.PortBindings}},"running":{{json .State.Running}}}"#,&name]),b"",10,65536,cancel);
+    if let Ok(output) = observed {
         let c: Value = serde_json::from_str(&output).map_err(|_| fail("无法读取集群端口配置。", 400))?;
         let marker = resources::json_file(&work.join("installation.json"), 8192).unwrap_or(Value::Null);
         if marker["cluster"] != cluster || marker["domain"] != i["domain"] || c["cluster"] != cluster {
@@ -59,13 +44,35 @@ pub fn check(work: &Path, cluster: &str, i: &Value, cancel: &Cancellation) -> Re
                         && ["127.0.0.1", "0.0.0.0", ""].contains(&b["HostIp"].as_str().unwrap_or(""))
                 })
             }) {
-                return Err(fail("集群入口端口与当前配置不同，请填回创建集群时的端口。", 409));
+                return Err(fail(
+                    "已找到本次安装的集群，但入口端口与当前配置不同。请填回创建集群时的端口，再重新部署。",
+                    409,
+                ));
             }
         }
         if c["running"] != true {
             return Err(fail("本次安装的 K3d 集群已停止，请先启动后重新部署。", 409));
         }
         return Ok("已识别本次安装的 K3d 集群，将复用集群重新部署，保留数据和凭据。".into());
+    }
+    // An inspect failure alone does not prove absence: confirm the daemon can list containers.
+    let names = process::text(
+        Command::new("docker").args([
+            "ps",
+            "-a",
+            "--filter",
+            &format!("name=^/{name}$"),
+            "--format",
+            "{{.Names}}",
+        ]),
+        b"",
+        10,
+        4096,
+        cancel,
+    )
+    .map_err(|_| fail("无法检查 Docker，请确认 Docker 已启动。", 400))?;
+    if !names.trim().is_empty() {
+        return Err(fail("无法读取现有集群的端口配置，请检查 Docker 后重试。", 400));
     }
     for key in ["httpPort", "httpsPort"] {
         cancel.check()?;

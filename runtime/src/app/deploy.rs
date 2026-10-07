@@ -60,9 +60,42 @@ impl Context {
             use std::os::unix::process::CommandExt;
             cmd.process_group(0);
         }
+        let mut reader =
+            fs::File::open(self.directory.join("install.log")).map_err(|_| fail("无法读取安装日志。", 500))?;
+        use std::io::{Seek, SeekFrom};
+        reader
+            .seek(SeekFrom::End(0))
+            .map_err(|_| fail("无法读取安装日志。", 500))?;
+        let release = regex::Regex::new(r"(?:Upgrading|Installing) release=([a-z0-9-]+),").unwrap();
+        let dependency =
+            regex::Regex::new(r"^configuration error: ([a-z0-9-]+) requires enabled release ([a-z0-9/-]+)$").unwrap();
+        let mut pending = String::new();
         let mut child = cmd.spawn().map_err(|_| fail("无法启动部署工具。", 500))?;
         let mut stopping = None;
         loop {
+            let mut chunk = [0u8; 65536];
+            let count = reader.read(&mut chunk).map_err(|_| fail("无法读取安装日志。", 500))?;
+            pending.push_str(&String::from_utf8_lossy(&chunk[..count]));
+            if let Some(last) = pending.rfind('\n') {
+                for line in pending[..last].lines() {
+                    if let Some(found) = release.captures(line) {
+                        self.event(&format!("正在同步应用：{}", &found[1]));
+                    }
+                    if let Some(found) = dependency.captures(line.trim()) {
+                        self.event(&format!("依赖检查未通过：{} 需要启用 {}。", &found[1], &found[2]));
+                    }
+                }
+                pending = pending[last + 1..].to_owned();
+            }
+            if pending.len() > 8192 {
+                let boundary = pending
+                    .char_indices()
+                    .find(|(i, _)| *i >= pending.len() - 8192)
+                    .map(|(i, _)| i)
+                    .unwrap();
+                pending.drain(..boundary);
+            }
+
             if self.cancel.check().is_err() {
                 let since = stopping.get_or_insert_with(Instant::now);
                 #[cfg(unix)]
@@ -95,6 +128,10 @@ impl Context {
                     return if status.success() {
                         Ok(())
                     } else {
+                        self.event(&format!(
+                            "部署命令失败（退出码 {}），请查看本机安装日志。",
+                            status.code().unwrap_or(130)
+                        ));
                         Err(fail(
                             format!(
                                 "部署命令失败（退出码 {}），请查看本机安装日志。",

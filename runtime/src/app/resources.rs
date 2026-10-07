@@ -74,46 +74,71 @@ pub fn destination(base: &Path, relative: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
-fn download(url: &str, seconds: u64, trusted: bool, cancel: &Cancellation) -> Result<reqwest::blocking::Response> {
-    let client = client(seconds)?;
-    let mut url = reqwest::Url::parse(url).map_err(|_| fail("资源下载地址不正确。", 400))?;
-    for _ in 0..6 {
-        cancel.check()?;
-        if url.scheme() != "https"
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || (trusted
-                && (url.host_str() != Some(HOST)
-                    || url.port().is_some()
-                    || url.query().is_some()
-                    || url.fragment().is_some()
-                    || !url.path().starts_with("/chentu/releases/")))
-        {
-            return Err(fail("资源下载地址不受信任。", 400));
+fn download(
+    url: &str,
+    seconds: u64,
+    trusted: bool,
+    cancel: &Cancellation,
+    mut consume: impl FnMut(&[u8]) -> Result<()>,
+) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| fail("无法启动下载。", 500))?;
+    runtime.block_on(async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(seconds))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| fail("无法启动下载。", 500))?;
+        let mut url = reqwest::Url::parse(url).map_err(|_| fail("资源下载地址不正确。", 400))?;
+        for _ in 0..6 {
+            cancel.check()?;
+            if url.scheme() != "https"
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || (trusted
+                    && (url.host_str() != Some(HOST)
+                        || url.port().is_some()
+                        || url.query().is_some()
+                        || url.fragment().is_some()
+                        || !url.path().starts_with("/chentu/releases/")))
+            {
+                return Err(fail("资源下载地址不受信任。", 400));
+            }
+            let mut response = tokio::select! {
+                _ = cancel.cancelled() => return Err(fail("操作已取消。", 499)),
+                response = client.get(url.clone()).header("User-Agent", "apeiron-cli").send() =>
+                    response.map_err(|_| fail("资源下载失败，请检查网络或离线安装包。", 400))?,
+            };
+            if [301, 302, 303, 307, 308].contains(&response.status().as_u16()) {
+                url = response
+                    .headers()
+                    .get("location")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| url.join(v).ok())
+                    .ok_or_else(|| fail("资源重定向无效。", 400))?;
+                continue;
+            }
+            if response.status().as_u16() != 200 {
+                return Err(fail(
+                    format!("资源下载失败（HTTP {}）。", response.status().as_u16()),
+                    400,
+                ));
+            }
+            loop {
+                let chunk = tokio::select! {
+                    _ = cancel.cancelled() => return Err(fail("操作已取消。", 499)),
+                    chunk = response.chunk() => chunk.map_err(|_| fail("资源下载中断。", 400))?,
+                };
+                match chunk {
+                    Some(bytes) => consume(&bytes)?,
+                    None => return Ok(()),
+                }
+            }
         }
-        let response = client
-            .get(url.clone())
-            .header("User-Agent", "apeiron-cli")
-            .send()
-            .map_err(|_| fail("资源下载失败，请检查网络或离线安装包。", 400))?;
-        if [301, 302, 303, 307, 308].contains(&response.status().as_u16()) {
-            url = response
-                .headers()
-                .get("location")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| url.join(v).ok())
-                .ok_or_else(|| fail("资源重定向无效。", 400))?;
-            continue;
-        }
-        if response.status().as_u16() != 200 {
-            return Err(fail(
-                format!("资源下载失败（HTTP {}）。", response.status().as_u16()),
-                400,
-            ));
-        }
-        return Ok(response);
-    }
-    Err(fail("资源下载重定向次数过多。", 400))
+        Err(fail("资源下载重定向次数过多。", 400))
+    })
 }
 pub fn resolve(target: &Value, cancel: &Cancellation, progress: &dyn Fn(&str)) -> Result<PathBuf> {
     let bundle = target["bundleDir"].as_str().unwrap_or("");
@@ -186,17 +211,20 @@ pub fn resolve(target: &Value, cancel: &Cancellation, progress: &dyn Fn(&str)) -
             Some(b) => b,
             None => {
                 progress("正在下载并校验宸途安装包…");
-                let mut response = download(
+                let mut b = Vec::new();
+                download(
                     &format!("https://{HOST}/chentu/releases/{VERSION}/{id}.tar.gz"),
                     120,
                     true,
                     cancel,
-                )?
-                .take(64 * 1024 * 1024 + 1);
-                let mut b = Vec::new();
-                response
-                    .read_to_end(&mut b)
-                    .map_err(|_| fail("安装包下载失败。", 400))?;
+                    |chunk| {
+                        if b.len() + chunk.len() > 64 * 1024 * 1024 {
+                            return Err(fail("安装包超过大小限制。", 400));
+                        }
+                        b.extend_from_slice(chunk);
+                        Ok(())
+                    },
+                )?;
                 cancel.check()?;
                 if b.len() > 64 * 1024 * 1024 || config::hash(&b) != DIGEST {
                     return Err(fail("宸途资源包校验失败。", 400));
@@ -584,7 +612,6 @@ pub fn prepare_files(
             let url = f["url"]
                 .as_str()
                 .ok_or_else(|| fail(format!("资源 {name} 缺少下载地址。"), 400))?;
-            let mut response = download(url, 1800, false, cancel)?;
             private_write(&tmp, b"")?;
             let mut file = OpenOptions::new()
                 .write(true)
@@ -592,20 +619,15 @@ pub fn prepare_files(
                 .map_err(|_| fail("无法写入资源。", 500))?;
             let mut sha = Sha256::new();
             let mut size = 0;
-            let mut buf = [0; 65536];
-            loop {
-                cancel.check()?;
-                let n = response.read(&mut buf).map_err(|_| fail("资源下载中断。", 400))?;
-                if n == 0 {
-                    break;
-                }
-                size += n as u64;
+            download(url, 1800, false, cancel, |chunk| {
+                size += chunk.len() as u64;
                 if size > f["size"].as_u64().unwrap() {
                     return Err(fail("资源大小不符。", 400));
                 }
-                sha.update(&buf[..n]);
-                file.write_all(&buf[..n]).map_err(|_| fail("无法写入资源。", 500))?;
-            }
+                sha.update(chunk);
+                file.write_all(chunk).map_err(|_| fail("无法写入资源。", 500))?;
+                Ok(())
+            })?;
             if size != f["size"].as_u64().unwrap() || format!("{:x}", sha.finalize()) != f["sha256"].as_str().unwrap() {
                 return Err(fail("资源完整性校验失败。", 400));
             }
@@ -619,4 +641,40 @@ pub fn prepare_files(
     }
     progress("所选组件的资源文件均已完整校验。");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_interrupts_stalled_tls_download() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let url = format!("https://{}/archive", listener.local_addr().unwrap());
+        let cancel = Cancellation::default();
+        let trigger = cancel.clone();
+        let server = std::thread::spawn(move || {
+            let start = std::time::Instant::now();
+            let socket = loop {
+                if let Ok((socket, _)) = listener.accept() {
+                    break Some(socket);
+                }
+                if start.elapsed() > Duration::from_secs(2) {
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            };
+            // Hold the connection without replying to the TLS handshake.
+            std::thread::sleep(Duration::from_millis(100));
+            trigger.cancel();
+            std::thread::sleep(Duration::from_millis(200));
+            drop(socket);
+        });
+        let start = std::time::Instant::now();
+        let result = download(&url, 30, false, &cancel, |_| Ok(()));
+        assert_eq!(result.unwrap_err().code, 499);
+        assert!(start.elapsed() < Duration::from_secs(3));
+        server.join().unwrap();
+    }
 }

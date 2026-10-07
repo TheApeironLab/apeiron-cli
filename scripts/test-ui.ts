@@ -12,7 +12,7 @@ const dir = await mkdtemp(join(tmpdir(), 'apeiron-wizard-ui-'));
 const path = join(dir, 'config.json');
 const setup = await deploymentFixture(dir);
 await freshInstallFixture(dir, setup, 17, 'example.internal');
-const binary = process.argv[2] ? resolve(process.argv[2]) : resolve(import.meta.dir, '../dist/apeiron');
+const binary = process.argv[2] ? resolve(process.argv[2]) : resolve(import.meta.dir, '../target/release/apeiron');
 const child = Bun.spawn([binary, 'init', '--no-open', '--config', path], {
   cwd: dir, stdout: 'pipe', stderr: 'pipe', env: { ...process.env, PATH: setup.bin + ':' + process.env.PATH, LAB_ENV: setup.environment, APEIRON_CHENTU_ROOT: setup.root },
 });
@@ -298,10 +298,14 @@ try {
   for (const name of defaults) await app(name).uncheck();
   for (const name of optional) await app(name).check();
   await page.getByRole('button', { name: '上一步', exact: true }).click();
+  await page.getByRole('heading', { name: '配置模型', exact: true }).waitFor();
+  await page.getByRole('button', { name: '上一步', exact: true }).click();
   assert.equal(await slug.inputValue(), 'example-team');
   await page.getByRole('button', { name: '上一步', exact: true }).click();
   assert.equal(await page.getByRole('radio', { name: /单机 K3d/ }).isChecked(), true);
   await page.getByRole('button', { name: '下一步', exact: true }).click();
+  await page.getByRole('button', { name: '下一步', exact: true }).click();
+  await page.getByRole('heading', { name: '配置模型', exact: true }).waitFor();
   await page.getByRole('button', { name: '下一步', exact: true }).click();
   assert.equal(await app('Grafana').isChecked(), true);
   assert.equal(await app('Files').isChecked(), false);
@@ -309,14 +313,14 @@ try {
   await writeFile(join(setup.bin, 'docker'), dockerFixture.replace('"HostPort":"54321"', '"HostPort":"54323"'));
   await page.getByRole('button', { name: '开始部署', exact: true }).click();
   await page.getByText(/已找到本次安装的集群，但入口端口与当前配置不同/).waitFor();
-  assert.match(await page.locator('[aria-current=step]').innerText(), /3[\s\S]*应用/);
+  assert.match(await page.locator('[aria-current=step]').innerText(), /4[\s\S]*应用/);
   assert.equal((await fetch(url + 'api/deployment').then(r => r.json())).phase, 'idle');
   assert.equal(await Bun.file(setup.calls).exists(), false, 'Port rejection never starts prepare or sync');
   await writeFile(join(setup.bin, 'docker'), dockerFixture);
   await page.getByRole('button', { name: '开始部署', exact: true }).click();
   await page.getByRole('heading', { name: '正在部署…', exact: true }).waitFor();
-  assert.match(await page.locator('[aria-current=step]').innerText(), /4[\s\S]*部署/);
-  assert.equal(await page.locator('[data-step]').nth(5).getAttribute('data-state'), 'pending');
+  assert.match(await page.locator('[aria-current=step]').innerText(), /5[\s\S]*部署/);
+  assert.equal(await page.locator('[data-step]').nth(6).getAttribute('data-state'), 'pending');
   assert.equal(await page.getByRole('button', { name: '完成并关闭向导' }).isDisabled(), true);
   await page.reload();
   await page.getByRole('heading', { name: '部署失败。', exact: true }).waitFor();
@@ -378,6 +382,8 @@ try {
   assert.equal(await page.getByRole('radio', { name: /单机 K3d/ }).isChecked(), true);
   await page.getByRole('button', { name: '下一步', exact: true }).click();
   await page.getByRole('button', { name: '下一步', exact: true }).click();
+  await page.getByRole('heading', { name: '配置模型', exact: true }).waitFor();
+  await page.getByRole('checkbox', { name: '稍后配置（安装后暂时无法对话）' }).check();
   await page.getByRole('button', { name: '下一步', exact: true }).click();
   for (const name of [...required, ...optional]) assert.equal(await app(name).isChecked(), true);
   for (const name of defaults) assert.equal(await app(name).isChecked(), false);
@@ -407,7 +413,7 @@ try {
   await page.screenshot({ path: join(dir, 'access-configured.png'), fullPage: true });
   await page.getByRole('button', { name: '查看部署记录', exact: true }).click();
   await page.getByRole('heading', { name: '部署完成。', exact: true }).waitFor();
-  assert.match(await page.locator('[aria-current=step]').innerText(), /4[\s\S]*部署/);
+  assert.match(await page.locator('[aria-current=step]').innerText(), /5[\s\S]*部署/);
   await page.getByRole('button', { name: '继续配置访问', exact: true }).click();
   await page.getByRole('heading', { name: '配置访问', exact: true }).waitFor();
   await page.getByText('手动配置 / 其他电脑', { exact: true }).click();
@@ -458,7 +464,7 @@ try {
   await page.getByRole('button', { name: '下一步：测试', exact: true }).click();
   await page.getByRole('heading', { name: '测试', exact: true }).waitFor();
   await page.getByText('凭据已就绪。密码默认隐藏，可显示或复制。', { exact: true }).waitFor();
-  assert.match(await page.locator('[aria-current=step]').innerText(), /6[\s\S]*测试/);
+  assert.match(await page.locator('[aria-current=step]').innerText(), /7[\s\S]*测试/);
   assert.equal(await page.getByLabel('用户名', { exact: true }).inputValue(), 'fixture-admin');
   assert.equal(await page.getByLabel('密码', { exact: true }).inputValue(), 'fixture-only-admin-password');
   assert.equal(await page.getByLabel('密码', { exact: true }).getAttribute('type'), 'password');
@@ -530,7 +536,7 @@ try {
   for (;;) { const chunk = await remaining.read(); if (chunk.done) break; output += new TextDecoder().decode(chunk.value); }
   remaining.releaseLock(); output += await new Response(child.stderr).text();
   assert.equal(output.includes('private-log-test-key'), false);
-  console.log(`PASS compiled CLI + fixture deployer: six-step setup, initial admin display/copy/download, connection tests, separate deployment/access, local installation/cancellation/retry, machine probe/offline switch, selections, failure/retry, browser log view/download, reload, finish, desktop/mobile\nscreenshots: ${dir}`);
+  console.log(`PASS compiled CLI + fixture deployer: seven-step setup, initial admin display/copy/download, connection tests, separate deployment/access, local installation/cancellation/retry, machine probe/offline switch, selections, failure/retry, browser log view/download, reload, finish, desktop/mobile\nscreenshots: ${dir}`);
 } finally {
   clearTimeout(timeout); await browser?.close(); child.kill(); await child.exited;
   // Preserve screenshots only; fixture files and logs contain no real credentials.

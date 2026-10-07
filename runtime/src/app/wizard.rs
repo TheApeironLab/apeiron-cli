@@ -12,6 +12,7 @@ use std::{
 use tiny_http::{Header, Request, Response, Server, StatusCode};
 struct State {
     path: PathBuf,
+    gateway: Option<String>,
     origin: String,
     host: String,
     base: String,
@@ -24,6 +25,7 @@ struct State {
     verification: Mutex<Value>,
     deployed_revision: Mutex<Value>,
     probe: Mutex<Option<(std::time::Instant, Value)>>,
+    probe_cancel: Mutex<Cancellation>,
 }
 struct Reply {
     status: u16,
@@ -94,6 +96,9 @@ impl State {
                 "api/config" => {
                     let mut data = config::public(&config::read(&self.path)?);
                     data["connections"] = pairing::list(&self.path)?;
+                    if let Some(slug) = &self.gateway {
+                        data["gateway"] = json!({"slug":slug});
+                    }
                     data["apps"] = config::apps();
                     data["path"] = json!(self.path);
                     data["host"] = discovery::host();
@@ -186,6 +191,38 @@ impl State {
             thread::spawn(move || deployment.stop());
             return Ok(Reply::json(json!({"deployment":self.deployment.snapshot()}), 202));
         }
+        if route == "api/probe" {
+            if self.stop.load(Ordering::Acquire) {
+                return Err(fail("向导正在关闭。", 409));
+            }
+            let offline = input["offline"]
+                .as_bool()
+                .ok_or_else(|| fail("探测需要明确指定在线或离线模式。", 400))?;
+            if input.get("refresh").is_some_and(|v| !v.is_boolean()) {
+                return Err(fail("refresh 必须是布尔值。", 400));
+            }
+            let cancel = {
+                let mut active = self.probe_cancel.lock().unwrap();
+                active.cancel();
+                *active = Cancellation::default();
+                let mut cache = self.probe.lock().unwrap();
+                if !offline && input["refresh"] != true {
+                    if let Some((at, value)) = cache.as_ref() {
+                        if at.elapsed() < Duration::from_secs(30) {
+                            return Ok(Reply::json(value.clone(), 200));
+                        }
+                    }
+                }
+                *cache = None;
+                active.clone()
+            };
+            let result = discovery::probe(offline, &cancel)?;
+            let _active = self.probe_cancel.lock().unwrap();
+            if !offline && cancel.check().is_ok() {
+                *self.probe.lock().unwrap() = Some((std::time::Instant::now(), result.clone()));
+            }
+            return Ok(Reply::json(result, 200));
+        }
         let _guard = self
             .gate
             .try_lock()
@@ -201,7 +238,11 @@ impl State {
                     return Err(fail("配置已变化，请刷新后重试。", 409));
                 }
                 let model = config::models(&input["models"], &saved["config"]["models"])?;
-                models::request(&model, if route.ends_with("list") { "list" } else { "test" })?
+                models::request(
+                    &model,
+                    if route.ends_with("list") { "list" } else { "test" },
+                    &self.cancel,
+                )?
             }
             "api/connections/pair" | "api/connections/status" | "api/connections/test" | "api/connections/revoke" => {
                 self.busy()?;
@@ -227,6 +268,13 @@ impl State {
             }
             "api/config" | "api/deploy" => {
                 self.busy()?;
+                if self
+                    .gateway
+                    .as_ref()
+                    .is_some_and(|slug| input["slug"].as_str() != Some(slug))
+                {
+                    return Err(fail("组织标识必须与网关申请的名称一致。", 400));
+                }
                 if route == "api/deploy" {
                     let current = config::read(&self.path)?;
                     let candidate = config::validate(&input, &current["config"])?;
@@ -283,29 +331,6 @@ impl State {
                 let result = access::verify(&a["info"], &self.cancel)?;
                 *self.verification.lock().unwrap() = result.clone();
                 json!({"result":result})
-            }
-            "api/probe" => {
-                let offline = input["offline"]
-                    .as_bool()
-                    .ok_or_else(|| fail("探测需要明确指定在线或离线模式。", 400))?;
-                if input.get("refresh").is_some_and(|v| !v.is_boolean()) {
-                    return Err(fail("refresh 必须是布尔值。", 400));
-                }
-                let mut cache = self.probe.lock().unwrap();
-                if !offline && input["refresh"] != true {
-                    if let Some((at, value)) = cache.as_ref() {
-                        if at.elapsed() < Duration::from_secs(30) {
-                            return Ok(Reply::json(value.clone(), 200));
-                        }
-                    }
-                }
-                let result = discovery::probe(offline, &self.cancel)?;
-                *cache = if offline {
-                    None
-                } else {
-                    Some((std::time::Instant::now(), result.clone()))
-                };
-                result
             }
             "api/dns" => discovery::dns(&input, false, &self.cancel)?,
             "api/nodes" => {
@@ -385,6 +410,53 @@ pub fn run(args: &[String]) -> Result<()> {
         .parse::<u16>()
         .map_err(|_| fail("--port must be an integer from 0 to 65535", 2))?;
     let path = process::config_path(options.get("config"))?;
+    serve(path, port, None, !options.contains_key("no-open"), None)
+}
+pub struct GatewayWizard {
+    state: Arc<State>,
+    task: Option<thread::JoinHandle<Result<()>>>,
+}
+impl GatewayWizard {
+    pub fn url(&self) -> String {
+        format!("{}{}", self.state.origin, self.state.base)
+    }
+    pub fn stopping(&self) -> bool {
+        self.state.stop.load(Ordering::Acquire)
+    }
+    pub fn stop(&mut self) {
+        self.state.cancel.cancel();
+        self.state.stop.store(true, Ordering::Release);
+        if let Some(task) = self.task.take() {
+            let _ = task.join();
+        }
+    }
+}
+impl Drop for GatewayWizard {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+pub fn start_gateway(path: PathBuf, slug: String) -> Result<GatewayWizard> {
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    let task = thread::spawn(move || serve(path, 0, Some(slug), false, Some(send)));
+    match receive.recv_timeout(Duration::from_secs(15)) {
+        Ok(state) => Ok(GatewayWizard {
+            state,
+            task: Some(task),
+        }),
+        Err(_) => {
+            let _ = task.join();
+            Err(fail("无法启动网关部署向导。", 9))
+        }
+    }
+}
+fn serve(
+    path: PathBuf,
+    port: u16,
+    gateway: Option<String>,
+    open_browser: bool,
+    ready: Option<std::sync::mpsc::SyncSender<Arc<State>>>,
+) -> Result<()> {
     config::location(&path)?;
     config::read(&path)?;
     let server = Server::http(("127.0.0.1", port)).map_err(|_| fail("无法启动本地向导，请检查端口和权限。", 9))?;
@@ -403,6 +475,7 @@ pub fn run(args: &[String]) -> Result<()> {
     let url = format!("{origin}{base}");
     let state = Arc::new(State {
         path: path.clone(),
+        gateway,
         origin,
         host,
         base,
@@ -420,6 +493,7 @@ pub fn run(args: &[String]) -> Result<()> {
         verification: Mutex::new(Value::Null),
         deployed_revision: Mutex::new(Value::Null),
         probe: Mutex::new(None),
+        probe_cancel: Mutex::new(Cancellation::default()),
     });
     let signals = state.clone();
     thread::spawn(move || {
@@ -439,11 +513,15 @@ pub fn run(args: &[String]) -> Result<()> {
         signals.cancel.cancel();
         signals.stop.store(true, Ordering::Release);
     });
-    println!(
-        "schema=apeiron.init.v1\nkey\tvalue\nstatus\tlistening\nurl\t{url}\nconfig\t{}",
-        path.display()
-    );
-    if !options.contains_key("no-open") {
+    if let Some(ready) = ready {
+        ready.send(state.clone()).map_err(|_| fail("网关向导启动已取消。", 9))?;
+    } else {
+        println!(
+            "schema=apeiron.init.v1\nkey\tvalue\nstatus\tlistening\nurl\t{url}\nconfig\t{}",
+            path.display()
+        );
+    }
+    if open_browser {
         let command = if cfg!(target_os = "macos") {
             "open"
         } else if cfg!(target_os = "windows") {
@@ -482,6 +560,7 @@ pub fn run(args: &[String]) -> Result<()> {
         }
     }
     state.cancel.cancel();
+    state.probe_cancel.lock().unwrap().cancel();
     state.access.wait();
     state.deployment.stop();
     for worker in workers {

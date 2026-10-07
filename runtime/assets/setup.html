@@ -1327,6 +1327,10 @@ ${access.domain}      A    ${access.entryIp}`;
       cliHost = result.host;
       if (result.config)
         slug.value = result.config.slug;
+      if (result.gateway) {
+        slug.value = result.gateway.slug;
+        slug.readOnly = !0;
+      }
       const savedModel = result.config?.models;
       if (savedModel) {
         modelProvider.value = savedModel.provider || "";
