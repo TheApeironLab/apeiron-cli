@@ -8,7 +8,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   type Config = { slug: string; apps: string[]; deployment?: Target; models?: { provider: string; baseUrl: string; fast: string; deep: string; hasApiKey: boolean } | null };
   type Status = import('./deploy').DeploymentStatus;
   type Connection = import('./pairing').Connection;
-  type Snapshot = { revision: string | null; config: Config | null; apps: App[]; defaults: Target; deployment: Status; connections?: Connection[]; host: { name: string; addresses: string[] } };
+  type Snapshot = { gateway?: { slug: string }; revision: string | null; config: Config | null; apps: App[]; defaults: Target; deployment: Status; connections?: Connection[]; host: { name: string; addresses: string[] } };
   const get = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
   const form = get<HTMLFormElement>('setup-form');
   const slug = get<HTMLInputElement>('slug');
@@ -802,6 +802,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
       apps = result.apps; revision = result.revision;
       cliHost = result.host;
       if (result.config) slug.value = result.config.slug;
+      if (result.gateway) { slug.value = result.gateway.slug; slug.readOnly = true; }
       const savedModel = result.config?.models;
       if (savedModel) {
         modelProvider.value = savedModel.provider || '';

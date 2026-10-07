@@ -269,3 +269,16 @@ apeiron chat sync --out /tmp/chat-sync-001.json
 本地协议冒烟：`python3 scripts/smoke-chat.py <local-k3d-cluster> <absolute-cli-binary>`。
 脚本在独立 namespace 启动 Synapse 测试服务，创建一次性用户并调用真实 CLI，结束后删除测试资源。
 这是标准 Matrix API 验证，不代表已验证宸途 Tuwunel 的 SSO、生产权限或加密客户端。
+### Gateway-hosted setup (development)
+
+With the gateway portal running, generate a connection command for a reserved slug:
+
+```sh
+apeiron register --gateway https://gateway.example.com --enrollment-token <one-time-token>
+```
+
+The target machine starts the existing loopback wizard and connects outbound over WSS. Keep the process running while using setup through the gateway. The reserved slug is prefilled and enforced by the local server. The gateway never receives the wizard's loopback capability URL, and account cookies never reach the machine.
+
+The command prints a connection-file path under `~/.apeiron/gateway/`. Reconnect with `apeiron register --connection <path>`. That file contains a private agent token and has mode 0600; do not share it. Ctrl+C disconnects and stops the wizard, including any active deployment. Automatic systemd installation is not implemented in this initial version.
+
+Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.1` for local development. A localhost gateway URL works only when the CLI runs on the same machine. Production also needs gateway DNS/HTTPS and isolated setup subdomains. Application ingress provisioning remains separate from opening the deployment wizard.
