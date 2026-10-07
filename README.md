@@ -66,9 +66,9 @@ apeiron init
 
 | 方式 | 目标与限制 | 执行入口 |
 | --- | --- | --- |
-| 单机 K3s | 当前主机；现有宸途安装器支持 Ubuntu 22.04 / AMD64、root 或免密 sudo | 自动生成 local inventory → `bootstrap/hosts.yaml` → Helmfile |
-| 单机 K3d | 本机 Docker；开发测试，使用发行包校验后的工具箱与镜像 | `tests/lab/helmfile.sh prepare` → `sync` |
-| 多机 K3s | SSH 连接的 Ubuntu 22.04 / AMD64 节点；管理机可为 macOS | 校验并分发资源 → 自动生成 inventory → `bootstrap/hosts.yaml` → Helmfile |
+| 单机 K3s | 当前 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64 主机；需要匹配的原生安装包、root 或免密 sudo | 自动生成 local inventory → `bootstrap/hosts.yaml` → Helmfile |
+| 单机 K3d | macOS / ARM64 + Docker；开发测试，使用发行包校验后的工具箱与镜像 | `tests/lab/helmfile.sh prepare` → `sync` |
+| 多机 K3s | SSH 连接的 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64 节点；节点须匹配同一安装包，管理机可为 macOS | 校验并分发资源 → 自动生成 inventory → `bootstrap/hosts.yaml` → Helmfile |
 
 普通多机至少 2 台，1 个控制节点加工作节点。控制平面高可用需至少 3 个、且为奇数个控制节点；不把“至少 3 台”强加给普通多机。SeaweedFS 使用 1 或 3 个存储节点；两节点部署使用 1 个 SeaweedFS 节点，Longhorn 副本数不超过节点数。这不等于所有应用都高可用。
 
@@ -103,6 +103,8 @@ Mac 一键配置使用 [AppleScript 系统管理员授权](https://developer.app
 
 每次部署在配置目录的 `deployments/run-*/` 生成 `environment.yaml`、`inventory.yaml`（K3s）与 `install.log`。
 生成器以发行包声明为基础写入组织、域名、节点与存储规模，以及应用 `releases.<id>.enabled`。Helmfile 仍负责 release 默认值与 topology 预设合并、依赖校验、安装顺序和 hooks；资源清单仅负责文件选择与下载。
+
+部署模式同时决定 Nexus 公网代理：在线部署写入 `releases.nexus.values.publicProxies: true`，启用 Chentu 已有的 Docker／npm 代理；离线部署明确写入 `false`。重新生成配置时以本次部署模式为准，保留 Nexus 的其他配置。自定义上游仍遵循 Chentu 的优先级规则；这是仓库配置，不是集群出口防火墙策略。
 
 Limani 对应 `ontology`，Chat 对应 `matrix`，邮件对应 `stalwart`，代码仓库对应 `git`。Grafana 选项控制宸途 observability 组件的 `kps`、`loki`、`promtail` 三个 release；其余 ID 为小写应用名。Apeiron 包含 Ops，无需单独选择。
 取消选择只将相应 release 排除于本次同步，不卸载已有应用；平台访问权限仍由平台管理。
@@ -195,5 +197,4 @@ bun scripts/test-helmfile.ts /absolute/path/to/chentu chentu-lab
 决定，生成的 Helmfile values 含相同 `topology`。不再读取 `profile` 或
 `CHENTU_PROFILE`；旧配置明确报错，不自动转换。发行包 target 必须声明
 `deploymentTopology: true`，与新版 Chentu 一起构建。架构来自目标节点探针，
-K3d 来自运行 Docker 的本机架构；不同架构不混用安装包。原生 K3s 当前仍需
-Ubuntu 22.04 AMD64，多机不会自动开启 Longhorn 或三副本存储。
+K3d 来自运行 Docker 的本机架构；不同架构不混用安装包。原生 K3s 主机支持 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，发行包必须用 `hostPlatform` 声明匹配的 Ubuntu 版本和架构。当前公开 rc.5 仍只提供 K3d ARM64 资源；主机兼容不代表原生 K3s 资源已经发布。多机不会自动开启 Longhorn 或三副本存储。

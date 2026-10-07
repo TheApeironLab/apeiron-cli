@@ -19,7 +19,7 @@ apeiron init
 
 ```sh
 curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh -o /tmp/apeiron-install.sh
-sh /tmp/apeiron-install.sh --version 0.1.0-rc.3
+sh /tmp/apeiron-install.sh --version 0.1.0-rc.4
 ```
 
 安装器自动识别 macOS/Linux、ARM64/x64，下载对应 tar.gz，校验 SHA-256，再验证新二进制能够运行且版本一致，最后替换旧文件。下载或校验失败保留旧安装。显式 `--install-dir /absolute/path` 或 `APEIRON_INSTALL_DIR` 可选择其他目录；自定义目录若不在当前 PATH 中，需自行配置访问方式。`--no-modify-path` 禁止自定义安装补写 shell 配置，`APEIRON_DOWNLOAD_BASE` 可指定具有同样目录结构的 HTTPS 内网镜像。
@@ -46,7 +46,7 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 
 1. 更新 `package.json` 的 version。Chentu 更新时先发布并验证安装包，再更新 `src/resources/chentu.ts` 的版本、提交、URL 与 SHA-256。
 2. 运行 `bun install --frozen-lockfile`、`bun run typecheck`、`bun test`，提交推送代码。
-3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.1.0-rc.3`、`git push origin v0.1.0-rc.3`。不要求自动合并 PR。
+3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.1.0-rc.4`、`git push origin v0.1.0-rc.4`。不要求自动合并 PR。
 4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（glibc）。Linux x64 使用 baseline CPU 构建，Linux ARM64 在 QEMU 下测试，macOS 两种架构在对应原生 runner 测试。另在隔离 Ubuntu 容器内，从非管理员 shell 验证权限不足会失败、sudo 安装后同一 shell 可直接运行、重复更新和文件所有者/权限。
 5. 所有平台必须通过无 Bun 的独立启动、页面、favicon、配置 API 测试。发布 job 将相同产物保存到 OSS 与 GitHub Releases，逐文件下载校验后才更新 `install.sh` 和 `latest.txt`。
 

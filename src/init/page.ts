@@ -1,4 +1,5 @@
 import { initWizard } from './client';
+import { supportsK3sHost } from './host-platform';
 import logoPath from './assets/apeiron-logo.webp' with { type: 'file' };
 
 // Original login logo from TheApeironLab/apeiron:
@@ -108,5 +109,5 @@ export function renderPage(nonce: string): string {
 <section class="access-card" aria-labelledby="verification-check-title"><div class="probe-heading"><h2 id="verification-check-title">连接测试</h2><button id="run-verification" class="button" type="button">开始测试</button></div><p id="verification-scope" class="hint"></p><ul id="verification-results" class="verification-results"></ul><p id="verification-status" class="hint" role="status">点击开始测试，检查解析、证书信任和 HTTPS。</p></section>
 <section class="login-test" aria-labelledby="login-test-title"><h2 id="login-test-title">登录测试</h2><p class="hint">复制上方账号密码，打开应用完成登录。连接测试通过后，仍需实际登录验证身份与权限。</p><div class="access-downloads"><a id="test-open-apeiron" class="button primary" target="_blank" rel="noreferrer">登录 Apeiron ↗</a><a id="test-open-ops" class="button" target="_blank" rel="noreferrer">登录 Ops ↗</a></div></section></section><div id="finish-actions" class="success-actions" hidden><button id="stop-deployment" type="button" class="button" hidden>停止部署</button><button id="retry-deployment" type="button" class="button primary" hidden>重新部署</button><button id="edit" type="button" class="button" hidden>返回修改</button><button id="view-deployment" type="button" class="button" hidden>查看部署记录</button><button id="configure-access" type="button" class="button primary" hidden>继续配置访问</button><button id="to-verification" type="button" class="button primary" hidden>下一步：测试</button><button id="back-access" type="button" class="button" hidden>返回配置访问</button><button id="finish" type="button" class="button" disabled>完成并关闭向导</button></div>
 </section></main><footer class="footer"><span>Apeiron · Deploy your workspace</span><span>部署环境 · 组织 · 应用 · 部署 · 访问 · 测试</span></footer></div>
-<script nonce="${nonce}">(${initWizard.toString()})();</script></body></html>`;
+<script nonce="${nonce}">(${initWizard.toString()})(${supportsK3sHost.toString()});</script></body></html>`;
 }
