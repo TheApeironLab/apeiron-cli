@@ -24,8 +24,7 @@ struct State {
     access: access::LocalAccess,
     verification: Mutex<Value>,
     deployed_revision: Mutex<Value>,
-    probe: Mutex<Option<(std::time::Instant, Value)>>,
-    probe_cancel: Mutex<Cancellation>,
+    probe: discovery::EnvironmentProbe,
 }
 struct Reply {
     status: u16,
@@ -122,7 +121,8 @@ impl State {
                         .as_str()
                         .ok_or_else(|| fail("尚未生成安装日志。", 404))?;
                     let mut reply = Reply::bytes(
-                        resources::read(Path::new(path), 64 * 1024 * 1024)?,
+                        resources::read(Path::new(path), 64 * 1024 * 1024)
+                            .map_err(|_| fail("安装日志不可用。", 404))?,
                         "text/plain; charset=utf-8",
                     );
                     reply.disposition = Some(if route.ends_with("download") {
@@ -201,26 +201,7 @@ impl State {
             if input.get("refresh").is_some_and(|v| !v.is_boolean()) {
                 return Err(fail("refresh 必须是布尔值。", 400));
             }
-            let cancel = {
-                let mut active = self.probe_cancel.lock().unwrap();
-                active.cancel();
-                *active = Cancellation::default();
-                let mut cache = self.probe.lock().unwrap();
-                if !offline && input["refresh"] != true {
-                    if let Some((at, value)) = cache.as_ref() {
-                        if at.elapsed() < Duration::from_secs(30) {
-                            return Ok(Reply::json(value.clone(), 200));
-                        }
-                    }
-                }
-                *cache = None;
-                active.clone()
-            };
-            let result = discovery::probe(offline, &cancel)?;
-            let _active = self.probe_cancel.lock().unwrap();
-            if !offline && cancel.check().is_ok() {
-                *self.probe.lock().unwrap() = Some((std::time::Instant::now(), result.clone()));
-            }
+            let result = self.probe.run(offline, input["refresh"] == true)?;
             return Ok(Reply::json(result, 200));
         }
         let _guard = self
@@ -314,8 +295,9 @@ impl State {
                 return Ok(Reply::json(json!({"deployment":self.deployment.snapshot()}), 202));
             }
             "api/access/install" => {
+                let artifacts = self.deployment.artifacts()?;
                 empty(&input)?;
-                self.access.start(self.deployment.artifacts()?)?;
+                self.access.start(artifacts)?;
                 return Ok(Reply::json(json!({"status":self.access.snapshot()}), 202));
             }
             "api/credentials" => {
@@ -492,8 +474,7 @@ fn serve(
         access: access::LocalAccess::new(),
         verification: Mutex::new(Value::Null),
         deployed_revision: Mutex::new(Value::Null),
-        probe: Mutex::new(None),
-        probe_cancel: Mutex::new(Cancellation::default()),
+        probe: discovery::EnvironmentProbe::default(),
     });
     let signals = state.clone();
     thread::spawn(move || {
@@ -560,7 +541,7 @@ fn serve(
         }
     }
     state.cancel.cancel();
-    state.probe_cancel.lock().unwrap().cancel();
+    state.probe.cancel();
     state.access.wait();
     state.deployment.stop();
     for worker in workers {
@@ -570,5 +551,46 @@ fn serve(
         Some("failed" | "stopping") => Err(fail("Deployment did not complete successfully", 9)),
         Some("cancelled") => Err(fail("Deployment cancelled", 130)),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod contracts {
+    use super::*;
+    #[test]
+    fn pending_local_authorization_blocks_mutations_finish_and_duplicate_installation() {
+        let temp = crate::app::contracts::Temp::new();
+        let a = access::contracts::artifacts(&temp);
+        let mut server = start_gateway(temp.0.join("config.json"), "fixture".into()).unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        server
+            .state
+            .access
+            .start_with(a, json!({"available":true}), move |_| {
+                receive.recv().unwrap();
+                Ok(json!({"phase":"succeeded","message":"fixture"}))
+            })
+            .unwrap();
+        let client = reqwest::blocking::Client::new();
+        for route in ["config", "deploy", "finish", "access/install"] {
+            let response = client
+                .post(format!("{}api/{route}", server.url()))
+                .header("Origin", &server.state.origin)
+                .json(&json!({}))
+                .send()
+                .unwrap();
+            assert_eq!(response.status().as_u16(), 409, "{route}");
+        }
+        let status: Value = client
+            .get(format!("{}api/access", server.url()))
+            .send()
+            .unwrap()
+            .json()
+            .unwrap();
+        assert_eq!(status["status"]["phase"], "installing");
+        send.send(()).unwrap();
+        server.state.access.wait();
+        assert_eq!(server.state.access.snapshot()["phase"], "succeeded");
+        server.stop();
     }
 }

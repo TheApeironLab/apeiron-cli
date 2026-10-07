@@ -26,6 +26,17 @@ pub struct Context {
     log: fs::File,
 }
 impl Context {
+    #[cfg(test)]
+    pub fn fixture(directory: &Path) -> Self {
+        Self {
+            config: directory.join("config.json"),
+            directory: directory.to_owned(),
+            cancel: Cancellation::default(),
+            owner: Deployment::new(),
+            log: fs::File::create(directory.join("install.log")).unwrap(),
+        }
+    }
+
     pub fn event(&self, message: &str) {
         let tagged = format!("[INFO] {message}");
         let mut s = self.owner.0.status.lock().unwrap();
@@ -128,17 +139,13 @@ impl Context {
                     return if status.success() {
                         Ok(())
                     } else {
-                        self.event(&format!(
-                            "部署命令失败（退出码 {}），请查看本机安装日志。",
+                        let message = format!(
+                            "{}：部署命令失败（退出码 {}），请查看本机安装日志。",
+                            self.owner.snapshot()["message"].as_str().unwrap_or("部署"),
                             status.code().unwrap_or(130)
-                        ));
-                        Err(fail(
-                            format!(
-                                "部署命令失败（退出码 {}），请查看本机安装日志。",
-                                status.code().unwrap_or(130)
-                            ),
-                            500,
-                        ))
+                        );
+                        self.event(&message);
+                        Err(fail(message, 500))
                     };
                 }
                 Ok(None) => thread::sleep(Duration::from_millis(50)),
@@ -274,6 +281,7 @@ impl Deployment {
                 owner: self.clone(),
                 log,
             };
+            context.event("开始安装检查。");
             let mut target = config["deployment"].clone();
             let fresh = target["installation"].is_object();
             let lock_path = if fresh {
@@ -380,6 +388,20 @@ impl Deployment {
             context.event("部署完成。");
             Ok(())
         })();
+        if let Err(ref error) = result {
+            if let Some(path) = self.snapshot()["log"].as_str() {
+                let mut options = OpenOptions::new();
+                options.append(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.custom_flags(libc::O_NOFOLLOW);
+                }
+                if let Ok(mut log) = options.open(path) {
+                    let _ = writeln!(log, "[ERROR] {}", error.message);
+                }
+            }
+        }
         let stopped = cancel.check().is_err();
         let cleanup = self.cleanup();
         let mut s = self.0.status.lock().unwrap();

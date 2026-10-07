@@ -31,7 +31,7 @@ pub fn read(path: &Path, limit: u64) -> Result<Vec<u8>> {
         return Err(fail("文件格式或大小不正确。", 400));
     }
     let mut bytes = Vec::new();
-    file.take(limit + 1)
+    file.take(stat.len())
         .read_to_end(&mut bytes)
         .map_err(|_| fail("无法读取文件。", 400))?;
     if bytes.len() as u64 > limit {
@@ -74,6 +74,21 @@ pub fn destination(base: &Path, relative: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
+fn validate_download_url(url: &reqwest::Url, trusted: bool) -> Result<()> {
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || (trusted
+            && (url.host_str() != Some(HOST)
+                || url.port().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+                || !url.path().starts_with("/chentu/releases/")))
+    {
+        return Err(fail("资源下载地址不受信任。", 400));
+    }
+    Ok(())
+}
 fn download(
     url: &str,
     seconds: u64,
@@ -94,18 +109,7 @@ fn download(
         let mut url = reqwest::Url::parse(url).map_err(|_| fail("资源下载地址不正确。", 400))?;
         for _ in 0..6 {
             cancel.check()?;
-            if url.scheme() != "https"
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || (trusted
-                    && (url.host_str() != Some(HOST)
-                        || url.port().is_some()
-                        || url.query().is_some()
-                        || url.fragment().is_some()
-                        || !url.path().starts_with("/chentu/releases/")))
-            {
-                return Err(fail("资源下载地址不受信任。", 400));
-            }
+            validate_download_url(&url, trusted)?;
             let mut response = tokio::select! {
                 _ = cancel.cancelled() => return Err(fail("操作已取消。", 499)),
                 response = client.get(url.clone()).header("User-Agent", "apeiron-cli").send() =>
@@ -174,9 +178,51 @@ pub fn resolve(target: &Value, cancel: &Cancellation, progress: &dyn Fn(&str)) -
         return Err(fail("XDG_CACHE_HOME 必须是绝对路径。", 400));
     }
     let cache = base.join("apeiron/chentu");
+    cached_release(
+        &cache,
+        bundle,
+        cancel,
+        progress,
+        Release {
+            version: VERSION,
+            revision: REVISION,
+            digest: DIGEST,
+        },
+        || {
+            let mut b = Vec::new();
+            download(
+                &format!("https://{HOST}/chentu/releases/{VERSION}/chentu-{VERSION}.tar.gz"),
+                120,
+                true,
+                cancel,
+                |chunk| {
+                    if b.len() + chunk.len() > 64 * 1024 * 1024 {
+                        return Err(fail("安装包超过大小限制。", 400));
+                    }
+                    b.extend_from_slice(chunk);
+                    Ok(())
+                },
+            )?;
+            Ok(b)
+        },
+    )
+}
+struct Release<'a> {
+    version: &'a str,
+    revision: &'a str,
+    digest: &'a str,
+}
+fn cached_release(
+    cache: &Path,
+    bundle: &str,
+    cancel: &Cancellation,
+    progress: &dyn Fn(&str),
+    release: Release<'_>,
+    fetch: impl FnOnce() -> Result<Vec<u8>>,
+) -> Result<PathBuf> {
     config::location(&cache.join("guard"))?;
-    private_directory(&cache)?;
-    let id = format!("chentu-{VERSION}");
+    private_directory(cache)?;
+    let id = format!("chentu-{}", release.version);
     let archive = cache.join(format!("{id}.tar.gz"));
     let dest = cache.join(&id);
     let lock = cache.join(format!("{id}.lock"));
@@ -196,12 +242,12 @@ pub fn resolve(target: &Value, cancel: &Cancellation, progress: &dyn Fn(&str)) -
         private_directory(&stage)?;
         let mut bytes = read(&archive, 64 * 1024 * 1024)
             .ok()
-            .filter(|b| config::hash(b) == DIGEST);
+            .filter(|b| config::hash(b) == release.digest);
         if bytes.is_none() && !bundle.is_empty() {
             let supplied = Path::new(bundle).join(format!("{id}.tar.gz"));
             if supplied.exists() {
                 let b = read(&supplied, 64 * 1024 * 1024)?;
-                if config::hash(&b) != DIGEST {
+                if config::hash(&b) != release.digest {
                     return Err(fail("本地宸途安装包校验失败。", 400));
                 }
                 bytes = Some(b);
@@ -211,22 +257,9 @@ pub fn resolve(target: &Value, cancel: &Cancellation, progress: &dyn Fn(&str)) -
             Some(b) => b,
             None => {
                 progress("正在下载并校验宸途安装包…");
-                let mut b = Vec::new();
-                download(
-                    &format!("https://{HOST}/chentu/releases/{VERSION}/{id}.tar.gz"),
-                    120,
-                    true,
-                    cancel,
-                    |chunk| {
-                        if b.len() + chunk.len() > 64 * 1024 * 1024 {
-                            return Err(fail("安装包超过大小限制。", 400));
-                        }
-                        b.extend_from_slice(chunk);
-                        Ok(())
-                    },
-                )?;
+                let b = fetch()?;
                 cancel.check()?;
-                if b.len() > 64 * 1024 * 1024 || config::hash(&b) != DIGEST {
+                if b.len() > 64 * 1024 * 1024 || config::hash(&b) != release.digest {
                     return Err(fail("宸途资源包校验失败。", 400));
                 }
                 let tmp = stage.join("archive.tar.gz");
@@ -299,8 +332,8 @@ pub fn resolve(target: &Value, cancel: &Cancellation, progress: &dyn Fn(&str)) -
         let manifest = json_file(&root.join("chentu-package.json"), 16384)?;
         if manifest["schemaVersion"] != 1
             || manifest["kind"] != "chentu-deployment"
-            || manifest["version"] != VERSION
-            || manifest["revision"] != REVISION
+            || manifest["version"] != release.version
+            || manifest["revision"] != release.revision
         {
             return Err(fail("安装包版本与 CLI 要求不符。", 400));
         }
@@ -318,7 +351,8 @@ pub fn resolve(target: &Value, cancel: &Cancellation, progress: &dyn Fn(&str)) -
     result
 }
 pub fn catalog(root: &Path, target: &str) -> Result<Value> {
-    let release = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)?;
+    let release = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)
+        .map_err(|_| fail("安装包缺少有效 setup/install.json 资源清单；尚未修改集群。", 400))?;
     let mut catalog = if release["schemaVersion"] == 2 {
         if !config::matches(r"^(k3d|k3s)-(arm64|amd64)$", target) {
             return Err(fail("安装目标格式不正确。", 400));
@@ -676,5 +710,97 @@ mod tests {
         assert_eq!(result.unwrap_err().code, 499);
         assert!(start.elapsed() < Duration::from_secs(3));
         server.join().unwrap();
+    }
+    #[test]
+    fn pinned_release_cache_repairs_modified_files_rejects_digest_and_revision_without_catalog_fallback() {
+        use crate::app::contracts::Temp;
+        let temp = Temp::new();
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        for (path, data) in ENTRIES
+            .iter()
+            .map(|p| (p.to_string(), "fixture source".to_owned()))
+            .chain(std::iter::once((
+                "chentu-package.json".into(),
+                json!({"schemaVersion":1,"kind":"chentu-deployment","version":VERSION,"revision":REVISION}).to_string(),
+            )))
+        {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o600);
+            header.set_cksum();
+            archive
+                .append_data(&mut header, format!("chentu-{VERSION}/{path}"), data.as_bytes())
+                .unwrap();
+        }
+        let bytes = archive.into_inner().unwrap().finish().unwrap();
+        let digest = config::hash(&bytes);
+        let release = || Release {
+            version: VERSION,
+            revision: REVISION,
+            digest: &digest,
+        };
+        let cancel = Cancellation::default();
+        assert!(resolve(&json!({"offline":true,"bundleDir":""}), &cancel, &|_| {})
+            .unwrap_err()
+            .message
+            .contains("离线"));
+        let root = cached_release(&temp.0.join("cache"), "", &cancel, &|_| {}, release(), || {
+            Ok(bytes.clone())
+        })
+        .unwrap();
+        assert!(catalog(&root, "").unwrap_err().message.contains("setup/install.json"));
+        fs::write(root.join(ENTRIES[0]), "modified").unwrap();
+        cached_release(&temp.0.join("cache"), "", &cancel, &|_| {}, release(), || {
+            panic!("validated cache must not download")
+        })
+        .unwrap();
+        assert_eq!(fs::read_to_string(root.join(ENTRIES[0])).unwrap(), "fixture source");
+        assert!(
+            cached_release(&temp.0.join("corrupt"), "", &cancel, &|_| {}, release(), || Ok(
+                b"corrupt".to_vec()
+            ))
+            .unwrap_err()
+            .message
+            .contains("校验失败")
+        );
+        assert!(cached_release(
+            &temp.0.join("revision"),
+            "",
+            &cancel,
+            &|_| {},
+            Release {
+                version: VERSION,
+                revision: "0000000000000000000000000000000000000000",
+                digest: &digest
+            },
+            || Ok(bytes)
+        )
+        .unwrap_err()
+        .message
+        .contains("版本与 CLI"));
+    }
+    #[test]
+    fn initial_and_redirect_urls_must_stay_on_pinned_credential_free_https_release_origin() {
+        let url = format!("https://{HOST}/chentu/releases/{VERSION}/chentu-{VERSION}.tar.gz");
+        assert!(validate_download_url(&reqwest::Url::parse(&url).unwrap(), true).is_ok());
+        for bad in [
+            "http://example.internal/package".into(),
+            "https://example.internal/package".into(),
+            url.replace("https://", "https://user:password@"),
+            format!("{url}?token=fixture"),
+        ] {
+            assert!(download(&bad, 1, true, &Cancellation::default(), |_| panic!(
+                "untrusted download contacted"
+            ))
+            .unwrap_err()
+            .message
+            .contains("不受信任"));
+        }
+        let redirect = reqwest::Url::parse(&url)
+            .unwrap()
+            .join("https://example.internal/package")
+            .unwrap();
+        assert!(validate_download_url(&redirect, true).is_err());
     }
 }

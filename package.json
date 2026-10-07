@@ -2,27 +2,21 @@
   "name": "@apeiron/cli",
   "private": true,
   "type": "module",
-  "description": "Development tools and TypeScript equivalence oracle for the Rust Apeiron CLI",
+  "description": "Browser assets and development tools for the Rust Apeiron CLI",
   "engines": {
     "bun": ">=1.3.14"
   },
   "scripts": {
     "build": "cargo build --release --locked",
-    "build:release": "bun scripts/build-release.ts",
-    "test:release": "bun scripts/smoke-release.ts",
+    "build:release": "bun scripts/build-release.js",
+    "test:release": "bun scripts/smoke-release.js",
     "test": "bun test",
-    "test:ui": "bun scripts/test-ui.ts",
-    "typecheck": "tsc --noEmit",
-    "test:rust": "cargo test --locked && cargo build --locked && APEIRON_TEST_BIN=$PWD/target/debug/apeiron bun test test/chat.test.ts test/cli.test.ts test/init.test.ts test/models.test.ts test/rust-register.test.ts"
+    "test:ui": "bun scripts/test-ui.js",
+    "test:rust": "cargo test --locked && cargo build --locked --bin apeiron --example build-support && bun test",
+    "check": "bun scripts/check-sources.js"
   },
   "packageManager": "bun@1.3.14",
   "devDependencies": {
-    "@types/bun": "^1.3.14",
-    "@types/ws": "^8.18.2",
-    "playwright": "1.58.2",
-    "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "ws": "^8.22.0"
+    "playwright": "1.58.2"
   }
 }

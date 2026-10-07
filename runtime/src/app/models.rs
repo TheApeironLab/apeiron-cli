@@ -34,6 +34,9 @@ async fn request_inner(model: &Value, action: &str) -> Result<Value> {
             .send()
             .await
             .map_err(|_| fail("无法完成模型请求：检查网络、地址和接口兼容性（45 秒超时）。", 400))?;
+        if response.status().is_redirection() {
+            return Err(fail("无法完成模型请求：模型服务不允许重定向。", 400));
+        }
         if !response.status().is_success() {
             return Err(fail(
                 format!(

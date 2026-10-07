@@ -27,33 +27,7 @@ pub fn check(work: &Path, cluster: &str, i: &Value, cancel: &Cancellation) -> Re
     let observed=process::text(Command::new("docker").args(["inspect","--format",r#"{"cluster":{{json (index .Config.Labels "k3d.cluster")}},"bindings":{{json .HostConfig.PortBindings}},"running":{{json .State.Running}}}"#,&name]),b"",10,65536,cancel);
     if let Ok(output) = observed {
         let c: Value = serde_json::from_str(&output).map_err(|_| fail("无法读取集群端口配置。", 400))?;
-        let marker = resources::json_file(&work.join("installation.json"), 8192).unwrap_or(Value::Null);
-        if marker["cluster"] != cluster || marker["domain"] != i["domain"] || c["cluster"] != cluster {
-            return Err(fail(
-                "同名集群不属于本次安装，请使用其他组织域名，避免接管其他集群。",
-                409,
-            ));
-        }
-        for (inner, outer) in [
-            (i["httpPort"].as_u64().unwrap(), i["httpPort"].as_u64().unwrap()),
-            (443, i["httpsPort"].as_u64().unwrap()),
-        ] {
-            if c["bindings"][format!("{inner}/tcp")].as_array().is_none_or(|bindings| {
-                !bindings.iter().any(|b| {
-                    b["HostPort"].as_str().and_then(|s| s.parse::<u64>().ok()) == Some(outer)
-                        && ["127.0.0.1", "0.0.0.0", ""].contains(&b["HostIp"].as_str().unwrap_or(""))
-                })
-            }) {
-                return Err(fail(
-                    "已找到本次安装的集群，但入口端口与当前配置不同。请填回创建集群时的端口，再重新部署。",
-                    409,
-                ));
-            }
-        }
-        if c["running"] != true {
-            return Err(fail("本次安装的 K3d 集群已停止，请先启动后重新部署。", 409));
-        }
-        return Ok("已识别本次安装的 K3d 集群，将复用集群重新部署，保留数据和凭据。".into());
+        return validate_owned(work, cluster, i, &c);
     }
     // An inspect failure alone does not prove absence: confirm the daemon can list containers.
     let names = process::text(
@@ -85,6 +59,35 @@ pub fn check(work: &Path, cluster: &str, i: &Value, cancel: &Cancellation) -> Re
         }
     }
     Ok("入口端口可用，将创建新的 K3d 测试集群。".into())
+}
+fn validate_owned(work: &Path, cluster: &str, i: &Value, c: &Value) -> Result<String> {
+    let marker = resources::json_file(&work.join("installation.json"), 8192).unwrap_or(Value::Null);
+    if marker["cluster"] != cluster || marker["domain"] != i["domain"] || c["cluster"] != cluster {
+        return Err(fail(
+            "同名集群不属于本次安装，请使用其他组织域名，避免接管其他集群。",
+            409,
+        ));
+    }
+    for (inner, outer) in [
+        (i["httpPort"].as_u64().unwrap(), i["httpPort"].as_u64().unwrap()),
+        (443, i["httpsPort"].as_u64().unwrap()),
+    ] {
+        if c["bindings"][format!("{inner}/tcp")].as_array().is_none_or(|bindings| {
+            !bindings.iter().any(|b| {
+                b["HostPort"].as_str().and_then(|s| s.parse::<u64>().ok()) == Some(outer)
+                    && ["127.0.0.1", "0.0.0.0", ""].contains(&b["HostIp"].as_str().unwrap_or(""))
+            })
+        }) {
+            return Err(fail(
+                "已找到本次安装的集群，但入口端口与当前配置不同。请填回创建集群时的端口，再重新部署。",
+                409,
+            ));
+        }
+    }
+    if c["running"] != true {
+        return Err(fail("本次安装的 K3d 集群已停止，请先启动后重新部署。", 409));
+    }
+    Ok("已识别本次安装的 K3d 集群，将复用集群重新部署，保留数据和凭据。".into())
 }
 pub fn toolbox_command(target: &Value, env: &BTreeMap<String, String>, tool: &str) -> Command {
     let mut cmd;
@@ -210,4 +213,41 @@ pub fn model_key(model: &Value, target: &Value, env: &BTreeMap<String, String>, 
     )
     .map(|_| ())
     .map_err(|_| fail("无法写入模型 Secret，已停止部署。", 400))
+}
+
+#[cfg(test)]
+mod contracts {
+    use super::*;
+    use crate::app::contracts::Temp;
+    #[test]
+    fn owned_clusters_keep_ports_and_identity_and_never_adopt_unrelated_or_stopped_clusters() {
+        let temp = Temp::new();
+        let i = json!({"domain":"team.internal","httpPort":54320,"httpsPort":54321});
+        let mut observed = json!({"cluster":"apeiron-test","running":true,"bindings":{"54320/tcp":[{"HostIp":"127.0.0.1","HostPort":"54320"}],"443/tcp":[{"HostIp":"127.0.0.1","HostPort":"54321"}]}});
+        let check = |i: &Value, c: &Value| validate_owned(&temp.0, "apeiron-test", i, c);
+        assert!(check(&i, &observed).unwrap_err().message.contains("不属于本次安装"));
+        temp.write(
+            "installation.json",
+            json!({"cluster":"apeiron-test","domain":"team.internal"}).to_string(),
+        );
+        assert!(check(&i, &observed).unwrap().contains("复用集群"));
+        let mut changed = i.clone();
+        changed["httpsPort"] = json!(54323);
+        assert!(check(&changed, &observed)
+            .unwrap_err()
+            .message
+            .contains("端口与当前配置不同"));
+        changed = i.clone();
+        changed["domain"] = json!("other.internal");
+        assert!(check(&changed, &observed)
+            .unwrap_err()
+            .message
+            .contains("不属于本次安装"));
+        observed["running"] = json!(false);
+        assert!(check(&i, &observed).unwrap_err().message.contains("已停止"));
+        observed["running"] = json!(true);
+        observed["bindings"]["54320/tcp"][0]["HostPort"] = json!("54321");
+        observed["bindings"]["443/tcp"][0]["HostPort"] = json!("54320");
+        assert!(check(&i, &observed).unwrap_err().message.contains("端口与当前配置不同"));
+    }
 }

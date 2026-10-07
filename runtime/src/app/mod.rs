@@ -3,13 +3,15 @@ mod bootstrap;
 mod chat;
 mod cluster;
 mod config;
-mod deploy;
+#[cfg(test)]
+mod contracts;
+pub(crate) mod deploy;
 mod discovery;
 mod models;
 mod pairing;
 mod process;
 mod register;
-mod resources;
+pub(crate) mod resources;
 mod wizard;
 use serde_json::{json, Value};
 use std::{
@@ -20,7 +22,7 @@ use std::{
     time::Duration,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Error {
     pub message: String,
     pub code: i32,

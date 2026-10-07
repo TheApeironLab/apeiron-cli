@@ -6,7 +6,7 @@ description: Use apeiron chat to find Matrix users, manage private rooms, send m
 # Apeiron Chat
 
 The platform installs the `apeiron` executable. For source development run
-`bun bin/apeiron.ts chat --help` in the apeiron-cli checkout.
+`cargo run --locked -- chat --help` in the apeiron-cli checkout.
 
 The host configures `APEIRON_CHAT_SERVER` (HTTPS origin) and
 `APEIRON_CHAT_TOKEN_FILE` (an owned mode-0600 file containing a Matrix access token).

@@ -228,3 +228,53 @@ async fn tunnel(endpoint: &str, token: &str, setup: &wizard::GatewayWizard) {
         }
     }
 }
+
+#[cfg(test)]
+mod contracts {
+    use super::*;
+    #[test]
+    fn gateway_transport_allows_only_https_or_explicit_loopback() {
+        assert_eq!(
+            gateway("https://gateway.apeironlab.cn")
+                .unwrap()
+                .origin()
+                .ascii_serialization(),
+            "https://gateway.apeironlab.cn"
+        );
+        assert_eq!(
+            gateway("http://localhost:8080").unwrap().origin().ascii_serialization(),
+            "http://localhost:8080"
+        );
+        for value in [
+            "http://evil.example",
+            "https://user:secret@example.com",
+            "https://example.com/path",
+            "https://example.com/#token",
+        ] {
+            assert!(gateway(value).is_err());
+        }
+    }
+    #[test]
+    fn tunnel_requests_are_bounded_setup_requests_never_arbitrary_urls() {
+        let base = json!({"type":"request","id":"aefcb762-56b7-4ff1-8969-5dd5a0895647","method":"GET","path":"api/config","body":"","headers":{}});
+        assert!(valid_request(&base));
+        for path in [
+            "http://169.254.169.254",
+            "//evil.example",
+            "../secret",
+            "api/../secret",
+            "api/config?redirect=1",
+            "api/%2e%2e/secret",
+        ] {
+            let mut v = base.clone();
+            v["path"] = json!(path);
+            assert!(!valid_request(&v));
+        }
+        let mut v = base.clone();
+        v["method"] = json!("DELETE");
+        assert!(!valid_request(&v));
+        let mut v = base;
+        v["body"] = json!("x".repeat(16385));
+        assert!(!valid_request(&v));
+    }
+}

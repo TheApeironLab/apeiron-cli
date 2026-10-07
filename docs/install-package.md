@@ -45,8 +45,8 @@ K3d 目标的 `k3sAirgap` 指向资源闭包中已校验的基础镜像包，创
 发布者在包含 `chentu/setup/install.json` 的完整本地 bundle 上运行：
 
 ```sh
-bun scripts/publish-resources.ts /absolute/bundle /absolute/output --plan
-bun scripts/publish-resources.ts /absolute/bundle /absolute/output --publish
+bun scripts/publish-resources.js /absolute/bundle /absolute/output --plan
+bun scripts/publish-resources.js /absolute/bundle /absolute/output --publish
 ```
 
 输出目录必须位于输入 bundle 外。两种模式都先校验全部资源的大小、摘要和路径；`--plan` 只生成本地上传计划和 `install.plan.json`。`--publish` 使用已有 Aliyun CLI 身份上传缺失对象，随后通过公开 HTTPS 地址流式下载、校验全部字节；已有内容不匹配即失败。只有全部对象通过才输出 `install.json`。中断可重跑，已验证对象可复用；不删除旧资源。

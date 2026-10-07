@@ -182,19 +182,18 @@ apeiron wlk <command>
 
 ```sh
 bun install --frozen-lockfile
-bun scripts/embed-assets.ts --check
+bun scripts/embed-assets.js --check
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
-bun run typecheck
-bun test
+bun run check
 bun run test:rust
 cargo build --release --locked
 bun run test:ui
 apeiron verify
 ```
 
-开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.ts`、`page.ts` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.ts` 更新嵌入资源。Cargo 构建直接使用已提交资源。其余 TS 服务端暂作等价性测试对照，不进入发行二进制；待这些边界场景全部由 Rust 实际进程测试覆盖后删除对照实现，保留测试断言。
+开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；仓库不包含 TypeScript。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
 
 首次浏览器验证需先运行 `bunx playwright install chromium`。`test:ui` 从临时目录启动编译后的二进制，
 用隔离的部署替身验证七步配置、必选项、失败/重试、刷新恢复、部署后进入访问配置、系统授权取消/重试的页面状态、凭据读取／隐藏／复制／下载、连接检查失败与重试、完成退出、桌面/手机布局以及没有外部网络请求。授权测试使用隔离替身，不弹出真实管理员授权或修改开发机信任库。它不对真实集群执行 sync。
@@ -203,7 +202,7 @@ apeiron verify
 真实 Helmfile 配置读取与编排检查（需要已有宸途工具箱镜像，不挂载 Docker socket 或 kubeconfig，不连接集群）：
 
 ```sh
-bun scripts/test-helmfile.ts /absolute/path/to/chentu chentu-lab
+bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
 ```
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。

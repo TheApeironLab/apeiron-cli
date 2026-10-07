@@ -59,6 +59,10 @@ pub fn list(config: &Path) -> Result<Value> {
         let entry = entry.map_err(|_| fail("无法读取连接目录。", 500))?;
         let id = entry.file_name().to_string_lossy().into_owned();
         if config::matches(r"^[a-f0-9]{32}$", &id) {
+            // An interrupted enrollment can leave its directory before credentials exist.
+            if !entry.path().join("connection.json").exists() {
+                continue;
+            }
             rows.push(get(config, &id)?);
         }
     }

@@ -55,7 +55,7 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 ```sh
 bun run build:release /absolute/external/output
 # 收集四个平台的构建产物后再生成汇总元数据：
-bun scripts/finalize-release.ts /absolute/external/output
+bun scripts/finalize-release.js /absolute/external/output
 ```
 
 每个发行目录包含四个归档、安装脚本、`SHA256SUMS` 和记录版本/源提交/构建器/文件摘要的 `release.json`。版本路径不可覆盖；网络失败重跑仅接受相同摘要，已有不同文件时停止。不要修改已发布版本，应增加新版本号。

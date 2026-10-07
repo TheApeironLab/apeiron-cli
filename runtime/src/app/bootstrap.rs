@@ -99,26 +99,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     let catalog = resources::catalog(&root, &key)?;
     let plan = resources::plan(&catalog, &key, &config["apps"])?;
     if !docker {
-        let p = &plan["target"]["hostPlatform"];
-        if p["os"] != "ubuntu"
-            || facts.iter().any(|n| {
-                !discovery::supported(
-                    n["os"].as_str().unwrap(),
-                    n["version"].as_str().unwrap(),
-                    n["architecture"].as_str().unwrap(),
-                ) || n["version"]
-                    .as_str()
-                    .unwrap()
-                    .split('.')
-                    .take(2)
-                    .collect::<Vec<_>>()
-                    .join(".")
-                    != p["version"].as_str().unwrap_or("")
-                    || arch != p["architecture"].as_str().unwrap_or("")
-            })
-        {
-            return Err(fail("原生安装包 hostPlatform 与节点系统或架构不匹配。", 400));
-        }
+        discovery::validate_platform(&plan["target"], &facts)?;
     }
     if config["apps"].as_array().unwrap().contains(&json!("vasi"))
         && (plan["target"]["clusterOidc"] != true
@@ -744,5 +725,151 @@ pub fn public_access(phase: &str, target: &Value, c: &Context, env: &BTreeMap<St
         sudo.push(python.into());
         sudo.extend(args);
         c.run("sudo", &sudo, &root, env)
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tool_contracts {
+    use super::*;
+    use crate::app::contracts::Temp;
+    #[test]
+    fn native_tools_require_complete_verified_set_and_install_offline_with_failures_propagated() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = Temp::new();
+        let c = Context::fixture(&temp.0);
+        let bundle = temp.0.join("bundle");
+        let target = json!({"root":temp.0,"workDir":temp.0});
+        assert!(native_tools(&json!({"files":[]}), &target, &bundle, &c)
+            .unwrap_err()
+            .message
+            .contains("缺少"));
+        let paths = [
+            "bin/uv",
+            "bin/helm",
+            "bin/helmfile",
+            "bin/age",
+            "bin/age-keygen",
+            "bin/s5cmd",
+            "k3s/k3s",
+            "python/cpython-3.12.14-aarch64.tar.gz",
+            "cli/ansible_core-2.19.3-py3-none-any.whl",
+        ];
+        for path in paths {
+            temp.write(&format!("bundle/{path}"), "fixture");
+        }
+        temp.write("python/bin/python3.12", "fixture");
+        assert!(std::process::Command::new("tar")
+            .args(["-czf"])
+            .arg(bundle.join(paths[7]))
+            .arg("-C")
+            .arg(&temp.0)
+            .arg("python")
+            .status()
+            .unwrap()
+            .success());
+        temp.write(
+            "bundle/bin/uv",
+            r#"#!/bin/sh
+[ "$UV_OFFLINE" = 1 ] && [ "$UV_PYTHON_DOWNLOADS" = never ] || exit 42
+printf '%s\n' "$*" >> "$PWD/calls"
+[ ! -f "$PWD/fail" ] || exit 17
+mkdir -p "$PWD/operator/venv/bin"
+printf '#!/bin/sh\nexit 0\n' > "$PWD/operator/venv/bin/ansible-playbook"
+chmod 700 "$PWD/operator/venv/bin/ansible-playbook"
+"#,
+        );
+        temp.write("bundle/bin/helmfile", "#!/bin/sh\nexit 0\n");
+        let plan = json!({"files":paths.map(|p|json!({"path":p}))});
+        let env = native_tools(&plan, &target, &bundle, &c).unwrap();
+        assert_eq!(
+            env["PATH"].split(':').next().unwrap(),
+            temp.0.join("operator/venv/bin").to_str().unwrap()
+        );
+        assert_eq!(
+            env["CHENTU_PYTHON"],
+            temp.0.join("operator/venv/bin/python3").to_str().unwrap()
+        );
+        let calls = fs::read_to_string(temp.0.join("calls")).unwrap();
+        for arg in ["--no-index", "--offline", bundle.join("cli").to_str().unwrap()] {
+            assert!(calls.contains(arg));
+        }
+        assert_eq!(
+            fs::read_link(temp.0.join("operator/venv/bin/kubectl")).unwrap(),
+            bundle.join("k3s/k3s")
+        );
+        assert_eq!(
+            fs::metadata(bundle.join("bin/helm")).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        temp.write("fail", "");
+        assert!(native_tools(&plan, &target, &bundle, &c)
+            .unwrap_err()
+            .message
+            .contains("退出码 17"));
+    }
+    #[test]
+    fn native_bootstrap_checks_configuration_and_copies_verified_packages_before_host_installation() {
+        let temp = Temp::new();
+        let c = Context::fixture(&temp.0);
+        for name in ["python3", "ansible-playbook"] {
+            temp.tool(
+                name,
+                "#!/bin/sh\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> \"$CAPTURE\"\n[ ! -f \"$PWD/fail\" ] || exit 17\n",
+            );
+        }
+        let i = json!({"topology":"multi-k3s","domain":"example.internal","entryIp":"192.0.2.10","sshPort":22,"sshKey":"","sshUser":""});
+        let mut target = json!({"runner":"native","root":temp.0,"workDir":temp.0,"environment":temp.0.join("environment.yaml"),"kubeconfig":temp.0.join("kubeconfig"),"installation":i});
+        let p = Prepared {
+            target: Value::Null,
+            values: Value::Null,
+            plan: json!({"files":[{"path":"core.bin"}]}),
+            nodes: vec![
+                json!({"host":"node-0","name":"node-0","address":"192.0.2.10","role":"server"}),
+                json!({"host":"node-1","name":"node-1","address":"192.0.2.11","role":"agent"}),
+            ],
+            bundle: temp.0.clone(),
+            cluster: "fixture".into(),
+            arch: "amd64".into(),
+            generated: vec![],
+            tool_env: temp.env(),
+        };
+        bootstrap(&mut target, &c, &p).unwrap();
+        let calls = fs::read_to_string(temp.0.join("capture")).unwrap();
+        let lines = calls.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].starts_with("python3 ") && lines[0].ends_with("/deploy/helmfile/scripts/check.py"));
+        assert!(lines[1].starts_with("ansible-playbook ") && lines[1].ends_with("/prepare-hosts.yaml"));
+        assert!(lines[2].ends_with("/bootstrap/hosts.yaml"));
+        let inventory = resources::yaml(&temp.0.join("inventory.yaml")).unwrap();
+        assert!(inventory["all"]["children"]["server"]["hosts"]["node-0"].is_object());
+        assert!(inventory["all"]["children"]["agent"]["hosts"]["node-1"].is_object());
+        assert_eq!(inventory["all"]["vars"]["chentu_architecture"], "amd64");
+        assert!(inventory["all"]["vars"]["ansible_ssh_common_args"]
+            .as_str()
+            .unwrap()
+            .contains("StrictHostKeyChecking=yes"));
+        let playbook = resources::yaml(&temp.0.join("prepare-hosts.yaml")).unwrap();
+        assert_eq!(
+            playbook[0]["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t["name"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "Verify platform DNS on each node",
+                "Check peer SSH reachability",
+                "Create resource directories",
+                "Copy verified resources",
+                "Verify staged bundle on each node"
+            ]
+        );
+        temp.write("capture", "");
+        temp.write("fail", "");
+        assert!(bootstrap(&mut target, &c, &p)
+            .unwrap_err()
+            .message
+            .contains("退出码 17"));
+        assert_eq!(fs::read_to_string(temp.0.join("capture")).unwrap().lines().count(), 1);
     }
 }
