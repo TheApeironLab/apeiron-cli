@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { runChat } from '../src/chat/command';
 import { runInit } from '../src/init/command';
 import { runEntry } from '../src/entry-command';
 import { version } from '../package.json';
@@ -14,10 +15,11 @@ function fail(message: string, code = 2): never {
   process.exit(code);
 }
 if (!module || ['--help', '-h', 'describe'].includes(module)) {
-  console.log('schema=apeiron.v1\ncommand\tusage\ninit\tapeiron init [--port N] [--config path] [--no-open] — local configuration wizard\nplatform entry\tapeiron platform entry --help — public entry pairing and management\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nstatus\tShow ontology checkout and configured entry point\nverify\tCheck ontology CLI entry point\n--version\tShow version');
+  console.log('schema=apeiron.v1\ncommand\tusage\ninit\tapeiron init [--port N] [--config path] [--no-open] — local configuration wizard\nplatform entry\tapeiron platform entry --help — public entry pairing and management\nchat\tapeiron chat --help — Matrix messaging\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nstatus\tShow ontology checkout and configured entry point\nverify\tCheck ontology CLI entry point\n--version\tShow version');
   process.exit(0);
 }
 if (module === '--version') { console.log(version); process.exit(0); }
+if (module === 'chat') process.exit(await runChat(args));
 if (module === 'init') process.exit(await runInit(args));
 if (module === 'platform' && (!args.length || ['--help', '-h'].includes(args[0]!))) process.exit(await runEntry(['entry', '--help']));
 if (module === 'platform' && ['entry', 'connection'].includes(args[0] ?? '')) process.exit(await runEntry(args));

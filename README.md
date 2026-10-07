@@ -232,3 +232,40 @@ apeiron platform connection revoke --id <id>
 自定义配置路径需附加相同的 `--config <path>`。撤销禁用设备凭据、关闭活动转发和所属路由，保留集群数据。ECS 管理员可用 `sudo apeiron platform entry status|revoke --domain team.example.com` 确认并重试清理。首版换密钥通过撤销再配对，会中断公网访问。DNS/安全组仍由管理员配置。
 
 需要同时发布包含 `bootstrap/public_pairing.py` 的 Chentu 安装包；当前固定的 rc.5 旧包不会被悄悄升级，缺少功能时明确拒绝。贡献者可通过显式 `APEIRON_CHENTU_ROOT` 验证对应 PR 的源码。
+
+## Chat（Matrix）
+
+`apeiron chat` 内置 Matrix Client-Server API 调用，不需要配置外部 Chat CLI。
+
+```sh
+export APEIRON_CHAT_SERVER=https://matrix.example.org
+export APEIRON_CHAT_TOKEN_FILE=/secure/path/matrix-access-token
+apeiron chat status
+apeiron chat user search --query 张三
+apeiron chat room create --user '@zhangsan:example.org'
+apeiron chat message send --room '!room:example.org' --text '你好' --txn-id message-001
+apeiron chat message list --room '!room:example.org' --limit 10
+apeiron chat sync --out /tmp/chat-sync-001.json
+```
+
+凭据文件必须是当前用户拥有的普通文件、权限 0600，不接受符号链接；只读 Matrix access token，
+不读取 `APEIRON_TOKEN`，不把 Apeiron SSO token 自动视为 Matrix 凭据。SSO 委托供应、自动刷新及
+部署注入尚未接入。HTTP 只允许 loopback 本地测试，其他目标必须 HTTPS；请求不跟随重定向。
+
+`--help` 列出房间加入/退出/邀请、已读、消息编辑/撤回、历史分页等命令。私聊通过私有房间邀请实现，
+对方需要加入；不自动更新客户端 `m.direct` 联系人列表。查人遵循服务器目录可见性，不能枚举所有 SSO 用户。
+发送、编辑、撤回必须指定 `--txn-id`，同一次操作重试沿用相同 ID 和内容；切换账号或设备后不承诺跨设备去重。
+建房间没有事务幂等保证，结果不明时不能盲目重建。命令不自动重试。写操作支持 `--dry-run`。
+
+默认输出带版本标识的 TSV 预览，正文截断至 160 字符；`--jsonl` 返回结构化结果，`--out NEW_FILE`
+以 0600 权限保存完整结果且拒绝覆盖。历史默认 10 条、最多 100 条；sync 必须提供输出文件，返回
+`next_cursor` 用于下一次 `--cursor`，timeline 标记 limited 时通过历史接口补齐。发送成功只表示服务器
+接收，不表示对方已读。退出码：2 参数/不支持、4 不存在、5 冲突、7 鉴权/权限、8 限流、9 服务/网络。
+
+本版本不实现端到端加密或附件。发送/编辑前检查房间状态，发现加密即拒绝；该检查不是密码学保证，
+不能防止房间在检查后被并发启用加密，因此只用于明确以非加密方式运行的房间。加密消息在历史中保留
+事件类型，不假装解密。Agent 使用说明见 [Chat Skill](skills/chat/SKILL.md)。
+
+本地协议冒烟：`python3 scripts/smoke-chat.py <local-k3d-cluster> <absolute-cli-binary>`。
+脚本在独立 namespace 启动 Synapse 测试服务，创建一次性用户并调用真实 CLI，结束后删除测试资源。
+这是标准 Matrix API 验证，不代表已验证宸途 Tuwunel 的 SSO、生产权限或加密客户端。
