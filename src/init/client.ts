@@ -62,23 +62,32 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   let verificationBusy = false;
   let accessTimer: ReturnType<typeof setTimeout> | undefined;
   let accessInstalling = false;
-  const defaultDomain = () => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug.value.trim()) ? `${slug.value.trim()}.apeironlab.internal` : '';
+  const accessMode = () => document.querySelector<HTMLInputElement>('[name="access-mode"]:checked')!.value;
+  const publicField = (id: string) => get<HTMLInputElement>(id).value.trim();
+  const defaultDomain = () => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug.value.trim()) ? `${slug.value.trim()}.${accessMode() === 'private' ? 'apeironlab.internal' : 'apeironlab.cn'}` : '';
   const validDomain = () => domain.value.length <= 220 && domain.value.includes('.') && domain.value.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) && !/^\d+(?:\.\d+){3}$/.test(domain.value);
   const validIp = () => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(entryIp.value) && entryIp.value.split('.').every(part => String(Number(part)) === part && Number(part) <= 255) &&
     !/^(0|169\.254|22[4-9]|23\d|24\d|25[0-5])\./.test(entryIp.value) && (topology() === 'single-k3d' ? entryIp.value === '127.0.0.1' : !entryIp.value.startsWith('127.'));
   function renderSetup() {
     const mode = topology();
+    const published = accessMode() !== 'private';
+    get('public-fields').hidden = !published;
+    get('gateway-fields').hidden = accessMode() !== 'relay';
+    get('public-dns').hidden = !published;
+    get('domain-note').textContent = published ? '使用你持有的域名。部署前将以下 DNS A 记录指向公网入口；Caddy 会自动申请并续期 HTTPS 证书。' : '内网使用无需购买域名。部署完成后，再引导你配置访问。';
     get('local-ports').hidden = mode !== 'single-k3d';
     if (entryTopology !== mode) { entryEdited = false; entryTopology = mode; }
     if (!customDomain.checked) domain.value = defaultDomain();
     domain.readOnly = !customDomain.checked;
+    get('public-dns').textContent = `*.${domain.value || '<slug>.apeironlab.cn'}    A    ${publicField('public-ip') || '<公网入口 IP>'}\n${domain.value || '<slug>.apeironlab.cn'}      A    ${publicField('public-ip') || '<公网入口 IP>'}`;
     const nodes = mode === 'multi-k3s' ? target().installation!.nodes : [];
     const candidates = mode === 'single-k3d' ? ['127.0.0.1'] : mode === 'multi-k3s' ? nodes.filter(node => node.role === 'server').map(node => node.address) : cliHost.addresses;
     if (!entryEdited) entryIp.value = mode === 'multi-k3s' && ha.checked ? '' : candidates[0] ?? '';
     entryIp.readOnly = mode === 'single-k3d';
     get('entry-field').hidden = mode === 'single-k3d';
     get('entry-addresses').replaceChildren(...candidates.map(address => new Option(address, address)));
-    get('entry-note').textContent = mode === 'multi-k3s' && ha.checked ? '填写已配置的稳定入口 IP（负载均衡或 VIP）；向导不会自动创建 VIP。' : mode === 'multi-k3s' ? '默认使用控制节点 IP，也可填写已配置的入口 IP；固定到单个节点不提供入口高可用。' : '从 CLI 主机网卡建议，请确认这是访问设备可达的固定 IP。';
+    get('entry-label').textContent = published ? '节点 IP' : '入口 IP';
+    get('entry-note').textContent = published ? '部署主机网卡上的固定 IP，供 K3s 使用；用户通过上方的公网入口访问。' : mode === 'multi-k3s' && ha.checked ? '填写已配置的稳定入口 IP（负载均衡或 VIP）；向导不会自动创建 VIP。' : mode === 'multi-k3s' ? '默认使用控制节点 IP，也可填写已配置的入口 IP；固定到单个节点不提供入口高可用。' : '从 CLI 主机网卡建议，请确认这是访问设备可达的固定 IP。';
   }
   function renderAccessGuide(access: NonNullable<Status['access']>) {
     completedAccess = access;
@@ -100,6 +109,8 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   }
   for (const input of [slug, domain]) input.addEventListener('input', renderSetup);
   customDomain.addEventListener('change', renderSetup);
+  for (const input of document.querySelectorAll<HTMLInputElement>('[name="access-mode"]')) input.addEventListener('change', renderSetup);
+  get('public-ip').addEventListener('input', renderSetup);
   entryIp.addEventListener('input', () => { entryEdited = true; renderSetup(); });
   get('node-results').addEventListener('change', renderSetup);
   get('copy-dns').addEventListener('click', async () => {
@@ -211,7 +222,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     get('bundle-fields').hidden = !offline.checked;
     get('resource-mode').textContent = offline.checked ? '检查本地应用及依赖包；缺少或校验失败时停止，不访问外网。' : '选择应用后检查实际安装资源，下载与校验通过后才会安装。';
     const supported = machine && supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture);
-    get('topology-note').textContent = mode === 'single-k3d' ? offline.checked ? '当前 K3d 准备脚本需要联网；离线安装请选择 K3s。' : '创建独立的本地测试集群，需要本机 Docker 正在运行。' : mode === 'multi-k3s' ? '管理机可以使用 macOS；节点需为 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，系统与架构一致，并提供匹配的安装包。' : machine && !supported ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '在当前 Ubuntu 主机上安装 K3s；需要匹配系统与架构的安装包，以及 root 或免密 sudo。';
+    get('topology-note').textContent = mode === 'single-k3d' ? offline.checked ? '使用本地完整安装包创建 K3d 测试集群，需要本机 Docker 正在运行。' : '创建独立的本地测试集群，需要本机 Docker 正在运行。' : mode === 'multi-k3s' ? '管理机可以使用 macOS；节点需为 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，系统与架构一致，并提供匹配的安装包。' : machine && !supported ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '在当前 Ubuntu 主机上安装 K3s；需要匹配系统与架构的安装包，以及 root 或免密 sudo。';
     renderSetup();
   }
   for (const input of document.querySelectorAll<HTMLInputElement>('[name="topology"]')) input.addEventListener('change', renderTarget);
@@ -297,13 +308,16 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
       address: row.querySelector<HTMLSelectElement>('[data-field=address]')?.value ?? '',
       role: row.querySelector<HTMLSelectElement>('[data-field=role]')?.value as 'server' | 'agent',
     })) : [];
-    return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? Number(fields.httpPort.value) : 80, httpsPort: mode === 'single-k3d' ? Number(fields.httpsPort.value) : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes },
+    return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? Number(fields.httpPort.value) : 80, httpsPort: mode === 'single-k3d' ? Number(fields.httpsPort.value) : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode() as 'direct' | 'relay', publicIp: publicField('public-ip'), tunnelPort: Number(publicField('tunnel-port')), ...(accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
       runner: mode === 'single-k3d' ? 'docker' : 'native',
       root: '', offline: offline.checked, bundleDir: offline.checked ? fields.bundleDir.value.trim() : '',
       environment: '', kubeconfig: '', workDir: '', image: 'chentu-lab' };
   }
   function applyTarget(value: Target) {
     const install = value.installation;
+    const published = install?.publicAccess;
+    document.querySelector<HTMLInputElement>(`[name="access-mode"][value="${published?.mode ?? 'private'}"]`)!.checked = true;
+    for (const [id, text] of Object.entries({ 'public-ip': published?.publicIp ?? '', 'gateway-host': published?.gateway?.host ?? '', 'gateway-user': published?.gateway?.sshUser ?? '', 'gateway-key': published?.gateway?.sshKey ?? '', 'gateway-port': String(published?.gateway?.sshPort ?? 22), 'tunnel-port': String(published?.tunnelPort ?? 19444) })) get<HTMLInputElement>(id).value = text;
     document.querySelector<HTMLInputElement>(`[name="topology"][value="${install?.topology ?? 'single-k3d'}"]`)!.checked = true;
     offline.checked = Boolean(value.offline); get<HTMLInputElement>('online').checked = !offline.checked;
     fields.bundleDir.value = value.bundleDir; domain.value = install?.domain ?? '';
@@ -368,7 +382,6 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     if (step === 0) {
       if (topology() === 'single-k3d' && (![fields.httpPort.value, fields.httpsPort.value].every(value => /^\d{1,5}$/.test(value) && Number(value) >= 1 && Number(value) <= 65535) || Number(fields.httpPort.value) === Number(fields.httpsPort.value) || Number(fields.httpPort.value) === 443 || Number(fields.httpsPort.value) === 80)) { showError('请填写不同的 HTTP / HTTPS 端口（1–65535）；HTTP 不能使用 443，HTTPS 不能使用 80。'); return false; }
       if (offline.checked && !fields.bundleDir.reportValidity()) return false;
-      if (topology() === 'single-k3d' && offline.checked) { showError('当前 K3d 准备脚本需要联网，请选择 K3s 进行离线部署。'); return false; }
       if (topology() === 'single-k3s' && (!machine || !supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture))) { showError(machine ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '请先完成当前主机的系统检测。'); return false; }
       if (topology() === 'multi-k3s') {
         if (nodesFingerprint !== fingerprint() || nodeFacts.length < 2 || nodeFacts.some(node => node.error)) { showError('请先成功检测至少 2 台 Ubuntu 节点。'); return false; }
@@ -378,6 +391,8 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
         for (const key of ['host', 'name', 'address'] as const) if (new Set(nodes.map(node => node[key])).size !== nodes.length) { showError('节点名称和地址不能重复。'); return false; }
       }
     }
+    if (step === 0 && accessMode() !== 'private' && (topology() !== 'single-k3s' || offline.checked)) { showError('公网入口目前支持在线单机 K3s。'); return false; }
+    if (step === 0 && accessMode() !== 'private' && (!publicField('public-ip') || (accessMode() === 'relay' && !publicField('gateway-host')))) { showError('请填写公网入口 IP 和 ECS SSH 连接。'); return false; }
     if (step === 0 && !validIp()) { showError('请确认部署环境中的入口 IPv4 地址。'); return false; }
     if (step === 1) {
       if (!slug.reportValidity() || !domain.reportValidity()) return false;
@@ -398,7 +413,13 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     const active = ['preparing', 'running', 'stopping'].includes(status.phase);
     get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? '正在部署…' : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : '部署失败。';
     get('deployment-message').textContent = status.message;
-    get('deployment-events').textContent = status.events.join('\n');
+    get('deployment-events').replaceChildren(...status.events.map(message => {
+      const line = document.createElement('span');
+      const level = /^\[(INFO|WARNING|ERROR)\]/.exec(message)?.[1] || 'INFO';
+      line.className = `log-${level.toLowerCase()}`;
+      line.textContent = message + '\n';
+      return line;
+    }));
     get('deployment-log').textContent = status.log || '正在检查安装资源';
     const openLog = get<HTMLAnchorElement>('open-log');
     const downloadLog = get<HTMLAnchorElement>('download-log');
@@ -430,7 +451,9 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     get('access-complete').hidden = !showAccess;
     if (access) {
       renderAccessGuide(access);
-      get('access-entry').textContent = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort} · ${access.local ? '本机测试' : '内网访问'} · ${access.entryIp}:${access.httpsPort ?? 443}`;
+      for (const id of ['private-access-card', 'private-access-note', 'manual-access']) get(id).hidden = Boolean(access.public);
+      get('access-complete').querySelector('.subtitle')!.textContent = access.public ? '公网 HTTPS 入口已验证。无需配置 hosts 或安装 CA，可以进入测试。' : '部署已完成。配置这台电脑的访问方式，然后进入测试。';
+      get('access-entry').textContent = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort} · ${access.public ? '公网访问' : access.local ? '本机测试' : '内网访问'} · ${access.entryIp}:${access.httpsPort ?? 443}`;
       get('access-notes').textContent = access.notes.join(' ');
       const ca = get<HTMLAnchorElement>('download-ca'); ca.hidden = !access.ca; ca.href = endpoint('ca.crt');
       const hosts = get<HTMLAnchorElement>('download-hosts'); hosts.hidden = !access.hostsPath; hosts.href = endpoint('hosts.txt');
@@ -441,7 +464,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     if (!access) { completedAccess = undefined; dnsFingerprint = ''; resetDns(); }
     clearTimeout(timer);
     if (active) timer = setTimeout(() => { void poll(); }, 1000);
-    if (showAccess) void loadLocalAccess();
+    if (showAccess && !access?.public) void loadLocalAccess();
     if (showTest && access) {
       get<HTMLAnchorElement>('test-open-apeiron').href = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort}/`;
       get<HTMLAnchorElement>('test-open-ops').href = `https://ops.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort}/`;

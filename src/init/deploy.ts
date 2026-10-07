@@ -1,3 +1,4 @@
+import { publicAccessPhase } from './public-access';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { writeSync } from 'node:fs';
 import { appendFile, lstat, mkdir, mkdtemp, open, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
@@ -52,6 +53,8 @@ export function environmentFor(config: Configuration, source: string): string {
     const nexusValues = nexus.values === undefined ? {} : mapping(nexus.values);
     releases.nexus = { ...nexus, values: { ...nexusValues, publicProxies: !config.deployment.offline } };
   }
+  const domain = config.deployment?.installation?.domain;
+  if (domain) values.embedAllowedOrigins = [`https://${domain}:*`, `https://*.${domain}:*`];
   return Bun.YAML.stringify({ ...values, tenantSlug: config.slug, releases }, null, 2) + '\n';
 }
 
@@ -84,11 +87,12 @@ export class Deployment {
     if (this.status.phase !== 'succeeded' || !this.completedTarget) throw new ConfigError('部署成功后才可读取初始管理员凭据。', 409);
     return this.adminReader(this.completedTarget, signal);
   }
-  private event(message: string) {
-    this.status.message = message;
-    this.status.events.push(message);
+  private event(message: string, level: 'INFO' | 'WARNING' | 'ERROR' = 'INFO') {
+    const tagged = /^\[(INFO|WARNING|ERROR)\] /.test(message) ? message : `[${level}] ${message}`;
+    this.status.message = message.replace(/^\[(INFO|WARNING|ERROR)\] /, '');
+    this.status.events.push(tagged);
     if (this.status.events.length > 100) this.status.events.shift();
-    this.recordEvent?.(message);
+    this.recordEvent?.(tagged);
   }
 
   async start(save: () => Promise<Configuration>, preflightMessage?: string): Promise<void> {
@@ -173,7 +177,7 @@ export class Deployment {
       if (target.environment.endsWith('.gotmpl')) throw new ConfigError('请提供已渲染的普通 YAML 环境文件，不能直接使用 .gotmpl。');
       if (target.runner === 'native') {
         await file(target.kubeconfig, 'Kubeconfig');
-        if (!Bun.which('helmfile', { PATH: process.env.PATH }) || !Bun.which('helm', { PATH: process.env.PATH })) throw new ConfigError('找不到 helmfile 或 helm。请安装到 CLI 的 PATH，或选择本地 Docker 工具箱。');
+        if (!Bun.which('helmfile', { PATH: freshEnv?.PATH || process.env.PATH }) || !Bun.which('helm', { PATH: freshEnv?.PATH || process.env.PATH })) throw new ConfigError('找不到 helmfile 或 helm。请安装到 CLI 的 PATH，或选择本地 Docker 工具箱。');
       } else {
         if (!Bun.which('docker', { PATH: process.env.PATH })) throw new ConfigError('找不到 docker，请检查 CLI 的 PATH。');
         await new ConfigStore(join(target.workDir, 'state.json')).checkLocation();
@@ -228,7 +232,7 @@ export class Deployment {
             const release = /(?:Upgrading|Installing) release=([a-z0-9-]+),/.exec(line);
             const dependency = /^configuration error: ([a-z0-9-]+) requires enabled release ([a-z0-9/-]+)$/.exec(line.trim());
             if (release) this.event(`正在同步应用：${release[1]}`);
-            if (dependency) this.event(`依赖检查未通过：${dependency[1]} 需要启用 ${dependency[2]}。`);
+            if (dependency) this.event(`依赖检查未通过：${dependency[1]} 需要启用 ${dependency[2]}。`, 'ERROR');
           }
         });
       }
@@ -238,7 +242,7 @@ export class Deployment {
       });
       this.status.exitCode = code;
       terminal = this.cancelling ? 'cancelled' : code === 0 && !logFailed ? 'succeeded' : 'failed';
-      this.event(this.cancelling ? '部署命令已退出，正在确认工具箱清理。' : logFailed ? '无法写入部署日志，已停止部署。请检查磁盘空间和权限。' : code === 0 ? 'Helmfile 部署完成。' : `Helmfile 部署失败（退出码 ${code}），请查看本机日志并修改配置后重试。`);
+      this.event(this.cancelling ? '部署命令已退出，正在确认工具箱清理。' : logFailed ? '无法写入部署日志，已停止部署。请检查磁盘空间和权限。' : code === 0 ? 'Helmfile 部署完成。' : `Helmfile 部署失败（退出码 ${code}），请查看本机日志并修改配置后重试。`, this.cancelling ? 'WARNING' : logFailed || code !== 0 ? 'ERROR' : 'INFO');
       if (terminal === 'succeeded' && target.installation) {
         if (config.apps.includes('vasi')) {
           // Keep installation active (and stoppable) until real OIDC authentication and RBAC pass.
@@ -249,16 +253,24 @@ export class Deployment {
           this.status.exitCode = 0;
           terminal = 'succeeded';
         }
+        if (target.installation.publicAccess) {
+          terminal = 'failed';
+          this.status.exitCode = undefined;
+          this.event('配置 Caddy 公网入口并验证 Apeiron / IAM 的 HTTPS。');
+          await publicAccessPhase('finish', target, dir, env, run, this.preparation.signal);
+          terminal = 'succeeded';
+          this.status.exitCode = 0;
+        }
         this.event('正在准备应用入口、CA 证书和本机解析指引。');
         this.access = await collectAccess(target, dir, this.preparation.signal);
         this.status.access = this.access.info;
         this.completedTarget = target;
         if (this.cancelling) terminal = 'cancelled';
-        this.event(this.cancelling ? '正在停止部署并清理工具箱。' : 'Helmfile 部署完成，请按访问指引配置 DNS 和证书信任。');
+        this.event(this.cancelling ? '正在停止部署并清理工具箱。' : target.installation.publicAccess ? '公网 HTTPS 已验证，可以进入应用测试。' : 'Helmfile 部署完成，请按访问指引配置 DNS 和证书信任。');
       }
     } catch (error) {
       terminal = this.cancelling ? 'cancelled' : 'failed';
-      this.event(this.cancelling ? '部署操作已中断，正在确认清理。' : error instanceof ConfigError ? error.message : '无法启动部署，请检查本机路径、权限和部署工具。');
+      this.event(this.cancelling ? '部署操作已中断，正在确认清理。' : error instanceof ConfigError ? error.message : '无法启动部署，请检查本机路径、权限和部署工具。', this.cancelling ? 'WARNING' : 'ERROR');
     } finally {
       this.child = undefined;
       let ownsLock = Boolean(lock);
@@ -273,10 +285,10 @@ export class Deployment {
         if (this.container && !await removeToolbox(this.container)) {
           this.cancelling = true;
           this.status.stopFailed = true;
-          this.event('无法确认部署工具箱已停止，请检查 Docker 后点击“重试停止”。暂时不能重新部署。');
+          this.event('无法确认部署工具箱已停止，请检查 Docker 后点击“重试停止”。暂时不能重新部署。', 'ERROR');
         } else if (!this.cancelling) {
           try { await this.releaseLock(); }
-          catch { this.cancelling = true; this.status.stopFailed = true; this.event('无法释放部署锁，请检查目录权限后点击“重试停止”。'); }
+          catch { this.cancelling = true; this.status.stopFailed = true; this.event('无法释放部署锁，请检查目录权限后点击“重试停止”。', 'ERROR'); }
         }
       }
       this.recordEvent = undefined;
@@ -329,7 +341,7 @@ export class Deployment {
     } catch {
       this.status.phase = 'stopping';
       this.status.stopFailed = true;
-      this.event('无法确认部署工具箱已停止或释放部署锁，请检查 Docker 和目录权限后点击“重试停止”。暂时不能重新部署。');
+      this.event('无法确认部署工具箱已停止或释放部署锁，请检查 Docker 和目录权限后点击“重试停止”。暂时不能重新部署。', 'ERROR');
     } finally {
       clearTimeout(timer);
       if (this.status.log) await appendFile(this.status.log, `[${new Date().toISOString()}] ${this.status.message}\n`).catch(() => {});

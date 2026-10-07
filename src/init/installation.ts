@@ -20,6 +20,31 @@ export interface Installation {
   sshKey: string;
   sshPort: number;
   nodes: NodeTarget[];
+  publicAccess?: PublicAccess;
+}
+
+export interface PublicAccess {
+  mode: 'direct' | 'relay';
+  publicIp: string;
+  gateway?: { host: string; sshUser: string; sshKey: string; sshPort: number };
+  tunnelPort: number;
+}
+
+export function validatePublicAccess(value: unknown): PublicAccess | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ConfigError('公网入口配置格式不正确。');
+  const input = value as Record<string, unknown>;
+  if (!['direct', 'relay'].includes(String(input.mode))) throw new ConfigError('请选择公网直连或 ECS 转发。');
+  if (!safeEntryIp(input.publicIp) || /^(10|127|192\.168|172\.(1[6-9]|2\d|3[01])|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7]))\./.test(input.publicIp)) throw new ConfigError('请填写公网入口 IPv4，不能使用局域网或 Tailscale 地址。');
+  const tunnelPort = input.tunnelPort ?? 19444;
+  if (!Number.isInteger(tunnelPort) || Number(tunnelPort) < 1024 || Number(tunnelPort) > 65535) throw new ConfigError('隧道端口需为 1024–65535。');
+  let gateway: PublicAccess['gateway'];
+  if (input.mode === 'relay') {
+    const g = input.gateway as Record<string, unknown> | undefined;
+    if (!g || !safeHost(g.host)) throw new ConfigError('请填写 ECS 的 SSH 地址或别名。');
+    gateway = { host: g.host, ...validateConnection(g) };
+  }
+  return { mode: input.mode as PublicAccess['mode'], publicIp: input.publicIp, tunnelPort: Number(tunnelPort), ...(gateway ? { gateway } : {}) };
 }
 
 export const installationDefaults = (): Installation => ({
@@ -51,7 +76,10 @@ export function validateInstallation(value: unknown): Installation {
   const input = value as Record<string, unknown>;
   if (!['single-k3s', 'single-k3d', 'multi-k3s'].includes(String(input.topology))) throw new ConfigError('请选择安装方式。');
   const topology = input.topology as Topology;
+  const publicAccess = validatePublicAccess(input.publicAccess);
+  if (publicAccess && topology !== 'single-k3s') throw new ConfigError('公网入口目前支持单机 K3s；K3d 和多机部署请使用内网访问。');
   if (!safeDomain(input.domain)) throw new ConfigError('请填写有效的平台域名，例如 team.apeironlab.internal。');
+  if (publicAccess && /\.(internal|local|localhost|test|invalid|example)$/.test(input.domain)) throw new ConfigError('公网访问需要你持有的真实域名，不能使用 .internal 等内网域名。');
   // Older saved configurations did not contain an entry IP. Keep them readable;
   // the wizard and installation preflight require it before creating a cluster.
   const entryIp = input.entryIp ?? (topology === 'single-k3d' ? '127.0.0.1' : '');
@@ -77,7 +105,7 @@ export function validateInstallation(value: unknown): Installation {
     const servers = nodes.filter(node => node.role === 'server').length;
     if (input.ha ? servers < 3 || servers % 2 === 0 : servers !== 1) throw new ConfigError(input.ha ? '高可用需要 3 个或更多奇数个控制节点。' : '普通多机部署需要 1 个控制节点，其余为工作节点。');
   } else if (nodes.length) throw new ConfigError('单机部署不接受远程节点列表。');
-  return { topology, domain: input.domain, entryIp, httpPort: Number(httpPort), httpsPort: Number(httpsPort), ha: input.ha, ...connection, nodes };
+  return { topology, domain: input.domain, entryIp, httpPort: Number(httpPort), httpsPort: Number(httpsPort), ha: input.ha, ...connection, nodes, ...(publicAccess ? { publicAccess } : {}) };
 }
 
 export function inventoryFor(installation: Installation, nodes: NodeTarget[], bundle: string, kubeconfig: string, architecture: 'amd64' | 'arm64') {

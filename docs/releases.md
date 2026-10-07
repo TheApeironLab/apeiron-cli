@@ -38,7 +38,7 @@ apeiron init --no-open --port 3210
 
 离线安装：从联网机器下载对应的 `apeiron-<version>-<os>-<arch>.tar.gz` 与同目录的 `SHA256SUMS`，拷贝到内网。用 `sha256sum`（Linux）或 `shasum -a 256`（macOS）核对该归档，再解压，将 `apeiron` 放入 PATH。运行 CLI 不需要 Bun/Node.js。
 
-CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 Chentu 包：`chentu/` 部署程序、所选应用及依赖的镜像、Chart 和工具。向导选择“离线部署”并填写 CLI 主机上的包目录。当前 K3d 准备脚本仍需联网，CLI 明确拒绝 K3d 离线部署；内网平台安装需另行准备并验收原生 K3s 离线包。
+CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 Chentu 包：`chentu/` 部署程序、所选应用及依赖的镜像、Chart 和工具。向导选择“离线部署”并填写 CLI 主机上的包目录。K3d 离线部署需包含匹配版本的 K3s 基础镜像包；完整应用的断网部署尚需验收。原生 K3s 同样需对应目标的完整离线包。
 
 当前 Chentu rc.5 提供 K3d ARM64 安装目标；原生 Ubuntu、多节点和 AMD64 需要另外发布经过验收的部署包。K3d 需要 Docker，其他应用转发命令需要单独配置相应 CLI。
 

@@ -9,6 +9,8 @@ export interface InstallFile { path: string; size: number; sha256: string; url?:
 export interface InstallImage { file: string; reference: string; digest: string }
 export interface InstallComponent { requires: string[]; files: string[]; values?: Record<string, unknown>; images?: InstallImage[] }
 export interface InstallTarget {
+  k3sAirgap?: string;
+  operatorTools?: boolean;
   hostPlatform?: { os: 'ubuntu'; version: string; architecture: 'amd64' | 'arm64' };
   deploymentTopology?: boolean;
   publicPorts?: boolean;
@@ -90,6 +92,7 @@ export function installPlan(catalog: InstallCatalog, target: string, apps: strin
   const architecture = target.split('-').at(-1);
   if (environment.architecture !== undefined && environment.architecture !== '__ARCH__' && environment.architecture !== architecture) throw new ConfigError('安装包的资源架构与目标架构不一致。');
   const files = catalog.files.filter(file => paths.has(file.path));
+  if (targetConfig.k3sAirgap && (!safeRelative(targetConfig.k3sAirgap) || !paths.has(targetConfig.k3sAirgap))) throw new ConfigError('K3s 基础镜像包必须列入目标的校验资源清单。');
   if (!files.length) throw new ConfigError('安装包未声明任何可校验的部署资源。');
   if (targetConfig.toolboxArchive && (!paths.has(targetConfig.toolboxArchive) || !/^sha256:[a-f0-9]{64}$/.test(targetConfig.toolboxImageId ?? ''))) throw new ConfigError('工具箱归档必须列入校验清单，并提供固定镜像 ID。');
   if (targetConfig.dockerArchives !== undefined && !Array.isArray(targetConfig.dockerArchives)) throw new ConfigError('K3d 系统镜像归档声明不完整。');

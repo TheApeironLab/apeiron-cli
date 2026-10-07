@@ -8,8 +8,8 @@ usage: apeiron init [--port <0..65535>] [--config <path>] [--no-open]
 
 Open a local browser wizard: environment, organization, apps, deploy, access, test.
 --port       Loopback port; 0 selects a free port (default).
---config     Local config file; default $XDG_CONFIG_HOME/apeiron/config.json
-             or ~/.config/apeiron/config.json. Keep it outside Git repositories.
+--config     Local config file; default ~/.apeiron/config.json.
+             Keep it outside Git repositories.
 --no-open    Print the local URL without opening the system browser.
 
 Step 4 verifies release resources, creates a new cluster, then runs Helmfile.
