@@ -25,13 +25,13 @@ export interface DnsResult {
 }
 type Lookup = (host: string) => Promise<{ address: string }[]>;
 
-export async function checkDns(value: unknown, options: { lookup?: Lookup; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<DnsResult> {
+export async function checkDns(value: unknown, options: { lookup?: Lookup; signal?: AbortSignal; timeoutMs?: number; includeRoot?: boolean } = {}): Promise<DnsResult> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ConfigError('请填写域名和入口 IP。');
   const input = value as Record<string, unknown>;
   if (!safeDomain(input.domain) || !safeEntryIp(input.entryIp) || typeof input.local !== 'boolean') throw new ConfigError('请填写有效的域名和入口 IPv4 地址。');
   if (input.local && input.entryIp !== '127.0.0.1') throw new ConfigError('本机测试入口必须为 127.0.0.1。');
   const resolve = options.lookup ?? (host => lookup(host, { all: true })); // OS resolver includes hosts and macOS scoped resolvers.
-  const hosts = [`apeiron.${input.domain}`, `iam.${input.domain}`,
+  const hosts = [`apeiron.${input.domain}`, `iam.${input.domain}`, ...(options.includeRoot ? [input.domain] : []),
     ...(!input.local ? [`apeiron-check-${randomBytes(6).toString('hex')}.${input.domain}`] : [])];
   const checks = await Promise.all(hosts.map(async (host): Promise<DnsCheck> => {
     const signal = AbortSignal.any([AbortSignal.timeout(options.timeoutMs ?? 4000), ...(options.signal ? [options.signal] : [])]);

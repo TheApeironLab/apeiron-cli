@@ -162,6 +162,19 @@ try {
   await page.getByRole('radio', { name: /单机 K3s/ }).check();
   await page.locator('#entry-ip').fill('192.0.2.11');
   assert.match(await page.locator('#topology-note').innerText(), /匹配系统与架构的安装包/);
+  await page.getByRole('radio', { name: /ECS 转发/ }).check();
+  await page.getByLabel('公网入口 IP', { exact: true }).fill('8.8.8.8');
+  await page.getByLabel('ECS SSH 地址或别名', { exact: true }).fill('edge-host');
+  assert.equal(await page.getByLabel('ECS SSH 私钥路径', { exact: true }).isVisible(), true);
+  await page.getByRole('radio', { name: /公网直连/ }).check();
+  assert.equal(await page.getByLabel('ECS SSH 地址或别名', { exact: true }).isVisible(), false);
+  await page.getByRole('button', { name: '下一步', exact: true }).click();
+  await slug.fill('public-team');
+  assert.equal(await page.getByLabel('平台域名', { exact: true }).inputValue(), 'public-team.apeironlab.cn');
+  await slug.fill('');
+  await page.getByRole('button', { name: '上一步', exact: true }).click();
+  await page.getByRole('radio', { name: /内网访问/ }).check();
+
   await page.locator('#next').click();
   await slug.waitFor({ state: 'visible' });
   await page.locator('#back').click();

@@ -9,6 +9,7 @@ export interface InstallFile { path: string; size: number; sha256: string; url?:
 export interface InstallImage { file: string; reference: string; digest: string }
 export interface InstallComponent { requires: string[]; files: string[]; values?: Record<string, unknown>; images?: InstallImage[] }
 export interface InstallTarget {
+  operatorTools?: boolean;
   hostPlatform?: { os: 'ubuntu'; version: string; architecture: 'amd64' | 'arm64' };
   deploymentTopology?: boolean;
   publicPorts?: boolean;

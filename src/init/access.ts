@@ -11,6 +11,7 @@ export interface AccessInfo {
   domain: string;
   entryIp: string;
   local: boolean;
+  public?: boolean;
   httpsPort?: number;
   ca?: { path: string; fingerprint: string; expiresAt: string };
   hostsPath?: string;
@@ -33,6 +34,7 @@ export function publicCa(pem: string) {
 
 export async function collectAccess(target: DeploymentTarget, directory: string, signal: AbortSignal): Promise<AccessArtifacts> {
   const installation = target.installation!;
+  if (installation.publicAccess) return { info: { domain: installation.domain, entryIp: installation.publicAccess.publicIp, local: false, public: true, httpsPort: 443, notes: ['公网 DNS 与 HTTPS 已通过检查，证书由 Caddy 自动续期。'] } };
   const result: AccessArtifacts = { info: { domain: installation.domain, entryIp: installation.entryIp,
     local: installation.topology === 'single-k3d', httpsPort: installation.httpsPort, notes: [] } };
   try {

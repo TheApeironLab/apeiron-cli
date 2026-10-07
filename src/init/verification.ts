@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { lookup } from 'node:dns/promises';
+import { lookup, resolve4, resolve6 } from 'node:dns/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -62,13 +62,16 @@ export interface VerificationCheck {
 }
 export interface VerificationResult { checkedFrom: string; checkedAt: string; passed: boolean; checks: VerificationCheck[] }
 
-async function resolveHost(host: string, signal: AbortSignal): Promise<string[]> {
+async function resolveHost(host: string, signal: AbortSignal, publicDns = false): Promise<string[]> {
   const deadline = AbortSignal.any([signal, AbortSignal.timeout(4000)]);
   let cancel!: () => void;
   try {
     deadline.throwIfAborted();
     const aborted = new Promise<never>((_, reject) => { cancel = () => reject(new Error('cancelled')); deadline.addEventListener('abort', cancel, { once: true }); });
-    return (await Promise.race([lookup(host, { all: true }), aborted])).map(entry => entry.address);
+    const query = publicDns
+      ? Promise.all([resolve4(host), resolve6(host).catch(() => [])]).then(([v4, v6]) => [...v4, ...v6])
+      : lookup(host, { all: true }).then(entries => entries.map(entry => entry.address));
+    return await Promise.race([query, aborted]);
   } finally { if (cancel) deadline.removeEventListener('abort', cancel); }
 }
 async function checkHttps(host: string, ip: string, signal: AbortSignal, port = 443): Promise<number> {
@@ -89,7 +92,7 @@ export async function verifyInstallation(access: AccessInfo, signal: AbortSignal
     const host = `${site.id}.${access.domain}`;
     const base = { name: site.name, host, url: `https://${host}${port === 443 ? '' : ':' + port}/` };
     let addresses: string[];
-    try { addresses = await operations.resolveHost(host, signal); }
+    try { addresses = await operations.resolveHost(host, signal, Boolean(access.public)); }
     catch { return { ...base, dns: 'failed', https: 'skipped', message: '解析失败或超时，请返回配置访问。' } as VerificationCheck; }
     if (!addresses.length || addresses.some(address => address !== access.entryIp)) return { ...base, dns: 'failed', https: 'skipped', message: '解析地址与部署入口不一致，请检查 hosts / DNS。' } as VerificationCheck;
     try {

@@ -71,6 +71,7 @@ function deploymentTarget(value: unknown): DeploymentTarget {
   if (input.installation !== undefined) {
     const installation = validateInstallation(input.installation);
     if (typeof input.offline !== 'boolean') throw new ConfigError('请选择在线或离线部署。');
+    if (input.offline && installation.publicAccess) throw new ConfigError('公网入口需要在线 DNS 和证书服务；离线部署请使用内网访问。');
     const bundleDir = input.bundleDir ? absolutePath(input.bundleDir, '安装包目录') : '';
     if (input.offline && !bundleDir) throw new ConfigError('离线部署请选择本机的安装包目录。');
     if (input.offline && installation.topology === 'single-k3d') throw new ConfigError('宸途 k3d 准备脚本需要联网；离线部署请选择 K3s。');

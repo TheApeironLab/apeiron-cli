@@ -34,6 +34,7 @@ addresses=[]
 r=run(['ip','-j','-4','address','show','scope','global'])
 if r and r.returncode==0:
  for iface in json.loads(r.stdout):
+  if 'UP' not in iface.get('flags',[]): continue
   if iface.get('ifname','').startswith(('docker','br-','cni','flannel','veth')): continue
   addresses += [a['local'] for a in iface.get('addr_info',[]) if a.get('family')=='inet']
 memory=0
