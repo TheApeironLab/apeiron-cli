@@ -7,7 +7,8 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   type NodeFacts = import('./nodes').NodeFacts;
   type Config = { slug: string; apps: string[]; deployment?: Target };
   type Status = import('./deploy').DeploymentStatus;
-  type Snapshot = { revision: string | null; config: Config | null; apps: App[]; defaults: Target; deployment: Status; host: { name: string; addresses: string[] } };
+  type Connection = import('./pairing').Connection;
+  type Snapshot = { revision: string | null; config: Config | null; apps: App[]; defaults: Target; deployment: Status; connections?: Connection[]; host: { name: string; addresses: string[] } };
   const get = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
   const form = get<HTMLFormElement>('setup-form');
   const slug = get<HTMLInputElement>('slug');
@@ -62,23 +63,40 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   let verificationBusy = false;
   let accessTimer: ReturnType<typeof setTimeout> | undefined;
   let accessInstalling = false;
-  const defaultDomain = () => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug.value.trim()) ? `${slug.value.trim()}.apeironlab.internal` : '';
+  let connections: Connection[] = [];
+  let connectionBusy = false;
+  const pairedSelect = get<HTMLSelectElement>('paired-entry');
+  const selectedConnection = () => connections.find(connection => connection.id === pairedSelect.value);
+  const accessMode = () => document.querySelector<HTMLInputElement>('[name="access-mode"]:checked')!.value;
+  const publicField = (id: string) => get<HTMLInputElement>(id).value.trim();
+  const defaultDomain = () => accessMode() === 'relay' && selectedConnection() ? selectedConnection()!.domain : /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug.value.trim()) ? `${slug.value.trim()}.${accessMode() === 'private' ? 'apeironlab.internal' : 'apeironlab.cn'}` : '';
   const validDomain = () => domain.value.length <= 220 && domain.value.includes('.') && domain.value.split('.').every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) && !/^\d+(?:\.\d+){3}$/.test(domain.value);
   const validIp = () => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(entryIp.value) && entryIp.value.split('.').every(part => String(Number(part)) === part && Number(part) <= 255) &&
     !/^(0|169\.254|22[4-9]|23\d|24\d|25[0-5])\./.test(entryIp.value) && (topology() === 'single-k3d' ? entryIp.value === '127.0.0.1' : !entryIp.value.startsWith('127.'));
   function renderSetup() {
     const mode = topology();
+    const published = accessMode() !== 'private';
+    get('public-fields').hidden = !published;
+    get('gateway-fields').hidden = accessMode() !== 'relay';
+    get('public-dns').hidden = !published;
+    get('domain-note').textContent = published ? '使用你持有的域名。部署前将以下 DNS A 记录指向公网入口；Caddy 会自动申请并续期 HTTPS 证书。' : '内网使用无需购买域名。部署完成后，再引导你配置访问。';
     get('local-ports').hidden = mode !== 'single-k3d';
     if (entryTopology !== mode) { entryEdited = false; entryTopology = mode; }
-    if (!customDomain.checked) domain.value = defaultDomain();
-    domain.readOnly = !customDomain.checked;
+    const paired = accessMode() === 'relay' ? selectedConnection() : undefined;
+    if (paired) { domain.value = paired.domain; get<HTMLInputElement>('public-ip').value = paired.publicIp; }
+    else if (!customDomain.checked) domain.value = defaultDomain();
+    domain.readOnly = Boolean(paired) || !customDomain.checked;
+    customDomain.disabled = Boolean(paired);
+    get<HTMLInputElement>('public-ip').readOnly = Boolean(paired);
+    get('public-dns').textContent = `*.${domain.value || '<slug>.apeironlab.cn'}    A    ${publicField('public-ip') || '<公网入口 IP>'}\n${domain.value || '<slug>.apeironlab.cn'}      A    ${publicField('public-ip') || '<公网入口 IP>'}`;
     const nodes = mode === 'multi-k3s' ? target().installation!.nodes : [];
     const candidates = mode === 'single-k3d' ? ['127.0.0.1'] : mode === 'multi-k3s' ? nodes.filter(node => node.role === 'server').map(node => node.address) : cliHost.addresses;
     if (!entryEdited) entryIp.value = mode === 'multi-k3s' && ha.checked ? '' : candidates[0] ?? '';
     entryIp.readOnly = mode === 'single-k3d';
     get('entry-field').hidden = mode === 'single-k3d';
     get('entry-addresses').replaceChildren(...candidates.map(address => new Option(address, address)));
-    get('entry-note').textContent = mode === 'multi-k3s' && ha.checked ? '填写已配置的稳定入口 IP（负载均衡或 VIP）；向导不会自动创建 VIP。' : mode === 'multi-k3s' ? '默认使用控制节点 IP，也可填写已配置的入口 IP；固定到单个节点不提供入口高可用。' : '从 CLI 主机网卡建议，请确认这是访问设备可达的固定 IP。';
+    get('entry-label').textContent = published ? '节点 IP' : '入口 IP';
+    get('entry-note').textContent = published ? '部署主机网卡上的固定 IP，供 K3s 使用；用户通过上方的公网入口访问。' : mode === 'multi-k3s' && ha.checked ? '填写已配置的稳定入口 IP（负载均衡或 VIP）；向导不会自动创建 VIP。' : mode === 'multi-k3s' ? '默认使用控制节点 IP，也可填写已配置的入口 IP；固定到单个节点不提供入口高可用。' : '从 CLI 主机网卡建议，请确认这是访问设备可达的固定 IP。';
   }
   function renderAccessGuide(access: NonNullable<Status['access']>) {
     completedAccess = access;
@@ -100,6 +118,55 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   }
   for (const input of [slug, domain]) input.addEventListener('input', renderSetup);
   customDomain.addEventListener('change', renderSetup);
+  for (const input of document.querySelectorAll<HTMLInputElement>('[name="access-mode"]')) input.addEventListener('change', renderSetup);
+  get('public-ip').addEventListener('input', renderSetup);
+  function renderConnections(selected = pairedSelect.value) {
+    pairedSelect.replaceChildren(new Option('选择入口', ''), ...connections.map(connection => new Option(`${connection.domain}${connection.state === 'revoked' ? '（已撤销）' : ''}`, connection.id)));
+    pairedSelect.value = selected;
+  }
+  function connectionMessage(connection: Connection) {
+    get('connection-status').textContent = connection.state === 'revoked' ? '已撤销公网连接；重新连接需要 ECS 生成新的配对码。' + (connection.localStopped === false ? '本机服务未停止，请使用 sudo 停止对应隧道服务；入口已拒绝重连。' : '') :
+      `已配对 · ${connection.domain} → ${connection.publicIp}` +
+      (connection.tunnel === undefined ? ' · 尚未检测隧道' : connection.tunnel ? ' · 隧道端口就绪' : ' · 隧道未连接') +
+      (connection.routes === undefined ? '' : connection.routes ? ' · 路由已配置' : ' · 等待部署配置路由') +
+      (connection.dns === undefined ? '' : connection.dns ? ' · DNS 通过' : ' · DNS 未通过') +
+      (connection.https === undefined ? '' : connection.https ? ' · HTTPS 通过' : ' · HTTPS 未通过');
+  }
+  pairedSelect.addEventListener('change', () => {
+    get('revoke-confirm').hidden = true;
+    const selected = selectedConnection();
+    if (selected) connectionMessage(selected); else get('connection-status').textContent = '';
+    renderSetup();
+  });
+  async function connectionAction(action: 'pair' | 'status' | 'test' | 'revoke') {
+    if (connectionBusy) return;
+    const selected = selectedConnection();
+    if (action !== 'pair' && !selected) { showError('请先选择已配对入口。'); return; }
+    const input = action === 'pair' ? { code: get<HTMLTextAreaElement>('pairing-code').value.trim() } : { id: selected!.id };
+    if (action === 'pair') get<HTMLTextAreaElement>('pairing-code').value = '';
+    connectionBusy = true;
+    get('connection-status').textContent = action === 'pair' ? '正在配对入口…' : action === 'revoke' ? '正在撤销公网连接…' : '正在检测入口…';
+    const buttons = ['pair-entry', 'connection-refresh', 'connection-test', 'connection-revoke', 'confirm-revoke'].map(id => get<HTMLButtonElement>(id));
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+      const response = await fetch(endpoint('connections/' + action), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+      const result = await response.json() as { connection: Connection; connections: Connection[]; error?: string };
+      if (!response.ok) throw new Error(result.error || '入口操作失败。');
+      connections = result.connections; renderConnections(result.connection.id); connectionMessage(result.connection);
+      get('revoke-confirm').hidden = true;
+      renderSetup();
+      if (currentDeployment?.phase === 'succeeded' && form.hidden) renderDeployment(currentDeployment);
+    } catch (cause) {
+      get('connection-status').textContent = '操作未确认成功；当前连接状态未知，请检查后重试。';
+      showError(cause instanceof Error ? cause.message : '连接操作失败。');
+    } finally { connectionBusy = false; buttons.forEach(button => { button.disabled = false; }); }
+  }
+  get('pair-entry').addEventListener('click', () => { void connectionAction('pair'); });
+  get('connection-refresh').addEventListener('click', () => { void connectionAction('status'); });
+  get('connection-test').addEventListener('click', () => { void connectionAction('test'); });
+  get('connection-revoke').addEventListener('click', () => { if (selectedConnection()) get('revoke-confirm').hidden = false; else showError('请先选择已配对入口。'); });
+  get('cancel-revoke').addEventListener('click', () => { get('revoke-confirm').hidden = true; });
+  get('confirm-revoke').addEventListener('click', () => { void connectionAction('revoke'); });
   entryIp.addEventListener('input', () => { entryEdited = true; renderSetup(); });
   get('node-results').addEventListener('change', renderSetup);
   get('copy-dns').addEventListener('click', async () => {
@@ -292,18 +359,25 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
   });
   function target(): Target {
     const mode = topology();
+    const paired = accessMode() === 'relay' ? selectedConnection() : undefined;
     const nodes = mode === 'multi-k3s' ? Array.from(get('node-results').querySelectorAll<HTMLElement>('.node-result')).map(row => ({
       host: row.dataset.host!, name: row.querySelector<HTMLInputElement>('[data-field=name]')?.value.trim() ?? '',
       address: row.querySelector<HTMLSelectElement>('[data-field=address]')?.value ?? '',
       role: row.querySelector<HTMLSelectElement>('[data-field=role]')?.value as 'server' | 'agent',
     })) : [];
-    return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? Number(fields.httpPort.value) : 80, httpsPort: mode === 'single-k3d' ? Number(fields.httpsPort.value) : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes },
+    return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? Number(fields.httpPort.value) : 80, httpsPort: mode === 'single-k3d' ? Number(fields.httpsPort.value) : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode() as 'direct' | 'relay', publicIp: paired?.publicIp ?? publicField('public-ip'), tunnelPort: paired?.tunnelPort ?? Number(publicField('tunnel-port')), ...(paired ? { pairingId: paired.id } : accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
       runner: mode === 'single-k3d' ? 'docker' : 'native',
       root: '', offline: offline.checked, bundleDir: offline.checked ? fields.bundleDir.value.trim() : '',
       environment: '', kubeconfig: '', workDir: '', image: 'chentu-lab' };
   }
   function applyTarget(value: Target) {
     const install = value.installation;
+    const published = install?.publicAccess;
+    renderConnections(published?.pairingId ?? '');
+    if (selectedConnection()) connectionMessage(selectedConnection()!);
+    get<HTMLDetailsElement>('manual-entry').open = Boolean(published?.gateway);
+    document.querySelector<HTMLInputElement>(`[name="access-mode"][value="${published?.mode ?? 'private'}"]`)!.checked = true;
+    for (const [id, text] of Object.entries({ 'public-ip': published?.publicIp ?? '', 'gateway-host': published?.gateway?.host ?? '', 'gateway-user': published?.gateway?.sshUser ?? '', 'gateway-key': published?.gateway?.sshKey ?? '', 'gateway-port': String(published?.gateway?.sshPort ?? 22), 'tunnel-port': String(published?.tunnelPort ?? 19444) })) get<HTMLInputElement>(id).value = text;
     document.querySelector<HTMLInputElement>(`[name="topology"][value="${install?.topology ?? 'single-k3d'}"]`)!.checked = true;
     offline.checked = Boolean(value.offline); get<HTMLInputElement>('online').checked = !offline.checked;
     fields.bundleDir.value = value.bundleDir; domain.value = install?.domain ?? '';
@@ -316,6 +390,8 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     renderTarget();
   }
   function renderStep(focus = true) {
+    pairedSelect.disabled = false;
+    get('gateway-fields').insertBefore(get('connection-manager'), get('manual-entry'));
     renderSetup();
     error.hidden = true;
     document.querySelectorAll<HTMLElement>('[data-panel]').forEach((panel, index) => { panel.hidden = index !== step; });
@@ -378,6 +454,10 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
         for (const key of ['host', 'name', 'address'] as const) if (new Set(nodes.map(node => node[key])).size !== nodes.length) { showError('节点名称和地址不能重复。'); return false; }
       }
     }
+    if (step === 0 && accessMode() !== 'private' && (topology() !== 'single-k3s' || offline.checked)) { showError('公网入口目前支持在线单机 K3s。'); return false; }
+    if (connectionBusy) { showError('连接管理正在进行，请稍后重试。'); return false; }
+    if (step === 0 && accessMode() === 'relay' && selectedConnection()?.state === 'revoked') { showError('当前连接已撤销，请重新配对。'); return false; }
+    if (step === 0 && accessMode() !== 'private' && (!publicField('public-ip') || (accessMode() === 'relay' && !selectedConnection() && !publicField('gateway-host')))) { showError('请配对公网入口，或填写高级 SSH 配置。'); return false; }
     if (step === 0 && !validIp()) { showError('请确认部署环境中的入口 IPv4 地址。'); return false; }
     if (step === 1) {
       if (!slug.reportValidity() || !domain.reportValidity()) return false;
@@ -387,6 +467,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     return true;
   }
   function renderDeployment(status: Status) {
+    pairedSelect.disabled = true;
     currentDeployment = status;
     form.hidden = true; get('form-heading').hidden = true; get('finish-actions').hidden = false;
     const access = status.phase === 'succeeded' ? status.access : undefined;
@@ -430,7 +511,11 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     get('access-complete').hidden = !showAccess;
     if (access) {
       renderAccessGuide(access);
-      get('access-entry').textContent = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort} · ${access.local ? '本机测试' : '内网访问'} · ${access.entryIp}:${access.httpsPort ?? 443}`;
+      for (const id of ['private-access-card', 'private-access-note', 'manual-access']) get(id).hidden = Boolean(access.public);
+      get('completed-connection').hidden = !access.public || !selectedConnection();
+      if (access.public && selectedConnection()) get('completed-connection-slot').append(get('connection-manager'));
+      get('access-complete').querySelector('.subtitle')!.textContent = access.public && selectedConnection()?.state === 'revoked' ? '公网连接已撤销，集群与数据保留。重新配对并部署入口后可恢复访问。' : access.public ? '公网 HTTPS 入口已验证。无需配置 hosts 或安装 CA，可以进入测试。' : '部署已完成。配置这台电脑的访问方式，然后进入测试。';
+      get('access-entry').textContent = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort} · ${access.public ? '公网访问' : access.local ? '本机测试' : '内网访问'} · ${access.entryIp}:${access.httpsPort ?? 443}`;
       get('access-notes').textContent = access.notes.join(' ');
       const ca = get<HTMLAnchorElement>('download-ca'); ca.hidden = !access.ca; ca.href = endpoint('ca.crt');
       const hosts = get<HTMLAnchorElement>('download-hosts'); hosts.hidden = !access.hostsPath; hosts.href = endpoint('hosts.txt');
@@ -441,7 +526,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
     if (!access) { completedAccess = undefined; dnsFingerprint = ''; resetDns(); }
     clearTimeout(timer);
     if (active) timer = setTimeout(() => { void poll(); }, 1000);
-    if (showAccess) void loadLocalAccess();
+    if (showAccess && !access?.public) void loadLocalAccess();
     if (showTest && access) {
       get<HTMLAnchorElement>('test-open-apeiron').href = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort}/`;
       get<HTMLAnchorElement>('test-open-ops').href = `https://ops.${access.domain}${(access.httpsPort ?? 443) === 443 ? '' : ':' + access.httpsPort}/`;
@@ -651,6 +736,7 @@ export function initWizard(supportsK3sHost: typeof import('./host-platform').sup
       const response = await fetch(endpoint('config'));
       if (!response.ok) throw new Error('无法读取配置，请检查终端并重新运行 apeiron init。');
       const result = await response.json() as Snapshot;
+      connections = result.connections ?? [];
       apps = result.apps; revision = result.revision;
       cliHost = result.host;
       if (result.config) slug.value = result.config.slug;

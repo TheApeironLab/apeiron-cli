@@ -10,6 +10,8 @@ import type { ResourceResolver } from '../resources/chentu';
 import { checkDns } from './dns';
 import { safeEntryIp } from './installation';
 import { checkLocalCluster, localCluster } from './local-cluster';
+import { publicAccessPhase } from './public-access';
+import { prepareNativeTools } from './native-tools';
 export { checkLocalPort } from './local-cluster';
 
 export type RunCommand = (command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv) => Promise<number>;
@@ -36,7 +38,7 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     const architectures = new Set(facts.map(node => nodeArchitecture(node.architecture)));
     if (architectures.size !== 1) throw new ConfigError('当前安装包按单一架构发布，请选择 CPU 架构一致的节点。');
     architecture = nodeArchitecture(facts[0]!.architecture);
-    if (installation.topology === 'single-k3s') nodes.push({ host: 'localhost', name: facts[0]!.name, address: facts[0]!.addresses[0]!, role: 'server' });
+    if (installation.topology === 'single-k3s') nodes.push({ host: 'localhost', name: facts[0]!.name, address: facts[0]!.addresses.includes(installation.entryIp) ? installation.entryIp : facts[0]!.addresses[0]!, role: 'server' });
     for (const node of nodes) if (!facts.find(fact => fact.host === node.host)?.addresses.includes(node.address)) throw new ConfigError(`${node.host} 的内网地址已变化，请重新检测。`);
   }
   const plan = installPlan(catalog, `${docker ? 'k3d' : 'k3s'}-${architecture}`, config.apps);
@@ -47,10 +49,14 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     throw new ConfigError('此宸途安装包未包含完整的集群 SSO 初始化，请使用支持 clusterOidc 的新版发行包。尚未修改任何集群。');
   }
   if (docker && (installation.httpPort !== 80 || installation.httpsPort !== 443) && plan.target.publicPorts !== true) throw new ConfigError('此宸途安装包不支持自定义入口端口，请使用新版发行包。尚未创建集群。');
-  for (const tool of docker ? ['docker'] : ['ansible-playbook', 'python3', 'helm', 'helmfile', ...(installation.topology === 'multi-k3s' ? ['ssh'] : [])]) {
+  const bundledTools = !docker && plan.target.operatorTools === true && process.platform === 'linux' && nodeArchitecture(process.arch) === architecture;
+  for (const tool of docker ? ['docker'] : [...(bundledTools ? ['tar'] : ['ansible-playbook', 'helm', 'helmfile']), 'python3', ...(installation.topology === 'multi-k3s' ? ['ssh'] : [])]) {
     if (!Bun.which(tool)) throw new ConfigError(`管理机缺少 ${tool}，请安装后重新检测。`);
   }
-  if (!docker) {
+  if (installation.publicAccess) {
+    progress('检查公网 DNS、Caddy 和入口 SSH 权限。');
+    await publicAccessPhase('check', target, directory, process.env, context.run, signal, context.installationKey);
+  } else if (!docker) {
     progress('检查管理机上的平台域名与泛解析。');
     if (!(await checkDns({ domain: installation.domain, entryIp: installation.entryIp, local: false }, { signal })).passed) {
       throw new ConfigError(`管理机 DNS 检查未通过。请在内网 DNS 配置 *.${installation.domain} A ${installation.entryIp}，让管理机和节点使用该 DNS 后重试。尚未创建集群。`);
@@ -71,14 +77,26 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     await copyFile(join(cache, file.path), destination, constants.COPYFILE_FICLONE);
   }
   await prepareInstallFiles(plan, bundle, true, signal, () => {});
-  await writeFile(join(bundle, 'SHA256SUMS'), plan.files.map(file => `${file.sha256}  ${file.path}`).join('\n') + '\n', { mode: 0o600 });
+  const generatedFiles: string[] = [];
   if (plan.images.length) {
     await mkdir(join(bundle, 'images'), { recursive: true, mode: 0o700 });
     await writeFile(join(bundle, 'images/install-manifest.json'), JSON.stringify(plan.images.map(image => {
       const file = plan.files.find(file => file.path === image.file)!;
       return { ...image, size: file.size, sha256: file.sha256 };
     })), { mode: 0o600 });
+    generatedFiles.push('images/install-manifest.json');
+    if (!docker) {
+      // Only selected images enter native bootstrap; disabled apps remain absent.
+      await writeFile(join(bundle, 'images/manifest.txt'), plan.images.map(image => `setup ${image.reference}`).join('\n') + '\n', { mode: 0o600 });
+      await writeFile(join(bundle, 'images/nexus-names.txt'), plan.images.map(image => `setup ${image.reference} ${image.reference}`).join('\n') + '\n', { mode: 0o600 });
+      generatedFiles.push('images/manifest.txt', 'images/nexus-names.txt');
+    }
   }
+  const generatedSums = await Promise.all(generatedFiles.map(async path =>
+    `${createHash('sha256').update(new Uint8Array(await Bun.file(join(bundle, path)).arrayBuffer())).digest('hex')}  ${path}`));
+  await writeFile(join(bundle, 'SHA256SUMS'), [...plan.files.filter(file => !generatedFiles.includes(file.path)).map(file => `${file.sha256}  ${file.path}`), ...generatedSums].join('\n') + '\n', { mode: 0o600 });
+  if (bundledTools) progress('从已校验安装包准备 Python、Ansible 和部署工具。');
+  const toolEnv = bundledTools ? await prepareNativeTools(plan, bundle, target.workDir, context.run, signal) : undefined;
 
   const cluster = `apeiron-${hash(target.workDir)}`;
   const nodeName = docker ? `k3d-${cluster}-server-0` : nodes.find(node => node.role === 'server')!.name;
@@ -92,6 +110,7 @@ export async function prepareFreshInstallation(config: Configuration, context: C
   Object.assign(values, { topology: installation.topology, domain: installation.domain, registry: `registry.${installation.domain}`, node: nodeName, work: replacements.__WORK__, bundle: replacements.__BUNDLE__, architecture });
   values.publicHttpsPort = installation.httpsPort;
   values.publicHttpPort = installation.httpPort;
+  if (installation.publicAccess) values.publicAccess = { mode: installation.publicAccess.mode };
   values.releases ??= {};
   if (!docker) {
     const storageNodes = [nodeName];
@@ -103,10 +122,10 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     values.storageClass = 'local-path';
   }
   return { target: { ...target, environment: join(directory, 'input.yaml'), kubeconfig: join(target.workDir, 'state/kubeconfig') },
-    source: Bun.YAML.stringify(values), runtime: { cluster, nodes, plan, bundle, architecture } };
+    source: Bun.YAML.stringify(values), runtime: { cluster, nodes, plan, bundle, architecture, toolEnv, generatedFiles } };
 }
 
-type Runtime = { cluster: string; nodes: NodeTarget[]; plan: ReturnType<typeof installPlan>; bundle: string; architecture: 'amd64' | 'arm64' };
+type Runtime = { cluster: string; nodes: NodeTarget[]; plan: ReturnType<typeof installPlan>; bundle: string; architecture: 'amd64' | 'arm64'; toolEnv?: NodeJS.ProcessEnv; generatedFiles?: string[] };
 
 export async function finishClusterAccess(target: DeploymentTarget, directory: string, env: NodeJS.ProcessEnv, run: RunCommand) {
   const command = target.runner === 'docker' ? 'bash' : 'python3';
@@ -121,7 +140,7 @@ export async function bootstrapFresh(target: DeploymentTarget, environment: stri
   const { directory, run, progress } = context;
   const { nodes, plan, bundle, cluster } = runtime;
   const installation = target.installation!;
-  const env = { ...process.env, CHENTU_ROOT: target.root, CHENTU_ENV: environment,
+  const env = { ...process.env, ...runtime.toolEnv, CHENTU_ROOT: target.root, CHENTU_ENV: environment,
     KUBECONFIG: target.kubeconfig, PYTHONPATH: join(target.root, 'cli/src'), UV_OFFLINE: '1', UV_PYTHON_DOWNLOADS: 'never',
     HELMFILE_NO_COLOR: 'true', HELMFILE_LOG_LEVEL: 'info' };
   async function checked(command: string, args: string[], message: string, processEnv = env) {
@@ -168,13 +187,13 @@ export async function bootstrapFresh(target: DeploymentTarget, environment: stri
   await writeFile(inventory, Bun.YAML.stringify(inventoryFor(installation, nodes, remoteBundle, target.kubeconfig, runtime.architecture)), { mode: 0o600 });
   const copyTasks = installation.topology === 'multi-k3s' ? [
     { name: 'Create resource directories', 'ansible.builtin.file': { path: '{{ chentu_bundle }}/{{ item }}', state: 'directory', mode: '0700' }, loop: [...new Set(plan.files.map(file => dirname(file.path)))] },
-    { name: 'Copy verified resources', 'ansible.builtin.copy': { src: `${bundle}/{{ item }}`, dest: '{{ chentu_bundle }}/{{ item }}', mode: '0600' }, loop: [...plan.files.map(file => file.path), 'SHA256SUMS'] },
+    { name: 'Copy verified resources', 'ansible.builtin.copy': { src: `${bundle}/{{ item }}`, dest: '{{ chentu_bundle }}/{{ item }}', mode: '0600' }, loop: [...plan.files.map(file => file.path), ...(runtime.generatedFiles ?? []), 'SHA256SUMS'] },
   ] : [];
   const preflight = join(directory, 'prepare-hosts.yaml');
   const tasks = [
-    { name: 'Verify platform DNS on each node', 'ansible.builtin.command': { argv: ['python3', '-c',
+    ...(!installation.publicAccess ? [{ name: 'Verify platform DNS on each node', 'ansible.builtin.command': { argv: ['python3', '-c',
       'import socket,sys; domain,ip=sys.argv[1:]; hosts=["apeiron."+domain,"iam."+domain]; assert all({a[4][0] for a in socket.getaddrinfo(h,443,type=socket.SOCK_STREAM)}=={ip} for h in hosts), "Platform DNS does not match the entry IP"',
-      installation.domain, installation.entryIp] }, changed_when: false, async: 15, poll: 1 },
+      installation.domain, installation.entryIp] }, changed_when: false, async: 15, poll: 1 }] : []),
     // Check SSH transport between peers before bootstrapping. K3s service ports
     // aren't listening yet; their readiness is checked by Chentu during joins.
     ...(installation.topology === 'multi-k3s' ? [{ name: 'Check peer SSH reachability', 'ansible.builtin.wait_for': { host: '{{ item }}', port: installation.sshPort, timeout: 8, connect_timeout: 3 }, loop: nodes.map(node => node.address) }] : []),
@@ -184,5 +203,9 @@ export async function bootstrapFresh(target: DeploymentTarget, environment: stri
   await writeFile(preflight, Bun.YAML.stringify([{ name: 'Prepare verified installation resources', hosts: 'server:agent', become: true, gather_facts: false, tasks }]), { mode: 0o600 });
   await checked('ansible-playbook', ['-i', inventory, preflight], '检查节点互联并准备安装包');
   await checked('ansible-playbook', ['-i', inventory, join(target.root, 'bootstrap/hosts.yaml')], '安装 K3s 并生成 kubeconfig');
+  if (installation.publicAccess) {
+    progress('配置集群内部解析，公网域名和 SSO 地址保持一致。');
+    await publicAccessPhase('prepare', target, directory, env, run, context.signal, context.installationKey);
+  }
   return env;
 }
