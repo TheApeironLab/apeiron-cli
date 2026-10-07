@@ -54,3 +54,10 @@ bun scripts/publish-resources.ts /absolute/bundle /absolute/output --publish
 将输出清单纳入**新的**宸途发行包，并重新生成包的来源摘要、归档摘要和发行元数据。不能覆盖已发布包或原位修改它的清单；旧 rc.2 / rc.5 URL 继续保留，原有 CLI 和离线包无需迁移。新地址仍使用 schemaVersion 1，在线下载与离线校验无需另一套解析器。
 
 此次先迁移资源存储。统一发行组合 manifest、stable/preview channel 和按摘要的本地共享缓存是后续阶段；当前 CLI 固定的发行包不会因上传资源而自动切换。资源公开校验通过也不代表目标平台的实际部署验收通过。
+
+
+## 同一发行版本的多个目标
+
+`setup/install.json` 的 schemaVersion 2 包含 `catalogs`，键为 `k3d-arm64` / `k3s-arm64` 等目标，值是仅含该目标的完整 schemaVersion 1 清单。CLI 根据实际目标先选择清单，再计算应用依赖；未提供的目标、索引不匹配或损坏清单均拒绝。schemaVersion 1 继续兼容；旧 CLI 会拒绝 schemaVersion 2，因此采用新清单必须配套发布 CLI。
+
+多目标离线目录共享 `chentu/` 部署程序，资源分别存于 `targets/<目标>/<清单 path>`。在线缓存也按目标分目录，避免同名 Docker/OCI 归档互相覆盖。运行时 staging 仍使用清单原始 path，不改变宸途工具的路径约定。OSS 对象仍按内容摘要共享，不按目标重复上传。单目标发布器处理每个目标的独立资源目录，再由宸途 `bundle/release_catalog.py` 合并已发布清单；不能把不同目标的组件与文件直接拼成一个平面清单。
