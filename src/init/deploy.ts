@@ -1,3 +1,4 @@
+import { installModelKey, modelValues } from './models';
 import { publicAccessPhase } from './public-access';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { writeSync } from 'node:fs';
@@ -52,6 +53,11 @@ export function environmentFor(config: Configuration, source: string): string {
     const nexus = mapping(releases.nexus);
     const nexusValues = nexus.values === undefined ? {} : mapping(nexus.values);
     releases.nexus = { ...nexus, values: { ...nexusValues, publicProxies: !config.deployment.offline } };
+  }
+  if (config.models && config.apps.includes('apeiron')) {
+    const apeiron = mapping(releases.apeiron);
+    const current = apeiron.values === undefined ? {} : mapping(apeiron.values);
+    releases.apeiron = { ...apeiron, values: { ...current, defaultModel: '', allowedModels: '', models: modelValues(config.models) } };
   }
   const domain = config.deployment?.installation?.domain;
   if (domain) values.embedAllowedOrigins = [`https://${domain}:*`, `https://*.${domain}:*`];
@@ -206,6 +212,10 @@ export class Deployment {
       this.event('检查 Helm 是否存在未完成的安装、升级或回滚。');
       await checkHelmState(target, env, this.preparation.signal);
       this.preparation.signal.throwIfAborted();
+      if (config.models && config.apps.includes('apeiron')) {
+        this.event('配置 Apeiron 快速与深度思考模型。');
+        await installModelKey(config.models, target, env, this.preparation.signal);
+      }
       this.status.phase = 'running';
       this.event('正在运行 Helmfile sync；配置校验、依赖和安装顺序由宸途处理。');
       this.child = spawn('bash', [script, 'sync'], {

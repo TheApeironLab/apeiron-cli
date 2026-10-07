@@ -1,3 +1,4 @@
+import { modelConfiguration, type ModelConfiguration } from './models';
 import { createHash, randomBytes } from 'node:crypto';
 import { lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -26,6 +27,7 @@ export const APPS = [
 
 export interface Configuration {
   schemaVersion: 2;
+  models?: ModelConfiguration;
   slug: string;
   // Retain legacy credentials on disk during upgrades; the wizard never exposes them.
   llm?: { baseUrl: string; apiKey: string; modelId: string };
@@ -130,6 +132,7 @@ export function validateConfig(input: unknown, current?: Configuration): Configu
   const requestedApps = body.apps;
   return {
     schemaVersion: 2, slug,
+    ...(body.models === null ? {} : body.models !== undefined ? { models: modelConfiguration(body.models, current?.models) } : current?.models ? { models: current.models } : {}),
     ...(current?.llm ? { llm: current.llm } : {}),
     ...(body.deployment !== undefined ? { deployment: deploymentTarget(body.deployment) } : {}),
     apps: APPS.filter(a => requestedApps.includes(a.id)).map(a => a.id),
@@ -228,6 +231,7 @@ export function publicSnapshot(snapshot: Snapshot) {
     config: snapshot.config ? {
       slug: snapshot.config.slug, apps: snapshot.config.apps,
       deployment: snapshot.config.deployment,
+      models: snapshot.config.models ? { provider: snapshot.config.models.provider, baseUrl: snapshot.config.models.baseUrl, fast: snapshot.config.models.fast, deep: snapshot.config.models.deep, hasApiKey: Boolean(snapshot.config.models.apiKey) } : null,
     } : null,
   };
 }
