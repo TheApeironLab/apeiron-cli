@@ -1,0 +1,33 @@
+[package]
+name = "apeiron"
+version.workspace = true
+edition = "2021"
+rust-version = "1.85"
+description = "Run the apeiron agent on your own machine"
+license = "UNLICENSED"
+publish = false
+
+[dependencies]
+anyhow = "=1.0.104"
+clap = { version = "=4.6.6", features = ["derive", "env"] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+# tokio-tungstenite enables TLS without a crypto provider; wss:// otherwise aborts at startup.
+rustls = { version = "=0.23.44", default-features = false, features = ["ring"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+tokio = { version = "=1.53.1", features = ["fs", "io-std", "io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-tungstenite = { version = "=0.24.0", features = ["rustls-tls-native-roots"] }
+
+reqwest = { version = "=0.12.28", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
+tiny_http = "=0.12.0"
+sha2 = "=0.10.9"
+regex = "=1.12.3"
+base64 = "=0.22.1"
+rand = "=0.8.6"
+libc = "=0.2.189"
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
+serde_yaml_ng = "=0.10.0"
+tar = { version = "=0.4.46", default-features = false }
+flate2 = "=1.1.10"
+x509-parser = "=0.18.1"
+hickory-resolver = "0.25.2"

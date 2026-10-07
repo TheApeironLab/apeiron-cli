@@ -1,0 +1,1361 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配置 Apeiron</title>
+<link rel="icon" type="image/vnd.microsoft.icon" href="./favicon.ico" sizes="any">
+<style nonce="APEIRON_NONCE_PLACEHOLDER">
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1e293b;background:#f4f6f9;font-synthesis:none;--accent:#275ee8;--muted:#748096}
+*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}[hidden]{display:none!important}button{cursor:pointer}button:disabled{cursor:wait;opacity:.6}button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #93b5ff;outline-offset:3px}
+.shell{max-width:1120px;margin:0 auto;padding:42px 36px 26px}.brand{display:flex;align-items:center}.brand-logo{display:block;width:203px;height:28px;object-fit:contain}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:42px}.local{display:flex;align-items:center;gap:7px;border:1px solid #dce4e9;background:white;border-radius:24px;padding:6px 12px;font-size:12px;color:#66768a}.dot{width:6px;height:6px;background:#39a67e;border-radius:50%}
+.layout{display:grid;grid-template-columns:245px minmax(0,1fr);min-height:610px;background:white;border:1px solid #e2e7ee;border-radius:18px;overflow:hidden;box-shadow:0 12px 40px #23344b06}.sidebar{padding:32px 24px;background:#f9fafc;border-right:1px solid #e8ecf2;display:flex;flex-direction:column}.eyebrow{font-size:11px;font-weight:650;letter-spacing:1.7px;color:#8a94a5}.sidebar h2{font-size:20px;line-height:1.5;margin:12px 0 8px;letter-spacing:-.5px}.sidebar>p{font-size:13px;line-height:1.8;color:var(--muted);margin:0 0 35px}.steps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:14px}.steps li{display:flex;align-items:center;gap:12px;padding:10px 8px}.step-num{border:1px solid #e0e5ed;background:white;width:29px;height:29px;display:grid;place-items:center;border-radius:9px;font-size:12px;color:#94a0b0;flex-shrink:0}.step-copy{display:flex;flex-direction:column;gap:5px;font-size:13px;color:#8d98a9}.step-copy small{font-size:11px;color:#9aa4b3}.steps [data-state=active] .step-num{background:var(--accent);color:white;border-color:var(--accent)}.steps [data-state=active] .step-copy{color:#1c4dbd;font-weight:600}.steps [data-state=done] .step-num{color:#275ee8;background:#eaf0ff;border-color:#d9e4ff}.sidebar-note{margin-top:auto;padding-top:45px;font-size:11px;line-height:1.8;color:#98a1b0}.content{padding:39px 44px;min-width:0}.step-label{font-size:12px;color:var(--accent);font-weight:600}.content h1{font-size:27px;letter-spacing:-.6px;line-height:1.4;margin:12px 0 9px}.subtitle{color:var(--muted);font-size:13px;line-height:1.8;margin:0 0 32px}fieldset{border:0;padding:0;margin:0;min-width:0}.field{margin-bottom:23px}label.field-label{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600;margin-bottom:10px}.optional{font-weight:400;color:#96a1b1;font-size:11px}select,input[type=text],input[type=url],input[type=password]{width:100%;height:44px;padding:0 13px;border:1px solid #dbe2ec;border-radius:8px;background:white;color:#263549;transition:border-color .15s}input::placeholder{color:#a1abba;font-size:12px}input:focus{border-color:#7298f0;outline:3px solid #edf2ff}.hint{font-size:11px;color:#8c96a7;line-height:1.9;margin:8px 0 0}.slug-sample{margin-top:28px;border:1px solid #e6ebf2;background:#fafbfd;border-radius:10px;padding:17px;font-size:12px;color:#708096;line-height:1.9}.slug-sample strong{display:block;color:#45566d;font-size:12px;margin-bottom:4px}.key-field{display:flex;position:relative}.key-field input{padding-right:62px}.key-field button{position:absolute;right:6px;top:7px;bottom:7px;border:0;background:#f3f6fa;border-radius:5px;font-size:11px;color:#63738b;padding:0 10px}.clear-key{font-size:11px;color:#728096;display:flex;gap:7px;align-items:center;margin-top:9px}.clear-key input{accent-color:var(--accent)}.app-group{grid-column:1/-1;font-size:13px;color:#64748b;font-weight:600;margin:18px 0 2px}.app-group:first-child{margin-top:0}.app-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.app-card{position:relative;display:flex;align-items:center;gap:10px;border:1px solid #e0e6ef;border-radius:10px;padding:16px 30px 16px 12px;cursor:pointer;min-height:84px;transition:.15s}.required-badge{position:absolute;top:9px;right:29px;font-size:9px;color:#7185a4}.app-card[data-required=true]{cursor:default}.app-card input:disabled{opacity:1}.app-card:hover{border-color:#a8bdec}.app-card:has(input:checked){border-color:#7398ee;background:#f5f8ff}.app-card input{position:absolute;top:10px;right:9px;accent-color:var(--accent);width:13px;height:13px;margin:0}.app-icon{display:grid;place-items:center;flex-shrink:0;width:30px;height:32px;border:1px solid #e4eaf3;border-radius:8px;background:white;color:#546987;font-size:14px;font-weight:600}.app-copy{display:flex;flex-direction:column;gap:7px;min-width:0}.app-copy strong{font-size:12px;font-weight:600;line-height:1.3}.app-copy>span{font-size:10px;color:#8995a6;line-height:1.5}.selected-count{margin:15px 0 0;font-size:11px;color:#8190a4}.actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:36px;border-top:1px solid #edf0f5;padding-top:22px}.action-note{font-size:11px;color:#9aa3b1}.buttons{display:flex;gap:10px;margin-left:auto}.button{border:1px solid #dce3ed;border-radius:8px;padding:10px 17px;background:white;color:#55677e;font-size:12px;font-weight:550;white-space:nowrap}.primary{background:var(--accent);border-color:var(--accent);color:white;box-shadow:0 3px 5px #275ee820}.primary:hover{background:#1e51d3}.error{color:#ac3443;border:1px solid #f1d4d9;background:#fff6f7;padding:12px;border-radius:8px;font-size:12px;line-height:1.7;margin:18px 0 0}.loading{font-size:12px;color:#8190a4}.footer{display:flex;justify-content:space-between;margin-top:22px;font-size:11px;color:#9aa4b2}.success-icon{background:#eaf7f1;border-radius:14px;color:#23956a;display:grid;place-items:center;width:48px;height:48px;font-size:24px;margin:10px 0 25px}.summary{margin:28px 0;background:#f9fafc;border:1px solid #e5eaf2;border-radius:10px;padding:8px 18px}.summary div{display:grid;grid-template-columns:65px 1fr;gap:14px;padding:13px 0;border-bottom:1px solid #e8ecf2;font-size:12px;line-height:1.7}.summary div:last-child{border:0}.summary dt{color:#8a96a8}.summary dd{margin:0;color:#42556e;overflow-wrap:anywhere}.saved-path{font-family:ui-monospace,monospace;font-size:11px;color:#7c8ba1;overflow-wrap:anywhere}.deployment-events{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fb;border:1px solid #e2e8f0;border-radius:10px;padding:16px;font-size:12px;line-height:1.9;color:#53657b;max-height:280px;overflow:auto}.deployment-events .log-warning{color:#805b00;background:#fff4c2}.deployment-events .log-error{color:#b42318;font-weight:600}.deployment-path{overflow-wrap:anywhere}.summary .log-actions{display:flex;flex-wrap:wrap;gap:16px;border:0;padding:8px 0 0}.log-actions a{color:var(--accent)}.test-switch{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:550;color:#52657c}.test-switch input{accent-color:var(--accent);width:15px;height:15px;margin:0}.success-actions{display:flex;gap:10px;margin-top:30px}
+@media(max-width:760px){.brand-logo{width:174px;height:24px}.shell{padding:22px 16px}.top{margin-bottom:23px}.layout{grid-template-columns:1fr}.sidebar{border-right:0;border-bottom:1px solid #e8ecf2;padding:20px}.sidebar h2,.sidebar>p,.eyebrow,.sidebar-note{display:none}.steps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}.steps li{padding:0;gap:7px;flex-direction:column}.step-copy{font-size:9px;text-align:center;white-space:nowrap}.step-copy small{display:none}.content{padding:27px 23px}.content h1{font-size:24px}.app-grid{gap:9px}.app-card{padding-left:10px;gap:7px}.app-icon{display:none}.action-note{display:none}.footer{font-size:10px;gap:10px}}
+.machine-probe{border:1px solid #e1e8f2;border-radius:12px;background:#fafbfd;padding:18px;margin-bottom:29px}.probe-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.probe-heading h2{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:650;margin:0}.probe-heading h2 svg{width:20px;height:20px;color:#3e78e8}.probe-heading button{font-size:11px;padding:7px 10px;background:white}.system-probe{margin-bottom:16px}.system-host{font-size:10px;color:#91a0b2}.system-grid{display:grid;grid-template-columns:1.35fr 1fr .85fr 1fr;gap:16px;margin:23px 0 18px}.system-grid dt{font-size:11px;color:#8996a9;margin-bottom:9px}.system-grid dd{margin:0;font-size:13px;line-height:1.6;font-weight:600;color:#40516a;overflow-wrap:anywhere}.system-grid small{display:block;font-size:10px;line-height:1.7;color:#9aa6b7;margin-top:4px;overflow-wrap:anywhere}.system-cpu{display:flex;gap:12px;margin:0;padding-top:13px;border-top:1px solid #e6ecf4;font-size:11px;line-height:1.7;color:#8996a9}.system-cpu strong{font-weight:450;color:#60718a;overflow-wrap:anywhere}
+.network-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;list-style:none;padding:0;margin:18px 0 0}.network-card{display:flex;flex-direction:column;align-items:center;min-width:0;padding:18px 10px 13px;background:#f0f4fa;border:1px solid #e8edf5;border-radius:10px;text-align:center}.network-icon{display:grid;place-items:center;width:29px;height:29px;margin-bottom:10px;color:#273448}.network-icon svg{width:100%;height:100%}.network-card:last-child .network-icon{color:#5285d6}.network-card strong{font-size:12px;font-weight:550;color:#54647b}.network-result{align-self:stretch;display:flex;flex-direction:column;gap:4px;border-top:1px solid #dee5ee;margin-top:13px;padding-top:11px;font-size:11px;color:#8190a4}.network-latency{font-size:10px;color:#97a3b4;min-height:14px}.network-card[data-state=reachable] .network-status{color:#238366}.network-card[data-state=limited] .network-status{color:#a16d2f}.network-card[data-state=pending] .network-status{color:#6488c8}.probe-details{margin-top:13px}.probe-details summary{font-size:10px;color:#8a98aa;cursor:pointer;width:fit-content}.probe-time{font-size:10px;line-height:1.8;color:#8b98aa;margin:12px 0}.probe-sites{list-style:none;padding:0;margin:12px 0 0}.probe-sites li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;font-size:10px;color:#7b8ba1;line-height:1.8;margin-top:6px;overflow-wrap:anywhere}.probe-sites li>span{min-width:0}.probe-sites li>small{grid-column:1/-1;font-size:10px;color:#8b98aa}.probe-sites [data-state=reachable]{color:#208568}.probe-sites [data-state=limited]{color:#a56b25}.probe-note{font-size:10px;color:#8997aa;line-height:1.8;margin:12px 0 0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:760px){.system-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.machine-probe{padding:15px}.network-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.network-card{padding-top:15px}.probe-sites li{grid-template-columns:minmax(0,1fr);gap:2px}}
+.choice-field{margin-top:22px}.choice-field legend{font-size:11px;color:#8390a3;margin-bottom:10px}.choices{display:grid;gap:9px}.source-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.topology-choices{grid-template-columns:repeat(3,minmax(0,1fr))}.choice{position:relative;padding:14px 10px;border:1px solid #dfe6ef;border-radius:9px;background:white;cursor:pointer;display:flex;flex-direction:column;gap:7px}.choice input{position:absolute;right:9px;top:10px;accent-color:var(--accent);width:12px;height:12px;margin:0}.choice strong{font-size:12px;padding-right:14px;font-weight:600}.choice small{font-size:10px;color:#8a97a8;line-height:1.6}.choice:has(input:checked){border-color:#7398ee;background:#f0f5ff}.choice:has(input:disabled){opacity:.5;cursor:not-allowed}#bundle-fields{margin-top:18px}#ha-fields{margin-top:16px;padding-top:15px;border-top:1px solid #e3eaf3}.node-addresses{margin-top:20px}textarea{font:inherit;font-size:12px;width:100%;resize:vertical;border:1px solid #dbe2ec;border-radius:8px;padding:11px;min-height:88px}.connection-grid{display:grid;grid-template-columns:minmax(0,1fr) 85px;gap:12px}.path-picker{display:flex;gap:8px}.node-results{display:grid;gap:10px;margin-top:16px}.node-result{border:1px solid #e1e8f2;border-radius:9px;background:white;padding:12px;font-size:11px;line-height:1.8;min-width:0;overflow-wrap:anywhere}.node-result header{display:flex;justify-content:space-between;gap:10px}.node-result p{color:#8a97a8;margin:5px 0}.node-result .node-error{color:#ad6e29}.node-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.node-controls label{font-size:10px;color:#7c8ba1}.node-controls select{font-size:11px;height:34px;margin-top:4px}.node-controls input{height:34px;font-size:11px;margin-top:4px}@media(max-width:480px){.topology-choices{grid-template-columns:1fr}.choice small{padding-right:10px}.path-picker{flex-direction:column}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.access-card{border:1px solid #e2e8f0;background:#f9fbfe;border-radius:12px;padding:20px;margin-top:22px;min-width:0}.access-card h2{font-size:14px;margin:0}.access-url{font-size:13px;color:#315daa;overflow-wrap:anywhere;line-height:1.7}.access-details{margin-top:12px;font-size:12px;color:#64758c}.access-details summary{cursor:pointer;line-height:1.8}.access-details[open] summary{margin-bottom:12px}.access-code{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:white;font-size:11px;line-height:1.8}.dns-results{padding:0;list-style:none;line-height:1.8;font-size:11px;overflow-wrap:anywhere}.dns-results li{margin-top:8px}#dns-status[data-state=passed]{color:#218769}#dns-status[data-state=failed]{color:#aa6329}.access-check{margin-top:18px;padding-top:18px;border-top:1px solid #e2e8f0}.access-downloads{display:flex;gap:10px;flex-wrap:wrap;margin-top:15px}.access-downloads a{text-decoration:none}#domain[readonly]{background:#f7f9fc;color:#506784}
+.local-access-card{margin:24px 0 18px;padding:24px}.local-access-card h2{font-size:17px}.access-success{font-size:12px;color:#188461;margin-bottom:22px}.access-host{font-size:13px;overflow-wrap:anywhere;color:#56687c}.local-access-card .button{margin-top:12px}#local-access-status[data-state=succeeded]{color:#188461}#local-access-status[data-state=failed]{color:#a66321}#local-access-backup{overflow-wrap:anywhere}#finish-actions{flex-wrap:wrap;border-top:1px solid #e8ecf2;padding-top:22px;margin-top:28px}#manual-access{margin-top:22px}#manual-access>summary{font-weight:600}#access-complete-title:focus{outline:none}
+.credentials-card .field{margin-top:18px;margin-bottom:0}.credentials-card .field-label{font-size:12px}.credential-row{display:flex;gap:8px;align-items:center}.credential-row input{min-width:0;flex:1;font-size:13px}.credential-row .button{padding:11px 12px}.credential-actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}.verification-results{list-style:none;padding:0;margin:14px 0 0}.verification-results li{display:flex;flex-direction:column;gap:6px;padding:14px 0;border-bottom:1px solid #e1e7ef;font-size:12px;overflow-wrap:anywhere}.verification-results li:last-child{border:0}.verification-results small{font-size:11px;color:#7b899b}.verification-results [data-state=passed]{color:#218769}.verification-results [data-state=failed]{color:#aa6329}.login-test{margin-top:26px}.login-test h2{font-size:15px}#verification-status[data-state=passed]{color:#218769}#verification-status[data-state=failed]{color:#aa6329}@media(max-width:480px){.credential-row{flex-wrap:wrap}.credential-row input{flex-basis:100%}.steps{gap:3px}.sidebar{padding:20px 12px}}
+</style></head><body>
+<div class="shell"><header class="top"><div class="brand"><img class="brand-logo" src="data:image/webp;base64,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" alt="Apeiron" width="203" height="28"></div><div class="local"><span class="dot"></span><span id="deployment-mode">K3s 部署</span></div></header>
+<main class="layout"><aside class="sidebar"><div class="eyebrow">GET STARTED</div><h2>从这里开始。</h2><p>几步配置，让 Apeiron<br>适合你的团队。</p><ol class="steps" aria-label="部署步骤">
+<li data-step data-state="active" aria-current="step"><span class="step-num">1</span><span class="step-copy">部署环境<small>连接部署目标</small></span></li>
+<li data-step data-state="pending"><span class="step-num">2</span><span class="step-copy">组织<small>设置团队标识</small></span></li>
+<li data-step data-state="pending"><span class="step-num">3</span><span class="step-copy">模型配置<small>选择并测试模型</small></span></li>
+<li data-step data-state="pending"><span class="step-num">4</span><span class="step-copy">应用选择<small>选择需要的功能</small></span></li>
+<li data-step data-state="pending"><span class="step-num">5</span><span class="step-copy">部署<small>安装平台和应用</small></span></li>
+<li data-step data-state="pending"><span class="step-num">6</span><span class="step-copy">配置访问<small>连接你的工作空间</small></span></li>
+<li data-step data-state="pending"><span class="step-num">7</span><span class="step-copy">测试<small>检查访问与登录</small></span></li>
+
+</ol><div class="sidebar-note">配置保存在这台电脑。<br>你可以随时再次运行 apeiron init。</div></aside>
+<section class="content"><div id="form-heading"><div class="step-label" id="step-label">第 1 步 / 共 7 步</div><h1 id="step-title">设置部署环境</h1><p class="subtitle" id="step-subtitle">连接部署目标，选择在线或离线部署。</p></div>
+<div class="loading" id="loading" role="status">正在读取配置…</div>
+<form id="setup-form" novalidate><fieldset id="fields" disabled>
+<div data-panel>
+<section id="system-probe" class="machine-probe system-probe" aria-labelledby="system-title" aria-busy="true">
+<div class="probe-heading"><h2 id="system-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/></svg>系统配置</h2><span class="system-host">当前主机</span></div>
+<dl class="system-grid"><div><dt>操作系统</dt><dd id="probe-os">—</dd><small id="probe-kernel"></small></div><div><dt>架构</dt><dd id="probe-arch">—</dd></div><div><dt>逻辑核心</dt><dd id="probe-cores">—</dd></div><div><dt>内存</dt><dd id="probe-memory">—</dd></div></dl>
+<p class="system-cpu"><span>CPU</span><strong id="probe-cpu">—</strong></p>
+</section>
+<section id="machine-probe" class="machine-probe" aria-labelledby="probe-title" aria-busy="true">
+<div class="probe-heading"><h2 id="probe-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg>网络测试</h2><button id="probe-refresh" class="button" type="button">重新检测</button></div>
+<ul id="probe-cards" class="network-cards" aria-label="网站连接状态"><li class="network-card" data-host="www.microsoft.com" data-state="pending"><span class="network-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M13 1h10v10H13z"/><path fill="#05a6f0" d="M1 13h10v10H1z"/><path fill="#ffba08" d="M13 13h10v10H13z"/></svg></span><strong>Microsoft</strong><div class="network-result"><span class="network-status">检测中…</span><small class="network-latency">—</small></div></li><li class="network-card" data-host="api.github.com" data-state="pending"><span class="network-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.64-1.25-1.64-1.02-.7.08-.68.08-.68 1.13.08 1.73 1.16 1.73 1.16 1 1.72 2.64 1.22 3.28.93.1-.72.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.15a10.8 10.8 0 0 1 5.64 0c2.15-1.45 3.1-1.15 3.1-1.15.61 1.55.23 2.7.11 2.98.72.79 1.16 1.79 1.16 3.02 0 4.32-2.64 5.27-5.15 5.55.4.35.76 1.03.76 2.08v3.09c0 .3.2.65.77.54A11.25 11.25 0 0 0 12 .75Z"/></svg></span><strong>GitHub</strong><div class="network-result"><span class="network-status">检测中…</span><small class="network-latency">—</small></div></li><li class="network-card" data-host="www.google.com" data-state="pending"><span class="network-icon" aria-hidden="true"><svg viewBox="0 0 48 48"><path fill="#4285f4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11a9.4 9.4 0 0 1-4.1 6.2v5.2h6.7c3.9-3.6 6-8.9 6-15.1Z"/><path fill="#34a853" d="M24 44c5.5 0 10.1-1.8 13.5-4.9l-6.7-5.2c-1.8 1.2-4.1 2-6.8 2-5.3 0-9.8-3.6-11.4-8.4H5.7v5.3A20.4 20.4 0 0 0 24 44Z"/><path fill="#fbbc05" d="M12.6 27.5a12.3 12.3 0 0 1 0-7.7v-5.3H5.7a20.4 20.4 0 0 0 0 18.3l6.9-5.3Z"/><path fill="#ea4335" d="M24 11.4c3 0 5.6 1 7.7 3l5.8-5.8A19.6 19.6 0 0 0 24 3.2 20.4 20.4 0 0 0 5.7 14.5l6.9 5.3c1.6-4.8 6.1-8.4 11.4-8.4Z"/></svg></span><strong>Google</strong><div class="network-result"><span class="network-status">检测中…</span><small class="network-latency">—</small></div></li><li class="network-card" data-host="release-assets.githubusercontent.com" data-state="pending"><span class="network-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5"/></svg></span><strong>下载源</strong><div class="network-result"><span class="network-status">检测中…</span><small class="network-latency">—</small></div></li></ul>
+<span id="probe-network" class="sr-only" role="status">检测中…</span>
+<details id="probe-details" class="probe-details"><summary>检测详情</summary><p id="probe-time" class="probe-time"></p><ul id="probe-sites" class="probe-sites"></ul><p id="probe-note" class="probe-note">正在检测网络。</p></details>
+</section>
+
+<section id="deployment-options" class="machine-probe" aria-labelledby="options-title">
+<div class="probe-heading"><h2 id="options-title">部署选项</h2><span class="system-host">全新安装</span></div>
+<fieldset class="choice-field"><legend>安装来源</legend><div class="choices source-choices">
+<label class="choice"><input type="radio" name="source" id="online" value="online" checked><strong>在线部署</strong><small>自动下载缺少的资源</small></label>
+<label class="choice"><input type="radio" name="source" id="offline" value="offline"><strong>离线部署</strong><small>使用本机的离线安装包</small></label></div></fieldset>
+<div id="bundle-fields" hidden><div class="field"><label class="field-label" for="bundle-dir">离线安装包目录</label><div class="path-picker"><input id="bundle-dir" type="text" placeholder="/media/chentu-bundle" autocomplete="off"><button id="pick-bundle" class="button" type="button">选择目录</button></div><p class="hint">选择包含宸途部署程序和应用资源的完整离线包目录。也可以粘贴 CLI 主机上的路径。</p></div></div>
+<p id="resource-mode" class="hint">选择应用后检查实际安装资源，下载与校验通过后才会安装。</p>
+<fieldset class="choice-field"><legend>集群类型</legend><div class="choices topology-choices">
+<label class="choice"><input type="radio" name="topology" value="single-k3s"><strong>单机 K3s</strong><small>安装到当前 Ubuntu 主机</small></label>
+<label class="choice"><input type="radio" name="topology" value="single-k3d"><strong>单机 K3d</strong><small>本地开发测试 · Docker</small></label>
+<label class="choice"><input type="radio" name="topology" value="multi-k3s"><strong>多机 K3s</strong><small>连接多台 Ubuntu 主机</small></label></div></fieldset>
+<p id="topology-note" class="hint" role="status"></p>
+<div id="local-ports" hidden><div class="node-controls choice-field"><label class="field-label" for="http-port">HTTP 端口<input id="http-port" type="text" inputmode="numeric" value="54320" maxlength="5"></label><label class="field-label" for="https-port">HTTPS 端口<input id="https-port" type="text" inputmode="numeric" value="54321" maxlength="5"></label></div><p class="hint">应用通过 HTTPS 访问，HTTP 自动跳转。端口被占用时可修改；同一集群重试需沿用原端口。</p></div>
+<div id="ha-fields" hidden><label class="test-switch" for="ha"><input id="ha" type="checkbox">控制平面高可用</label><p class="hint">普通多机：1 个控制节点，其余为工作节点。高可用：至少 3 个、且为奇数个控制节点。</p></div>
+</section>
+<section id="node-section" class="machine-probe" aria-labelledby="nodes-title" hidden>
+<div class="probe-heading"><h2 id="nodes-title">节点连接</h2><button id="import-ssh" class="button" type="button">导入 SSH 别名</button></div>
+<div class="field node-addresses"><label class="field-label" for="node-hosts">IP 地址或 SSH 别名</label><textarea id="node-hosts" rows="3" placeholder="192.168.1.10&#10;192.168.1.11" spellcheck="false"></textarea></div>
+<div class="connection-grid"><div class="field"><label class="field-label" for="ssh-user">SSH 用户</label><input id="ssh-user" type="text" placeholder="沿用 SSH 配置"></div><div class="field"><label class="field-label" for="ssh-port">端口</label><input id="ssh-port" type="text" inputmode="numeric" value="22"></div></div>
+<div class="field"><label class="field-label" for="ssh-key">SSH 私钥路径 <span class="optional">可选</span></label><input id="ssh-key" type="text" placeholder="留空使用 SSH 配置或 Agent" autocomplete="off"></div>
+<button id="detect-nodes" class="button" type="button">自动检测节点</button><p id="nodes-note" class="hint" role="status">检测系统、硬件、磁盘和 sudo 权限；不会安装软件。首次连接需先通过 ssh 确认主机指纹。</p>
+<div id="node-results" class="node-results"></div>
+</section>
+<section class="machine-probe" aria-labelledby="public-title"><div class="probe-heading"><h2 id="public-title">访问方式</h2></div>
+<fieldset class="choice-field"><legend>平台入口</legend><div class="choices">
+<label class="choice"><input type="radio" name="access-mode" value="private" checked><strong>内网访问</strong><small>局域网或 VPN</small></label>
+<label class="choice"><input type="radio" name="access-mode" value="direct"><strong>公网直连</strong><small>部署主机有公网 IP</small></label>
+<label class="choice"><input type="radio" name="access-mode" value="relay"><strong>ECS 转发</strong><small>部署主机没有公网 IP</small></label></div></fieldset>
+<p class="hint">公网入口目前支持在线单机 K3s。Caddy 管理 HTTPS 证书；内网主机主动连接已有 ECS，不需要访问者安装客户端。</p>
+<div id="public-fields" hidden><div class="field"><label class="field-label" for="public-ip">公网入口 IP</label><input id="public-ip" type="text" placeholder="ECS 公网 IPv4" autocomplete="off"></div>
+<div id="gateway-fields" hidden>
+<p class="hint">在 ECS 上运行下面的命令，将域名和 IP 换成你的值。入口需已安装 Caddy 2.10+。配对码 10 分钟有效，只授权一个设备，请勿分享。</p>
+<pre class="access-code">sudo apeiron platform entry pair --domain &lt;slug&gt;.apeironlab.cn --public-ip &lt;ECS 公网 IP&gt;</pre>
+<div class="field"><label class="field-label" for="pairing-code">入口配对码</label><textarea id="pairing-code" rows="2" autocomplete="off" spellcheck="false" placeholder="粘贴 apeiron-pair-v1.…"></textarea></div>
+<button id="pair-entry" class="button" type="button">配对入口</button>
+<div id="connection-manager"><div class="field"><label class="field-label" for="paired-entry">已配对入口</label><select id="paired-entry"><option value="">选择入口</option></select></div>
+<p id="connection-status" class="hint" role="status"></p>
+<div class="credential-actions"><button id="connection-refresh" class="button" type="button">刷新状态</button><button id="connection-test" class="button" type="button">测试连接</button><button id="connection-revoke" class="button" type="button">撤销连接</button></div>
+<div id="revoke-confirm" hidden><p class="hint">撤销会立即关闭此入口的公网访问并使设备凭据失效，集群数据保留。恢复访问需要在 ECS 生成新的配对码。</p><button id="confirm-revoke" class="button" type="button">确认撤销公网连接</button><button id="cancel-revoke" class="button" type="button">取消</button></div></div>
+<details id="manual-entry" class="access-details"><summary>高级：手动 SSH 配置</summary><p class="hint">仅用于管理已有的手动连接。选择已配对入口后，这些字段不参与部署。</p>
+<div class="field"><label class="field-label" for="gateway-host">ECS SSH 地址或别名</label><input id="gateway-host" type="text" autocomplete="off"></div>
+<div class="connection-grid"><div class="field"><label class="field-label" for="gateway-user">ECS SSH 用户</label><input id="gateway-user" type="text" placeholder="root 或免密 sudo 用户"></div><div class="field"><label class="field-label" for="gateway-port">ECS SSH 端口</label><input id="gateway-port" type="text" value="22" inputmode="numeric"></div></div>
+<div class="field"><label class="field-label" for="gateway-key">ECS SSH 私钥路径</label><input id="gateway-key" type="text" placeholder="CLI 主机上的路径，留空使用 SSH 配置"></div>
+<div class="field"><label class="field-label" for="tunnel-port">ECS 隧道端口</label><input id="tunnel-port" type="text" value="19444" inputmode="numeric"><p class="hint">仅监听 ECS 的 127.0.0.1；每个部署使用独立端口。</p></div></details></div>
+<p class="hint">公网入口需已安装 Caddy，开放 TCP 80 / 443。SSH 首次连接需确认主机指纹。公网 IP 不等于入口可达，部署前会检查 DNS，部署后检查 HTTPS。</p></div></section>
+<div id="entry-field" class="field"><label id="entry-label" class="field-label" for="entry-ip">入口 IP</label><input id="entry-ip" type="text" required placeholder="例如 192.168.1.100" inputmode="decimal" list="entry-addresses" autocomplete="off"><datalist id="entry-addresses"></datalist><p id="entry-note" class="hint"></p></div>
+</div>
+<div data-panel hidden>
+<div class="field"><label class="field-label" for="slug">Slug name</label><input id="slug" name="slug" type="text" placeholder="例如 acme-team" required maxlength="63" pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?" autocomplete="off" spellcheck="false" aria-describedby="slug-help"><p id="slug-help" class="hint">使用小写字母、数字和连字符，最多 63 个字符。</p></div>
+<div class="field"><label class="field-label" for="domain">平台域名</label><input id="domain" type="text" readonly required maxlength="220" placeholder="根据 Slug 自动生成" autocomplete="off" spellcheck="false"><p id="domain-note" class="hint">内网使用无需购买域名。部署完成后，再引导你配置访问。</p><pre id="public-dns" class="access-code" hidden></pre>
+<details class="access-details"><summary>自定义域名</summary><label class="test-switch" for="custom-domain"><input id="custom-domain" type="checkbox">使用自己的域名</label></details></div>
+
+
+</div>
+<div data-panel hidden>
+<section id="model-settings">
+<div class="field"><label class="field-label" for="model-provider">Provider</label><input id="model-provider" type="text" maxlength="64" placeholder="例如 bigmodel" autocomplete="off"><p class="hint">必填；使用小写字母、数字、点、下划线或短横线，以字母或数字开头。</p></div>
+<div class="field"><label class="field-label" for="model-url">API 地址</label><input id="model-url" type="url" maxlength="2048" placeholder="https://models.example.com/v1" autocomplete="off"><p class="hint">OpenAI 兼容接口，须能从部署后的集群访问。离线部署可填写内网模型服务地址。</p></div>
+<div class="field"><label class="field-label" for="model-key">API Key <span class="optional">无鉴权服务可留空</span></label><input id="model-key" type="password" maxlength="4096" autocomplete="new-password"><label class="clear-key"><input id="model-clear-key" type="checkbox">清除已保存的 Key</label></div>
+<button id="model-list" type="button" class="button">获取模型列表</button>
+<div class="field" style="margin-top:24px"><label class="field-label" for="model-fast">快速 · apeiron-flash</label><select id="model-fast" disabled><option value="">请先获取模型列表</option></select></div>
+<div class="field"><label class="field-label" for="model-deep">深度思考 · apeiron-pro</label><select id="model-deep" disabled><option value="">请先获取模型列表</option></select><p class="hint">可与快速使用同一模型；是否具备推理能力由模型本身决定。</p></div>
+<button id="model-test" disabled type="button" class="button primary">测试两种模式</button><p class="hint">从 CLI 主机各发送一次简短请求，可能产生少量模型费用；集群网络仍需能访问此地址。</p>
+<p id="model-status" class="hint" role="status" aria-live="polite"></p>
+</section>
+<label class="clear-key" style="margin-top:24px"><input id="model-skip" type="checkbox">稍后配置（安装后暂时无法对话）</label>
+</div>
+<div data-panel hidden><div class="app-grid" id="app-grid"></div><p class="selected-count" id="selected-count"></p><p class="hint">先准备所选应用及依赖的安装资源，再创建集群和部署应用。缺少资源或校验失败时会停止。</p></div>
+</fieldset><div id="error" class="error" role="alert" hidden></div><div class="actions"><span class="action-note">准备资源后创建新集群</span><div class="buttons"><button id="back" class="button" type="button" hidden>上一步</button><button id="next" class="button primary" type="submit" disabled>下一步</button></div></div></form>
+<section id="deployment" hidden aria-labelledby="deployment-title"><div class="step-label">第 5 步 / 共 7 步</div><h1 id="deployment-title">正在部署…</h1><p id="deployment-message" class="subtitle" role="status"></p><pre id="deployment-events" class="deployment-events" aria-label="部署进度"></pre><dl class="summary"><div><dt>耗时</dt><dd id="deployment-time"></dd></div><div><dt>退出码</dt><dd id="deployment-exit"></dd></div><div><dt>环境副本</dt><dd id="deployment-environment" class="deployment-path"></dd></div><div><dt>完整日志</dt><dd class="deployment-path"><span id="deployment-log"></span><div class="log-actions"><a id="open-log" target="_blank" rel="noreferrer" hidden>在网页打开日志</a><a id="download-log" download="install.log" hidden>下载日志</a></div></dd></div></dl><p id="deployment-note" class="hint"></p></section><section id="access-complete" hidden aria-labelledby="access-complete-title"><div class="step-label">第 6 步 / 共 7 步</div><h1 id="access-complete-title" tabindex="-1">配置访问</h1><p class="subtitle">部署已完成。配置这台电脑的访问方式，然后进入测试。</p>
+<section id="completed-connection" class="access-card local-access-card" hidden><h2>公网连接</h2><div id="completed-connection-slot"></div></section>
+<section id="private-access-card" class="access-card local-access-card" aria-labelledby="local-access-title"><div class="access-success">✓ 平台与应用已部署</div><h2 id="local-access-title">本机访问</h2><p id="local-access-host" class="access-host"></p><p id="local-access-description" class="hint">自动合并 hosts，并在系统钥匙串中信任本次部署的 CA（HTTPS）。点击后由 macOS 请求管理员授权，密码只输入系统弹窗。</p><button id="install-access" class="button primary" type="button" disabled>一键配置本机访问</button><p id="local-access-status" class="hint" role="status" aria-live="polite"></p><ul id="local-access-checks" class="dns-results"></ul><p id="local-access-backup" class="hint"></p></section>
+<p id="access-entry" class="hint"></p><p id="access-notes" class="hint"></p><p id="private-access-note" class="hint">浏览器在另一台电脑上时，请在那台电脑上配置。使用代理时，请将平台域名设为直连。</p>
+<details id="manual-access" class="access-details"><summary>手动配置 / 其他电脑</summary><div class="access-downloads"><a id="download-ca" class="button" download="chentu-ca.crt" hidden>下载 CA 证书</a><a id="download-hosts" class="button" download="apeiron-hosts.txt" hidden>下载 hosts 配置</a></div>
+<details id="dns-guide" class="access-details"><summary>配置解析</summary><p id="completed-dns-guide" class="hint"></p><pre id="dns-records" class="access-code"></pre><button id="copy-dns" class="button" type="button">复制配置</button><p id="copy-dns-status" class="hint" role="status"></p><p class="hint">hosts 文件请合并条目，不要覆盖原文件：macOS / Linux 位于 /etc/hosts，Windows 位于 C:\Windows\System32\drivers\etc\hosts。</p></details>
+<details class="access-details"><summary>信任 CA 证书</summary>
+<p class="hint">macOS：打开下载的 chentu-ca.crt，添加到“系统”钥匙串；打开该证书，将“信任 → 使用此证书时”设为“始终信任”。需要管理员授权。</p><p class="hint">Windows：将 chentu-ca.crt 导入“受信任的根证书颁发机构”。企业设备可由管理员统一分发。</p><p class="hint">Ubuntu：将 chentu-ca.crt 复制到 /usr/local/share/ca-certificates/，然后执行 sudo update-ca-certificates。</p><p class="hint">导入前核对下面的 SHA-256 指纹；个别浏览器使用独立证书库，需在浏览器中导入。分发的是公开 CA 证书，不包含私钥。</p>
+<dl class="summary"><div><dt>CA 文件</dt><dd id="ca-path"></dd></div><div><dt>SHA-256</dt><dd id="ca-fingerprint"></dd></div><div><dt>有效期至</dt><dd id="ca-expiry"></dd></div></dl></details><div class="access-check"><button id="check-dns" class="button" type="button">检测解析</button><p id="dns-status" class="hint" role="status">完成解析配置后，点击检测。</p><p id="dns-scope" class="hint"></p><ul id="dns-results" class="dns-results"></ul></div></details>
+</section><section id="verification" hidden aria-labelledby="verification-title"><div class="step-label">第 7 步 / 共 7 步</div><h1 id="verification-title">测试</h1><p class="subtitle">检查平台连接，使用初始管理员账号登录你的工作空间。</p>
+<section class="access-card credentials-card" aria-labelledby="credentials-title"><h2 id="credentials-title">初始管理员</h2><p class="hint">Apeiron 与 Ops 使用同一组账号，通过 IAM 统一登录。</p><div class="field"><label class="field-label" for="admin-username">用户名</label><div class="credential-row"><input id="admin-username" type="text" readonly autocomplete="off" spellcheck="false" placeholder="正在读取…"><button id="copy-username" class="button" type="button" disabled>复制用户名</button></div></div>
+<div class="field"><label class="field-label" for="admin-password">密码</label><div class="credential-row"><input id="admin-password" type="password" readonly autocomplete="off" spellcheck="false" placeholder="正在读取…"><button id="toggle-password" class="button" type="button" aria-pressed="false" disabled>显示密码</button><button id="copy-password" class="button" type="button" disabled>复制密码</button></div></div>
+<p id="credentials-status" class="hint" role="status" aria-live="polite"></p><div class="credential-actions"><button id="reload-credentials" class="button" type="button">重新读取</button><button id="download-credentials" class="button" type="button" disabled>下载凭据</button></div><p class="hint">这是首次安装的凭据。如果已在 IAM 修改密码，请使用新密码登录。</p></section>
+<section class="access-card" aria-labelledby="verification-check-title"><div class="probe-heading"><h2 id="verification-check-title">连接测试</h2><button id="run-verification" class="button" type="button">开始测试</button></div><p id="verification-scope" class="hint"></p><ul id="verification-results" class="verification-results"></ul><p id="verification-status" class="hint" role="status">点击开始测试，检查解析、证书信任和 HTTPS。</p></section>
+<section class="login-test" aria-labelledby="login-test-title"><h2 id="login-test-title">登录测试</h2><p class="hint">复制上方账号密码，打开应用完成登录。连接测试通过后，仍需实际登录验证身份与权限。</p><div class="access-downloads"><a id="test-open-apeiron" class="button primary" target="_blank" rel="noreferrer">登录 Apeiron ↗</a><a id="test-open-ops" class="button" target="_blank" rel="noreferrer">登录 Ops ↗</a></div></section></section><div id="finish-actions" class="success-actions" hidden><button id="stop-deployment" type="button" class="button" hidden>停止部署</button><button id="retry-deployment" type="button" class="button primary" hidden>重新部署</button><button id="edit" type="button" class="button" hidden>返回修改</button><button id="view-deployment" type="button" class="button" hidden>查看部署记录</button><button id="configure-access" type="button" class="button primary" hidden>继续配置访问</button><button id="to-verification" type="button" class="button primary" hidden>下一步：测试</button><button id="back-access" type="button" class="button" hidden>返回配置访问</button><button id="finish" type="button" class="button" disabled>完成并关闭向导</button></div>
+</section></main><footer class="footer"><span>Apeiron · Deploy your workspace</span><span>部署环境 · 组织 · 模型 · 应用 · 部署 · 访问 · 测试</span></footer></div>
+<script nonce="APEIRON_NONCE_PLACEHOLDER">(function initWizard(supportsK3sHost) {
+  const get = (id) => document.getElementById(id), form = get("setup-form"), slug = get("slug"), next = get("next"), back = get("back"), offline = get("offline"), domain = get("domain"), customDomain = get("custom-domain"), entryIp = get("entry-ip"), ha = get("ha"), hosts = get("node-hosts"), fields = {
+    httpPort: get("http-port"),
+    httpsPort: get("https-port"),
+    bundleDir: get("bundle-dir"),
+    sshUser: get("ssh-user"),
+    sshPort: get("ssh-port"),
+    sshKey: get("ssh-key")
+  };
+  let machine, nodeFacts = [], nodeSerial = 0, deploymentAction = !1, deploymentRequestSerial = 0, nodesFingerprint = "", nodeRequest;
+  const topology = () => document.querySelector('[name="topology"]:checked').value;
+  let step = 0, busy = !1, revision = null, apps = [], timer;
+  const endpoint = (name) => new URL("api/" + name, location.href).href, error = get("error");
+  form.addEventListener("input", () => {
+    error.hidden = !0;
+  });
+  form.addEventListener("change", () => {
+    error.hidden = !0;
+  });
+  const titles = ["\u8BBE\u7F6E\u90E8\u7F72\u73AF\u5883", "\u8BBE\u7F6E\u7EC4\u7EC7", "\u914D\u7F6E\u6A21\u578B", "\u9009\u62E9\u8981\u542F\u7528\u7684\u5E94\u7528"], subtitles = ["\u68C0\u6D4B\u5F53\u524D\u4E3B\u673A\uFF0C\u9009\u62E9\u5B89\u88C5\u65B9\u5F0F\u3002", "\u8BBE\u7F6E\u56E2\u961F\u6807\u8BC6\u4E0E\u8BBF\u95EE\u57DF\u540D\u3002", "\u9009\u62E9\u5FEB\u901F\u4E0E\u6DF1\u5EA6\u601D\u8003\u6A21\u578B\uFF0C\u6D4B\u8BD5\u540E\u5373\u53EF\u7528\u4E8E Apeiron\u3002", "\u51C6\u5907\u6240\u9009\u5E94\u7528\u7684\u8D44\u6E90\uFF0C\u7136\u540E\u521B\u5EFA\u96C6\u7FA4\u5E76\u90E8\u7F72\u3002"], modelProvider = get("model-provider"), modelUrl = get("model-url"), modelKey = get("model-key"), modelFast = get("model-fast"), modelDeep = get("model-deep"), modelSkip = get("model-skip"), modelClear = get("model-clear-key");
+  let savedModelUrl = "", savedModelKey = !1, modelPassed = "", modelSerial = 0, modelAbort, modelChoices = [], preferredFast = "", preferredDeep = "";
+  const updateModelTest = () => {
+    get("model-test").disabled = !modelChoices.includes(modelFast.value) || !modelChoices.includes(modelDeep.value);
+  };
+  function clearModelChoices() {
+    modelChoices = [];
+    for (const select of [modelFast, modelDeep]) {
+      select.replaceChildren(new Option("\u8BF7\u5148\u83B7\u53D6\u6A21\u578B\u5217\u8868", ""));
+      select.disabled = !0;
+    }
+    updateModelTest();
+  }
+  const modelInput = () => ({
+    provider: modelProvider.value.trim(),
+    baseUrl: modelUrl.value.trim().replace(/\/+$/, ""),
+    fast: modelFast.value.trim(),
+    deep: modelDeep.value.trim(),
+    ...savedModelKey && savedModelUrl === modelUrl.value.trim().replace(/\/+$/, "") && !modelKey.value && !modelClear.checked ? {} : { apiKey: modelClear.checked ? "" : modelKey.value.trim() }
+  }), modelFingerprint = () => JSON.stringify(modelInput());
+  function invalidateModels() {
+    modelPassed = "";
+    modelSerial++;
+    modelAbort?.abort();
+    get("model-list").disabled = !1;
+    get("model-status").textContent = "";
+    get("model-status").className = "hint";
+  }
+  for (const input of [modelUrl, modelKey, modelClear])
+    input.addEventListener("input", () => {
+      invalidateModels();
+      clearModelChoices();
+    });
+  for (const select of [modelFast, modelDeep])
+    select.addEventListener("change", () => {
+      invalidateModels();
+      updateModelTest();
+    });
+  modelProvider.addEventListener("input", invalidateModels);
+  modelSkip.addEventListener("change", () => {
+    invalidateModels();
+    get("model-settings").hidden = modelSkip.checked;
+  });
+  async function checkModels(action) {
+    invalidateModels();
+    const serial = modelSerial;
+    if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(modelProvider.value.trim())) {
+      get("model-status").className = "error";
+      get("model-status").textContent = "\u8BF7\u586B\u5199\u6709\u6548\u7684 Provider \u6807\u8BC6\u3002";
+      return;
+    }
+    if (!modelUrl.value.trim() || !modelUrl.reportValidity()) {
+      get("model-status").textContent = "\u8BF7\u586B\u5199\u6A21\u578B API \u5730\u5740\u3002";
+      return;
+    }
+    if (action === "test" && (!modelFast.value.trim() || !modelDeep.value.trim())) {
+      get("model-status").textContent = "\u8BF7\u9009\u62E9\u4E24\u79CD\u6A21\u5F0F\u7684\u6A21\u578B\u3002";
+      return;
+    }
+    const input = modelInput(), fingerprint = modelFingerprint();
+    if (action === "list") {
+      preferredFast = modelFast.value || preferredFast;
+      preferredDeep = modelDeep.value || preferredDeep;
+      clearModelChoices();
+    }
+    modelAbort = new AbortController;
+    get("model-list").disabled = get("model-test").disabled = !0;
+    get("model-status").textContent = action === "list" ? "\u6B63\u5728\u83B7\u53D6\u6A21\u578B\u2026" : "\u6B63\u5728\u6D4B\u8BD5\u5FEB\u901F\u548C\u6DF1\u5EA6\u601D\u8003\u2026";
+    try {
+      const response = await fetch(endpoint("models/" + action), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision, models: { ...input, fast: input.fast || "list", deep: input.deep || "list" } }),
+        signal: modelAbort.signal
+      }), data = await response.json();
+      if (serial !== modelSerial)
+        return;
+      if (!response.ok)
+        throw Error(data.error || "\u6A21\u578B\u8BF7\u6C42\u5931\u8D25\u3002");
+      if (action === "list") {
+        if (!Array.isArray(data.models) || !data.models.length)
+          throw Error("\u6A21\u578B\u670D\u52A1\u672A\u8FD4\u56DE\u53EF\u7528\u6A21\u578B\uFF0C\u8BF7\u68C0\u67E5 API \u5730\u5740\u3001Key \u548C\u6A21\u578B\u6743\u9650\u3002");
+        modelChoices = data.models;
+        for (const [select, preferred] of [[modelFast, preferredFast], [modelDeep, preferredDeep]]) {
+          select.replaceChildren(new Option("\u8BF7\u9009\u62E9\u6A21\u578B", ""), ...modelChoices.map((id) => new Option(id, id)));
+          select.disabled = !1;
+          if (modelChoices.includes(preferred))
+            select.value = preferred;
+        }
+        get("model-status").textContent = `\u5DF2\u83B7\u53D6 ${modelChoices.length} \u4E2A\u6A21\u578B\uFF0C\u8BF7\u9009\u62E9\u4E24\u79CD\u6A21\u5F0F\u3002`;
+      } else {
+        modelPassed = fingerprint;
+        get("model-status").textContent = data.results.map((r) => `${r.mode === "fast" ? "\u5FEB\u901F" : "\u6DF1\u5EA6\u601D\u8003"}\uFF1A\u901A\u8FC7\uFF08${(r.elapsedMs / 1000).toFixed(1)} \u79D2\uFF09`).join("\uFF1B");
+      }
+    } catch (cause) {
+      if (serial === modelSerial) {
+        get("model-status").className = "error";
+        get("model-status").textContent = cause instanceof Error ? cause.message : "\u6A21\u578B\u8BF7\u6C42\u5931\u8D25\u3002";
+      }
+    } finally {
+      if (serial === modelSerial) {
+        get("model-list").disabled = !1;
+        updateModelTest();
+      }
+    }
+  }
+  get("model-list").addEventListener("click", () => {
+    checkModels("list");
+  });
+  get("model-test").addEventListener("click", () => {
+    checkModels("test");
+  });
+  let probeRequest, probeSerial = 0, cliHost = { name: "", addresses: [] }, entryEdited = !1, entryTopology = "", dnsFingerprint = "", dnsSerial = 0, dnsRequest, completedAccess, currentDeployment, viewingDeployment = !1, testingPage = location.hash === "#test", credentials, credentialRequest, credentialSerial = 0, verificationRequest, verificationBusy = !1, accessTimer, accessInstalling = !1, connections = [], connectionBusy = !1;
+  const pairedSelect = get("paired-entry"), selectedConnection = () => connections.find((connection) => connection.id === pairedSelect.value), accessMode = () => document.querySelector('[name="access-mode"]:checked').value, publicField = (id) => get(id).value.trim(), defaultDomain = () => accessMode() === "relay" && selectedConnection() ? selectedConnection().domain : /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug.value.trim()) ? `${slug.value.trim()}.${accessMode() === "private" ? "apeironlab.internal" : "apeironlab.cn"}` : "", validDomain = () => domain.value.length <= 220 && domain.value.includes(".") && domain.value.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) && !/^\d+(?:\.\d+){3}$/.test(domain.value), validIp = () => /^(?:\d{1,3}\.){3}\d{1,3}$/.test(entryIp.value) && entryIp.value.split(".").every((part) => String(Number(part)) === part && Number(part) <= 255) && !/^(0|169\.254|22[4-9]|23\d|24\d|25[0-5])\./.test(entryIp.value) && (topology() === "single-k3d" ? entryIp.value === "127.0.0.1" : !entryIp.value.startsWith("127."));
+  function renderSetup() {
+    const mode = topology(), published = accessMode() !== "private";
+    get("public-fields").hidden = !published;
+    get("gateway-fields").hidden = accessMode() !== "relay";
+    get("public-dns").hidden = !published;
+    get("domain-note").textContent = published ? "\u4F7F\u7528\u4F60\u6301\u6709\u7684\u57DF\u540D\u3002\u90E8\u7F72\u524D\u5C06\u4EE5\u4E0B DNS A \u8BB0\u5F55\u6307\u5411\u516C\u7F51\u5165\u53E3\uFF1BCaddy \u4F1A\u81EA\u52A8\u7533\u8BF7\u5E76\u7EED\u671F HTTPS \u8BC1\u4E66\u3002" : "\u5185\u7F51\u4F7F\u7528\u65E0\u9700\u8D2D\u4E70\u57DF\u540D\u3002\u90E8\u7F72\u5B8C\u6210\u540E\uFF0C\u518D\u5F15\u5BFC\u4F60\u914D\u7F6E\u8BBF\u95EE\u3002";
+    get("local-ports").hidden = mode !== "single-k3d";
+    if (entryTopology !== mode) {
+      entryEdited = !1;
+      entryTopology = mode;
+    }
+    const paired = accessMode() === "relay" ? selectedConnection() : void 0;
+    if (paired) {
+      domain.value = paired.domain;
+      get("public-ip").value = paired.publicIp;
+    } else if (!customDomain.checked)
+      domain.value = defaultDomain();
+    domain.readOnly = Boolean(paired) || !customDomain.checked;
+    customDomain.disabled = Boolean(paired);
+    get("public-ip").readOnly = Boolean(paired);
+    get("public-dns").textContent = `*.${domain.value || "<slug>.apeironlab.cn"}    A    ${publicField("public-ip") || "<\u516C\u7F51\u5165\u53E3 IP>"}
+${domain.value || "<slug>.apeironlab.cn"}      A    ${publicField("public-ip") || "<\u516C\u7F51\u5165\u53E3 IP>"}`;
+    const nodes = mode === "multi-k3s" ? target().installation.nodes : [], candidates = mode === "single-k3d" ? ["127.0.0.1"] : mode === "multi-k3s" ? nodes.filter((node) => node.role === "server").map((node) => node.address) : cliHost.addresses;
+    if (!entryEdited)
+      entryIp.value = mode === "multi-k3s" && ha.checked ? "" : candidates[0] ?? "";
+    entryIp.readOnly = mode === "single-k3d";
+    get("entry-field").hidden = mode === "single-k3d";
+    get("entry-addresses").replaceChildren(...candidates.map((address) => new Option(address, address)));
+    get("entry-label").textContent = published ? "\u8282\u70B9 IP" : "\u5165\u53E3 IP";
+    get("entry-note").textContent = published ? "\u90E8\u7F72\u4E3B\u673A\u7F51\u5361\u4E0A\u7684\u56FA\u5B9A IP\uFF0C\u4F9B K3s \u4F7F\u7528\uFF1B\u7528\u6237\u901A\u8FC7\u4E0A\u65B9\u7684\u516C\u7F51\u5165\u53E3\u8BBF\u95EE\u3002" : mode === "multi-k3s" && ha.checked ? "\u586B\u5199\u5DF2\u914D\u7F6E\u7684\u7A33\u5B9A\u5165\u53E3 IP\uFF08\u8D1F\u8F7D\u5747\u8861\u6216 VIP\uFF09\uFF1B\u5411\u5BFC\u4E0D\u4F1A\u81EA\u52A8\u521B\u5EFA VIP\u3002" : mode === "multi-k3s" ? "\u9ED8\u8BA4\u4F7F\u7528\u63A7\u5236\u8282\u70B9 IP\uFF0C\u4E5F\u53EF\u586B\u5199\u5DF2\u914D\u7F6E\u7684\u5165\u53E3 IP\uFF1B\u56FA\u5B9A\u5230\u5355\u4E2A\u8282\u70B9\u4E0D\u63D0\u4F9B\u5165\u53E3\u9AD8\u53EF\u7528\u3002" : "\u4ECE CLI \u4E3B\u673A\u7F51\u5361\u5EFA\u8BAE\uFF0C\u8BF7\u786E\u8BA4\u8FD9\u662F\u8BBF\u95EE\u8BBE\u5907\u53EF\u8FBE\u7684\u56FA\u5B9A IP\u3002";
+  }
+  function renderAccessGuide(access) {
+    completedAccess = access;
+    get("completed-dns-guide").textContent = access.local ? `\u5C06\u4E0B\u8F7D\u7684\u5B8C\u6574 hosts \u914D\u7F6E\u5408\u5E76\u5230\u8FD0\u884C CLI \u7684\u8FD9\u53F0\u673A\u5668\u3002\u672C\u673A K3d HTTPS \u5165\u53E3\u4E3A 127.0.0.1:${access.httpsPort ?? 443}\u3002\u4E0B\u9762\u662F Apeiron \u548C IAM \u7684\u793A\u4F8B\u3002` : "\u5728\u5185\u7F51 DNS \u6DFB\u52A0\u4EE5\u4E0B A \u8BB0\u5F55\uFF0C\u5E76\u8BA9\u8BBF\u95EE\u8BBE\u5907\u4F7F\u7528\u8BE5 DNS\u3002\u5C11\u91CF\u5DE5\u4F5C\u7AD9\u4E5F\u53EF\u4F7F\u7528\u4E0B\u8F7D\u7684 hosts \u914D\u7F6E\u3002";
+    get("dns-records").textContent = access.local ? `127.0.0.1 apeiron.${access.domain}
+127.0.0.1 iam.${access.domain}` : `*.${access.domain}    A    ${access.entryIp}
+${access.domain}      A    ${access.entryIp}`;
+    get("dns-scope").textContent = `\u68C0\u6D4B\u53D1\u8D77\u4E8E CLI \u4E3B\u673A ${cliHost.name || "\u5F53\u524D\u4E3B\u673A"}\u3002${access.local ? "\u68C0\u67E5 Apeiron \u4E0E IAM \u7684\u672C\u673A\u89E3\u6790\u3002" : "\u68C0\u67E5 Apeiron\u3001IAM \u548C\u968F\u673A\u5B50\u57DF\u540D\u7684\u6CDB\u89E3\u6790\u3002"}\u6D4F\u89C8\u5668\u82E5\u5728\u5176\u4ED6\u7535\u8111\u4E0A\uFF0C\u9700\u5728\u90A3\u53F0\u7535\u8111\u4E0A\u914D\u7F6E\u89E3\u6790\u4E0E\u8BC1\u4E66\u4FE1\u4EFB\uFF1B\u6B64\u68C0\u67E5\u4E0D\u4EE3\u8868 HTTPS \u6216\u5E94\u7528\u5DF2\u7ECF\u53EF\u7528\u3002`;
+    const fingerprint = JSON.stringify([access.domain, access.entryIp, access.local]);
+    if (dnsFingerprint !== fingerprint) {
+      dnsFingerprint = fingerprint;
+      resetDns();
+    }
+  }
+  function resetDns() {
+    dnsSerial++;
+    dnsRequest?.abort();
+    get("dns-results").replaceChildren();
+    get("dns-status").textContent = "\u5B8C\u6210\u89E3\u6790\u914D\u7F6E\u540E\uFF0C\u70B9\u51FB\u68C0\u6D4B\u3002";
+    get("dns-status").dataset.state = "";
+    get("copy-dns-status").textContent = "";
+    get("check-dns").disabled = !1;
+  }
+  for (const input of [slug, domain])
+    input.addEventListener("input", renderSetup);
+  customDomain.addEventListener("change", renderSetup);
+  for (const input of document.querySelectorAll('[name="access-mode"]'))
+    input.addEventListener("change", renderSetup);
+  get("public-ip").addEventListener("input", renderSetup);
+  function renderConnections(selected = pairedSelect.value) {
+    pairedSelect.replaceChildren(new Option("\u9009\u62E9\u5165\u53E3", ""), ...connections.map((connection) => new Option(`${connection.domain}${connection.state === "revoked" ? "\uFF08\u5DF2\u64A4\u9500\uFF09" : ""}`, connection.id)));
+    pairedSelect.value = selected;
+  }
+  function connectionMessage(connection) {
+    get("connection-status").textContent = connection.state === "revoked" ? "\u5DF2\u64A4\u9500\u516C\u7F51\u8FDE\u63A5\uFF1B\u91CD\u65B0\u8FDE\u63A5\u9700\u8981 ECS \u751F\u6210\u65B0\u7684\u914D\u5BF9\u7801\u3002" + (connection.localStopped === !1 ? "\u672C\u673A\u670D\u52A1\u672A\u505C\u6B62\uFF0C\u8BF7\u4F7F\u7528 sudo \u505C\u6B62\u5BF9\u5E94\u96A7\u9053\u670D\u52A1\uFF1B\u5165\u53E3\u5DF2\u62D2\u7EDD\u91CD\u8FDE\u3002" : "") : `\u5DF2\u914D\u5BF9 \xB7 ${connection.domain} \u2192 ${connection.publicIp}` + (connection.tunnel === void 0 ? " \xB7 \u5C1A\u672A\u68C0\u6D4B\u96A7\u9053" : connection.tunnel ? " \xB7 \u96A7\u9053\u7AEF\u53E3\u5C31\u7EEA" : " \xB7 \u96A7\u9053\u672A\u8FDE\u63A5") + (connection.routes === void 0 ? "" : connection.routes ? " \xB7 \u8DEF\u7531\u5DF2\u914D\u7F6E" : " \xB7 \u7B49\u5F85\u90E8\u7F72\u914D\u7F6E\u8DEF\u7531") + (connection.dns === void 0 ? "" : connection.dns ? " \xB7 DNS \u901A\u8FC7" : " \xB7 DNS \u672A\u901A\u8FC7") + (connection.https === void 0 ? "" : connection.https ? " \xB7 HTTPS \u901A\u8FC7" : " \xB7 HTTPS \u672A\u901A\u8FC7");
+  }
+  pairedSelect.addEventListener("change", () => {
+    get("revoke-confirm").hidden = !0;
+    const selected = selectedConnection();
+    if (selected)
+      connectionMessage(selected);
+    else
+      get("connection-status").textContent = "";
+    renderSetup();
+  });
+  async function connectionAction(action) {
+    if (connectionBusy)
+      return;
+    const selected = selectedConnection();
+    if (action !== "pair" && !selected) {
+      showError("\u8BF7\u5148\u9009\u62E9\u5DF2\u914D\u5BF9\u5165\u53E3\u3002");
+      return;
+    }
+    const input = action === "pair" ? { code: get("pairing-code").value.trim() } : { id: selected.id };
+    if (action === "pair")
+      get("pairing-code").value = "";
+    connectionBusy = !0;
+    get("connection-status").textContent = action === "pair" ? "\u6B63\u5728\u914D\u5BF9\u5165\u53E3\u2026" : action === "revoke" ? "\u6B63\u5728\u64A4\u9500\u516C\u7F51\u8FDE\u63A5\u2026" : "\u6B63\u5728\u68C0\u6D4B\u5165\u53E3\u2026";
+    const buttons = ["pair-entry", "connection-refresh", "connection-test", "connection-revoke", "confirm-revoke"].map((id) => get(id));
+    buttons.forEach((button) => {
+      button.disabled = !0;
+    });
+    try {
+      const response = await fetch(endpoint("connections/" + action), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }), result = await response.json();
+      if (!response.ok)
+        throw Error(result.error || "\u5165\u53E3\u64CD\u4F5C\u5931\u8D25\u3002");
+      connections = result.connections;
+      renderConnections(result.connection.id);
+      connectionMessage(result.connection);
+      get("revoke-confirm").hidden = !0;
+      renderSetup();
+      if (currentDeployment?.phase === "succeeded" && form.hidden)
+        renderDeployment(currentDeployment);
+    } catch (cause) {
+      get("connection-status").textContent = "\u64CD\u4F5C\u672A\u786E\u8BA4\u6210\u529F\uFF1B\u5F53\u524D\u8FDE\u63A5\u72B6\u6001\u672A\u77E5\uFF0C\u8BF7\u68C0\u67E5\u540E\u91CD\u8BD5\u3002";
+      showError(cause instanceof Error ? cause.message : "\u8FDE\u63A5\u64CD\u4F5C\u5931\u8D25\u3002");
+    } finally {
+      connectionBusy = !1;
+      buttons.forEach((button) => {
+        button.disabled = !1;
+      });
+    }
+  }
+  get("pair-entry").addEventListener("click", () => {
+    connectionAction("pair");
+  });
+  get("connection-refresh").addEventListener("click", () => {
+    connectionAction("status");
+  });
+  get("connection-test").addEventListener("click", () => {
+    connectionAction("test");
+  });
+  get("connection-revoke").addEventListener("click", () => {
+    if (selectedConnection())
+      get("revoke-confirm").hidden = !1;
+    else
+      showError("\u8BF7\u5148\u9009\u62E9\u5DF2\u914D\u5BF9\u5165\u53E3\u3002");
+  });
+  get("cancel-revoke").addEventListener("click", () => {
+    get("revoke-confirm").hidden = !0;
+  });
+  get("confirm-revoke").addEventListener("click", () => {
+    connectionAction("revoke");
+  });
+  entryIp.addEventListener("input", () => {
+    entryEdited = !0;
+    renderSetup();
+  });
+  get("node-results").addEventListener("change", renderSetup);
+  get("copy-dns").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(get("dns-records").textContent ?? "");
+      get("copy-dns-status").textContent = "\u914D\u7F6E\u5DF2\u590D\u5236";
+    } catch {
+      get("copy-dns-status").textContent = "\u8BF7\u9009\u4E2D\u4E0A\u9762\u7684\u914D\u7F6E\u5E76\u624B\u52A8\u590D\u5236\u3002";
+    }
+  });
+  get("check-dns").addEventListener("click", async () => {
+    const access = completedAccess;
+    if (!access)
+      return;
+    const serial = ++dnsSerial;
+    dnsRequest?.abort();
+    dnsRequest = new AbortController;
+    const button = get("check-dns");
+    button.disabled = !0;
+    get("dns-status").textContent = "\u6B63\u5728\u68C0\u6D4B\u89E3\u6790\u2026";
+    get("dns-status").dataset.state = "";
+    try {
+      const response = await fetch(endpoint("dns"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: access.domain, entryIp: access.entryIp, local: access.local }),
+        signal: dnsRequest.signal
+      }), result = await response.json();
+      if (serial !== dnsSerial)
+        return;
+      if (!response.ok)
+        throw Error(result.error || "\u65E0\u6CD5\u5B8C\u6210\u89E3\u6790\u68C0\u67E5\u3002");
+      get("dns-status").textContent = result.passed ? `CLI \u4E3B\u673A ${result.checkedFrom} \u89E3\u6790\u901A\u8FC7` : "\u89E3\u6790\u672A\u901A\u8FC7\uFF0C\u8BF7\u6309\u914D\u7F6E\u8BF4\u660E\u68C0\u67E5 DNS / hosts\u3002";
+      get("dns-status").dataset.state = result.passed ? "passed" : "failed";
+      get("dns-results").replaceChildren(...result.checks.map((check) => {
+        const row = document.createElement("li");
+        row.textContent = `${check.host} \u2192 ${check.addresses.join(", ") || (check.status === "timeout" ? "\u68C0\u6D4B\u8D85\u65F6" : "\u672A\u89E3\u6790")} \xB7 ${check.status === "matched" ? "\u5339\u914D" : "\u672A\u901A\u8FC7"}`;
+        return row;
+      }));
+      if (!result.passed) {
+        get("manual-access").open = !0;
+        get("dns-guide").open = !0;
+      }
+    } catch (cause) {
+      if (serial === dnsSerial) {
+        get("dns-status").textContent = cause instanceof Error ? cause.message : "\u89E3\u6790\u68C0\u67E5\u5931\u8D25\u3002";
+        get("dns-status").dataset.state = "failed";
+      }
+    } finally {
+      if (serial === dnsSerial)
+        button.disabled = !1;
+    }
+  });
+  function renderNetworkCards(checks, fallback = "\u68C0\u6D4B\u4E2D\u2026") {
+    const results = new Map(checks.map((check) => [check.host, check])), labels = { reachable: "\u5DF2\u8FDE\u63A5", "http-error": "\u54CD\u5E94\u5F02\u5E38", "dns-error": "\u89E3\u6790\u5931\u8D25", "tls-error": "\u8FDE\u63A5\u5F02\u5E38", timeout: "\u8FDE\u63A5\u8D85\u65F6", unreachable: "\u65E0\u6CD5\u8FDE\u63A5", cancelled: "\u5DF2\u53D6\u6D88" };
+    for (const card of get("probe-cards").querySelectorAll("[data-host]")) {
+      const check = results.get(card.dataset.host);
+      card.dataset.state = check ? check.status === "reachable" && check.httpStatus !== 404 ? "reachable" : "limited" : fallback === "\u68C0\u6D4B\u4E2D\u2026" ? "pending" : fallback === "\u68C0\u6D4B\u5931\u8D25" ? "limited" : "skipped";
+      card.querySelector(".network-status").textContent = check ? check.status === "reachable" && check.host === "release-assets.githubusercontent.com" ? "\u57DF\u540D\u53EF\u8FBE" : labels[check.status] : fallback;
+      card.querySelector(".network-latency").textContent = check ? `${check.elapsedMs} ms` : "\u2014";
+    }
+  }
+  async function probeEnvironment(refresh = !1) {
+    const serial = ++probeSerial;
+    probeRequest?.abort();
+    probeRequest = new AbortController;
+    const button = get("probe-refresh");
+    button.disabled = !0;
+    button.textContent = "\u6B63\u5728\u68C0\u6D4B\u2026";
+    get("machine-probe").setAttribute("aria-busy", "true");
+    get("system-probe").setAttribute("aria-busy", "true");
+    const network = get("probe-network");
+    network.textContent = offline.checked ? "\u79BB\u7EBF\u6A21\u5F0F \xB7 \u5DF2\u8DF3\u8FC7" : "\u68C0\u6D4B\u4E2D\u2026";
+    network.dataset.state = "pending";
+    renderNetworkCards([], offline.checked ? "\u5DF2\u8DF3\u8FC7" : "\u68C0\u6D4B\u4E2D\u2026");
+    get("probe-sites").replaceChildren();
+    get("probe-note").textContent = offline.checked ? "\u79BB\u7EBF\u6A21\u5F0F\u4E0B\u4E0D\u53D1\u8D77\u5916\u7F51\u63A2\u6D4B\u3002" : "\u6B63\u5728\u68C0\u67E5 Microsoft\u3001Google\u3001GitHub API \u548C\u5B89\u88C5\u5305\u4E0B\u8F7D\u57DF\u540D\uFF0C\u5355\u9879\u6700\u591A\u7B49\u5F85 4 \u79D2\u3002";
+    try {
+      const response = await fetch(endpoint("probe"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offline: offline.checked, refresh }),
+        signal: probeRequest.signal
+      });
+      if (!response.ok)
+        throw Error();
+      const result = await response.json();
+      if (serial !== probeSerial)
+        return;
+      machine = result.machine;
+      renderTarget();
+      get("probe-os").textContent = [result.machine.os.name, result.machine.os.version].filter(Boolean).join(" ");
+      get("probe-kernel").textContent = "\u5185\u6838 " + result.machine.os.kernel;
+      const hardware = result.machine.hardware;
+      get("probe-arch").textContent = hardware.architecture.toUpperCase();
+      get("probe-cores").textContent = `${hardware.cores} \u6838`;
+      get("probe-memory").textContent = `${hardware.memoryGiB} GiB`;
+      get("probe-cpu").textContent = (hardware.cpu || "CPU \u578B\u53F7\u672A\u63D0\u4F9B") + (hardware.architecture !== hardware.runtimeArchitecture ? ` \xB7 CLI \u8FD0\u884C\u67B6\u6784 ${hardware.runtimeArchitecture}` : "");
+      const labels = { reachable: "\u63A2\u6D4B\u70B9\u5747\u53EF\u8FDE\u63A5", limited: "\u90E8\u5206\u63A2\u6D4B\u70B9\u53EF\u8FDE\u63A5", unreachable: "\u63A2\u6D4B\u70B9\u5747\u672A\u901A\u8FC7", skipped: "\u79BB\u7EBF\u6A21\u5F0F \xB7 \u5DF2\u8DF3\u8FC7", cancelled: "\u63A2\u6D4B\u5DF2\u53D6\u6D88" };
+      network.textContent = labels[result.network.status];
+      network.dataset.state = result.network.status;
+      renderNetworkCards(result.network.checks, result.network.status === "skipped" ? "\u5DF2\u8DF3\u8FC7" : "\u5DF2\u53D6\u6D88");
+      const statuses = { reachable: "\u5DF2\u8FDE\u63A5", "http-error": "\u5DF2\u54CD\u5E94\uFF0CHTTP \u9519\u8BEF", "dns-error": "DNS \u89E3\u6790\u5931\u8D25", "tls-error": "TLS \u8FDE\u63A5\u5931\u8D25", timeout: "\u8FDE\u63A5\u8D85\u65F6", unreachable: "\u8FDE\u63A5\u5931\u8D25", cancelled: "\u5DF2\u53D6\u6D88" };
+      for (const check of result.network.checks) {
+        const row = document.createElement("li"), site = document.createElement("span");
+        site.textContent = `${check.name} \xB7 ${check.host}`;
+        const state = document.createElement("span");
+        state.dataset.state = check.status === "reachable" && check.httpStatus !== 404 ? "reachable" : "limited";
+        state.textContent = `${statuses[check.status]}${check.httpStatus === void 0 ? "" : ` \xB7 HTTP ${check.httpStatus}`} \xB7 ${check.elapsedMs} ms`;
+        if (check.host === "release-assets.githubusercontent.com") {
+          const detail = document.createElement("small");
+          detail.textContent = check.httpStatus === 404 ? "\u5DF2\u6536\u5230\u670D\u52A1\u5668\u54CD\u5E94\uFF0C\u4F46\u6839\u8DEF\u5F84\u6CA1\u6709\u8D44\u6E90\u3002\u5C1A\u672A\u9A8C\u8BC1\u5177\u4F53\u5B89\u88C5\u5305\u80FD\u5426\u4E0B\u8F7D\u3002" : "\u8FD9\u91CC\u53EA\u68C0\u6D4B\u4E0B\u8F7D\u57DF\u540D\uFF1B\u5177\u4F53\u5B89\u88C5\u5305\u80FD\u5426\u4E0B\u8F7D\uFF0C\u9700\u8981\u5728\u83B7\u53D6\u5B89\u88C5\u5305\u65F6\u9A8C\u8BC1\u3002";
+          row.append(detail);
+        }
+        row.prepend(site, state);
+        get("probe-sites").append(row);
+      }
+      get("probe-note").textContent = result.network.status === "skipped" ? "\u79BB\u7EBF\u6A21\u5F0F\u4E0B\u4E0D\u53D1\u8D77\u5916\u7F51\u63A2\u6D4B\u3002" : "\u7ED3\u679C\u4EC5\u4EE3\u8868\u4E0A\u8FF0\u7AD9\u70B9\uFF1BGoogle \u53EF\u8FDE\u63A5\u4E0D\u4EE3\u8868\u6240\u6709\u6D77\u5916\u7F51\u7AD9\u53EF\u7528\u3002\u90E8\u7F72\u6A21\u5F0F\u7531\u4F60\u9009\u62E9\u3002";
+      get("probe-time").textContent = "\u68C0\u6D4B\u4E8E " + new Date(result.checkedAt).toLocaleTimeString();
+    } catch {
+      if (serial !== probeSerial)
+        return;
+      network.textContent = "\u68C0\u6D4B\u672A\u5B8C\u6210";
+      network.dataset.state = "unreachable";
+      renderNetworkCards([], "\u68C0\u6D4B\u5931\u8D25");
+      get("probe-note").textContent = "\u65E0\u6CD5\u8BFB\u53D6\u672C\u673A\u63A2\u6D4B\u7ED3\u679C\uFF0C\u8BF7\u91CD\u65B0\u68C0\u6D4B\u6216\u68C0\u67E5 CLI \u662F\u5426\u4ECD\u5728\u8FD0\u884C\u3002";
+    } finally {
+      if (serial === probeSerial) {
+        get("machine-probe").setAttribute("aria-busy", "false");
+        get("system-probe").setAttribute("aria-busy", "false");
+        button.disabled = !1;
+        button.textContent = "\u91CD\u65B0\u68C0\u6D4B";
+      }
+    }
+  }
+  get("probe-refresh").addEventListener("click", () => {
+    probeEnvironment(!0);
+  });
+  function showError(message) {
+    error.textContent = message;
+    error.hidden = !1;
+  }
+  function renderTarget() {
+    const mode = topology();
+    get("node-section").hidden = mode !== "multi-k3s";
+    get("ha-fields").hidden = mode !== "multi-k3s";
+    get("deployment-mode").textContent = mode === "single-k3d" ? "\u672C\u5730\u6D4B\u8BD5 \xB7 K3d" : mode === "multi-k3s" ? "\u591A\u673A K3s" : "\u5355\u673A K3s";
+    fields.bundleDir.required = offline.checked;
+    get("bundle-fields").hidden = !offline.checked;
+    get("resource-mode").textContent = offline.checked ? "\u68C0\u67E5\u672C\u5730\u5E94\u7528\u53CA\u4F9D\u8D56\u5305\uFF1B\u7F3A\u5C11\u6216\u6821\u9A8C\u5931\u8D25\u65F6\u505C\u6B62\uFF0C\u4E0D\u8BBF\u95EE\u5916\u7F51\u3002" : "\u9009\u62E9\u5E94\u7528\u540E\u68C0\u67E5\u5B9E\u9645\u5B89\u88C5\u8D44\u6E90\uFF0C\u4E0B\u8F7D\u4E0E\u6821\u9A8C\u901A\u8FC7\u540E\u624D\u4F1A\u5B89\u88C5\u3002";
+    const supported = machine && supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture);
+    get("topology-note").textContent = mode === "single-k3d" ? offline.checked ? "\u4F7F\u7528\u672C\u5730\u5B8C\u6574\u5B89\u88C5\u5305\u521B\u5EFA K3d \u6D4B\u8BD5\u96C6\u7FA4\uFF0C\u9700\u8981\u672C\u673A Docker \u6B63\u5728\u8FD0\u884C\u3002" : "\u521B\u5EFA\u72EC\u7ACB\u7684\u672C\u5730\u6D4B\u8BD5\u96C6\u7FA4\uFF0C\u9700\u8981\u672C\u673A Docker \u6B63\u5728\u8FD0\u884C\u3002" : mode === "multi-k3s" ? "\u7BA1\u7406\u673A\u53EF\u4EE5\u4F7F\u7528 macOS\uFF1B\u8282\u70B9\u9700\u4E3A Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\uFF0C\u7CFB\u7EDF\u4E0E\u67B6\u6784\u4E00\u81F4\uFF0C\u5E76\u63D0\u4F9B\u5339\u914D\u7684\u5B89\u88C5\u5305\u3002" : machine && !supported ? "\u5355\u673A K3s \u9700\u8981 Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\u3002" : "\u5728\u5F53\u524D Ubuntu \u4E3B\u673A\u4E0A\u5B89\u88C5 K3s\uFF1B\u9700\u8981\u5339\u914D\u7CFB\u7EDF\u4E0E\u67B6\u6784\u7684\u5B89\u88C5\u5305\uFF0C\u4EE5\u53CA root \u6216\u514D\u5BC6 sudo\u3002";
+    renderSetup();
+  }
+  for (const input of document.querySelectorAll('[name="topology"]'))
+    input.addEventListener("change", renderTarget);
+  for (const input of document.querySelectorAll('[name="source"]'))
+    input.addEventListener("change", () => {
+      renderTarget();
+      probeEnvironment(!0);
+    });
+  function connection() {
+    return { sshUser: fields.sshUser.value.trim(), sshKey: fields.sshKey.value.trim(), sshPort: Number(fields.sshPort.value) };
+  }
+  function nodeHosts() {
+    return hosts.value.trim().split(/[\s,]+/).filter(Boolean);
+  }
+  function fingerprint() {
+    return JSON.stringify({ hosts: nodeHosts(), ...connection() });
+  }
+  function invalidateNodes() {
+    nodeSerial++;
+    nodeRequest?.abort();
+    nodesFingerprint = "";
+    nodeFacts = [];
+    get("node-results").replaceChildren();
+    get("nodes-note").textContent = "\u8FDE\u63A5\u8BBE\u7F6E\u5DF2\u66F4\u6539\uFF0C\u8BF7\u91CD\u65B0\u68C0\u6D4B\u8282\u70B9\u3002";
+    renderSetup();
+    const button = get("detect-nodes");
+    button.disabled = !1;
+    button.textContent = "\u81EA\u52A8\u68C0\u6D4B\u8282\u70B9";
+  }
+  for (const input of [hosts, fields.sshUser, fields.sshKey, fields.sshPort])
+    input.addEventListener("input", invalidateNodes);
+  function renderNodes(saved) {
+    get("node-results").replaceChildren();
+    nodeFacts.forEach((facts, index) => {
+      const row = document.createElement("article");
+      row.className = "node-result";
+      row.dataset.host = facts.host;
+      const header = document.createElement("header"), title = document.createElement("strong");
+      title.textContent = facts.host;
+      const status = document.createElement("span");
+      status.textContent = facts.error ? "\u9700\u8981\u5904\u7406" : "\u68C0\u6D4B\u901A\u8FC7";
+      header.append(title, status);
+      row.append(header);
+      const detail = document.createElement("p");
+      detail.textContent = facts.os ? `${facts.os} ${facts.version} \xB7 ${facts.architecture} \xB7 ${facts.cores} \u6838 \xB7 ${facts.memoryGiB} GiB \u5185\u5B58 \xB7 ${facts.diskGiB} GiB \u53EF\u7528\u78C1\u76D8` : "\u672A\u80FD\u8FDE\u63A5";
+      row.append(detail);
+      if (facts.error) {
+        const note = document.createElement("p");
+        note.className = "node-error";
+        note.textContent = facts.error;
+        row.append(note);
+      }
+      if (facts.name) {
+        const controls = document.createElement("div");
+        controls.className = "node-controls";
+        const previous = saved?.find((node) => node.host === facts.host), nameLabel = document.createElement("label");
+        nameLabel.textContent = "\u8282\u70B9\u540D\u79F0";
+        const name = document.createElement("input");
+        name.type = "text";
+        name.dataset.field = "name";
+        name.value = previous?.name ?? facts.name;
+        nameLabel.append(name);
+        const addressLabel = document.createElement("label");
+        addressLabel.textContent = "\u8282\u70B9\u5185\u7F51 IP";
+        const address = document.createElement("select");
+        address.dataset.field = "address";
+        for (const ip of facts.addresses)
+          address.add(new Option(ip, ip));
+        if (previous && facts.addresses.includes(previous.address))
+          address.value = previous.address;
+        else if (facts.addresses.includes(facts.host))
+          address.value = facts.host;
+        addressLabel.append(address);
+        const roleLabel = document.createElement("label");
+        roleLabel.textContent = "\u8282\u70B9\u89D2\u8272";
+        const role = document.createElement("select");
+        role.dataset.field = "role";
+        role.add(new Option("\u63A7\u5236\u8282\u70B9", "server"));
+        role.add(new Option("\u5DE5\u4F5C\u8282\u70B9", "agent"));
+        role.value = previous?.role ?? (index < (ha.checked ? 3 : 1) ? "server" : "agent");
+        roleLabel.append(role);
+        controls.append(nameLabel, addressLabel, roleLabel);
+        row.append(controls);
+      }
+      get("node-results").append(row);
+    });
+    renderSetup();
+  }
+  ha.addEventListener("change", () => renderNodes());
+  get("detect-nodes").addEventListener("click", async () => {
+    const serial = ++nodeSerial;
+    nodeRequest?.abort();
+    nodeRequest = new AbortController;
+    const requested = fingerprint();
+    nodesFingerprint = "";
+    const button = get("detect-nodes");
+    button.disabled = !0;
+    button.textContent = "\u6B63\u5728\u68C0\u6D4B\u2026";
+    get("nodes-note").textContent = "\u901A\u8FC7 SSH \u68C0\u6D4B\u8282\u70B9\uFF0C\u6BCF\u6B21\u6700\u591A\u5E76\u884C\u68C0\u6D4B 4 \u53F0\u3002";
+    try {
+      const response = await fetch(endpoint("nodes"), { method: "POST", headers: { "Content-Type": "application/json" }, body: requested, signal: nodeRequest.signal }), result = await response.json();
+      if (serial !== nodeSerial)
+        return;
+      if (!response.ok || !result.nodes)
+        throw Error(result.error || "\u8282\u70B9\u68C0\u6D4B\u5931\u8D25\u3002");
+      nodeFacts = result.nodes;
+      nodesFingerprint = requested;
+      renderNodes();
+      error.hidden = !0;
+      get("nodes-note").textContent = nodeFacts.some((node) => node.error) ? "\u8BF7\u5904\u7406\u8282\u70B9\u63D0\u793A\u540E\u91CD\u65B0\u68C0\u6D4B\u3002" : "\u5DF2\u751F\u6210\u8282\u70B9\u914D\u7F6E\uFF0C\u8BF7\u786E\u8BA4\u5185\u7F51 IP \u548C\u63A7\u5236\uFF0F\u5DE5\u4F5C\u89D2\u8272\u3002\u90E8\u7F72\u524D\u4F1A\u518D\u6B21\u6838\u9A8C\u3002";
+    } catch (cause) {
+      if (serial === nodeSerial)
+        get("nodes-note").textContent = cause instanceof Error ? cause.message : "\u8282\u70B9\u68C0\u6D4B\u5931\u8D25\u3002";
+    } finally {
+      if (serial === nodeSerial) {
+        button.disabled = !1;
+        button.textContent = "\u81EA\u52A8\u68C0\u6D4B\u8282\u70B9";
+      }
+    }
+  });
+  get("import-ssh").addEventListener("click", async () => {
+    try {
+      const response = await fetch(endpoint("ssh-aliases")), result = await response.json();
+      if (!response.ok || !result.aliases?.length)
+        throw Error("\u6CA1\u6709\u53EF\u5BFC\u5165\u7684 SSH \u522B\u540D\uFF0C\u8BF7\u624B\u52A8\u586B\u5199\u5730\u5740\u3002");
+      hosts.value = result.aliases.join(`
+`);
+      invalidateNodes();
+      get("nodes-note").textContent = "\u5DF2\u5BFC\u5165 SSH \u522B\u540D\u3002\u8BF7\u4FDD\u7559\u8981\u90E8\u7F72\u7684\u673A\u5668\uFF0C\u518D\u70B9\u51FB\u81EA\u52A8\u68C0\u6D4B\u3002";
+    } catch (cause) {
+      get("nodes-note").textContent = cause instanceof Error ? cause.message : "\u65E0\u6CD5\u8BFB\u53D6 SSH \u914D\u7F6E\u3002";
+    }
+  });
+  get("pick-bundle").addEventListener("click", async () => {
+    const button = get("pick-bundle");
+    button.disabled = !0;
+    try {
+      const response = await fetch(endpoint("pick-bundle"), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), result = await response.json();
+      if (!response.ok)
+        throw Error(result.error || "\u8BF7\u624B\u52A8\u586B\u5199\u76EE\u5F55\u8DEF\u5F84\u3002");
+      if (result.path)
+        fields.bundleDir.value = result.path;
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : "\u8BF7\u624B\u52A8\u586B\u5199\u76EE\u5F55\u8DEF\u5F84\u3002");
+    } finally {
+      button.disabled = !1;
+    }
+  });
+  function target() {
+    const mode = topology(), paired = accessMode() === "relay" ? selectedConnection() : void 0, nodes = mode === "multi-k3s" ? Array.from(get("node-results").querySelectorAll(".node-result")).map((row) => ({
+      host: row.dataset.host,
+      name: row.querySelector("[data-field=name]")?.value.trim() ?? "",
+      address: row.querySelector("[data-field=address]")?.value ?? "",
+      role: row.querySelector("[data-field=role]")?.value
+    })) : [];
+    return {
+      installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === "single-k3d" ? Number(fields.httpPort.value) : 80, httpsPort: mode === "single-k3d" ? Number(fields.httpsPort.value) : 443, ha: mode === "multi-k3s" && ha.checked, ...connection(), nodes, ...accessMode() !== "private" ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField("public-ip"), tunnelPort: paired?.tunnelPort ?? Number(publicField("tunnel-port")), ...paired ? { pairingId: paired.id } : accessMode() === "relay" ? { gateway: { host: publicField("gateway-host"), sshUser: publicField("gateway-user"), sshKey: publicField("gateway-key"), sshPort: Number(publicField("gateway-port")) } } : {} } } : {} },
+      runner: mode === "single-k3d" ? "docker" : "native",
+      root: "",
+      offline: offline.checked,
+      bundleDir: offline.checked ? fields.bundleDir.value.trim() : "",
+      environment: "",
+      kubeconfig: "",
+      workDir: "",
+      image: "chentu-lab"
+    };
+  }
+  function applyTarget(value) {
+    const install = value.installation, published = install?.publicAccess;
+    renderConnections(published?.pairingId ?? "");
+    if (selectedConnection())
+      connectionMessage(selectedConnection());
+    get("manual-entry").open = Boolean(published?.gateway);
+    document.querySelector(`[name="access-mode"][value="${published?.mode ?? "private"}"]`).checked = !0;
+    for (const [id, text] of Object.entries({ "public-ip": published?.publicIp ?? "", "gateway-host": published?.gateway?.host ?? "", "gateway-user": published?.gateway?.sshUser ?? "", "gateway-key": published?.gateway?.sshKey ?? "", "gateway-port": String(published?.gateway?.sshPort ?? 22), "tunnel-port": String(published?.tunnelPort ?? 19444) }))
+      get(id).value = text;
+    document.querySelector(`[name="topology"][value="${install?.topology ?? "single-k3d"}"]`).checked = !0;
+    offline.checked = Boolean(value.offline);
+    get("online").checked = !offline.checked;
+    fields.bundleDir.value = value.bundleDir;
+    domain.value = install?.domain ?? "";
+    customDomain.checked = Boolean(domain.value && domain.value !== defaultDomain());
+    get("custom-domain").closest("details").open = customDomain.checked;
+    entryIp.value = install?.entryIp ?? "";
+    entryEdited = Boolean(entryIp.value);
+    entryTopology = topology();
+    fields.httpPort.value = String(install?.httpPort ?? 54320);
+    fields.httpsPort.value = String(install?.httpsPort ?? 54321);
+    fields.sshUser.value = install?.sshUser ?? "";
+    fields.sshKey.value = install?.sshKey ?? "";
+    fields.sshPort.value = String(install?.sshPort ?? 22);
+    ha.checked = install?.ha ?? !1;
+    hosts.value = install?.nodes.map((node) => node.host).join(`
+`) ?? "";
+    renderTarget();
+  }
+  function renderStep(focus = !0) {
+    pairedSelect.disabled = !1;
+    get("gateway-fields").insertBefore(get("connection-manager"), get("manual-entry"));
+    renderSetup();
+    error.hidden = !0;
+    document.querySelectorAll("[data-panel]").forEach((panel, index) => {
+      panel.hidden = index !== step;
+    });
+    renderProgress(step);
+    get("step-label").textContent = `\u7B2C ${step + 1} \u6B65 / \u5171 7 \u6B65`;
+    get("step-title").textContent = titles[step];
+    get("step-subtitle").textContent = subtitles[step];
+    back.hidden = step === 0;
+    next.textContent = step === titles.length - 1 ? "\u5F00\u59CB\u90E8\u7F72" : "\u4E0B\u4E00\u6B65";
+    if (focus)
+      (step === 0 ? get("online") : step === 1 ? slug : step === 2 ? get("model-url") : document.querySelector('[name="app"]:not(:disabled)'))?.focus();
+  }
+  function renderProgress(active) {
+    document.querySelectorAll("[data-step]").forEach((item, index) => {
+      item.dataset.state = index === active ? "active" : index < active ? "done" : "pending";
+      if (index === active)
+        item.setAttribute("aria-current", "step");
+      else
+        item.removeAttribute("aria-current");
+    });
+  }
+  function selectedApps() {
+    return Array.from(document.querySelectorAll('[name="app"]:checked')).map((input) => input.value);
+  }
+  function updateSelection() {
+    get("selected-count").textContent = `\u5DF2\u9009\u62E9 ${selectedApps().length} \u4E2A\u5E94\u7528\uFF08${apps.filter((app) => app.required).length} \u4E2A\u5FC5\u9009\uFF09`;
+  }
+  function renderApps(selected) {
+    const grid = get("app-grid");
+    grid.replaceChildren();
+    let previousGroup = "";
+    apps.forEach((app) => {
+      const group = app.required ? "\u5FC5\u9009\u5E94\u7528" : app.selected ? "\u53EF\u9009\u5E94\u7528 \xB7 \u9ED8\u8BA4\u9009\u4E2D" : "\u5176\u4ED6\u53EF\u9009\u5E94\u7528 \xB7 \u9ED8\u8BA4\u4E0D\u9009";
+      if (group !== previousGroup) {
+        const heading = document.createElement("h2");
+        heading.className = "app-group";
+        heading.textContent = group;
+        grid.append(heading);
+        previousGroup = group;
+      }
+      const label = document.createElement("label");
+      label.className = "app-card";
+      label.dataset.required = String(app.required);
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.name = "app";
+      input.value = app.id;
+      input.checked = app.required || selected.includes(app.id);
+      input.disabled = app.required;
+      input.addEventListener("change", updateSelection);
+      const icon = document.createElement("span");
+      icon.className = "app-icon";
+      icon.textContent = app.name.slice(0, 1);
+      icon.setAttribute("aria-hidden", "true");
+      const copy = document.createElement("span");
+      copy.className = "app-copy";
+      const name = document.createElement("strong");
+      name.textContent = app.name;
+      const description = document.createElement("span");
+      description.textContent = app.description;
+      copy.append(name, description);
+      label.append(input, icon, copy);
+      grid.append(label);
+      if (app.required) {
+        const badge = document.createElement("span");
+        badge.className = "required-badge";
+        badge.textContent = "\u5FC5\u9009";
+        label.append(badge);
+      }
+    });
+    updateSelection();
+  }
+  function setBusy(value) {
+    busy = value;
+    get("fields").disabled = value;
+    back.disabled = value;
+    next.disabled = value;
+  }
+  function validate() {
+    if (step === 0) {
+      if (topology() === "single-k3d" && (![fields.httpPort.value, fields.httpsPort.value].every((value) => /^\d{1,5}$/.test(value) && Number(value) >= 1 && Number(value) <= 65535) || Number(fields.httpPort.value) === Number(fields.httpsPort.value) || Number(fields.httpPort.value) === 443 || Number(fields.httpsPort.value) === 80)) {
+        showError("\u8BF7\u586B\u5199\u4E0D\u540C\u7684 HTTP / HTTPS \u7AEF\u53E3\uFF081\u201365535\uFF09\uFF1BHTTP \u4E0D\u80FD\u4F7F\u7528 443\uFF0CHTTPS \u4E0D\u80FD\u4F7F\u7528 80\u3002");
+        return !1;
+      }
+      if (offline.checked && !fields.bundleDir.reportValidity())
+        return !1;
+      if (topology() === "single-k3s" && (!machine || !supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture))) {
+        showError(machine ? "\u5355\u673A K3s \u9700\u8981 Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\u3002" : "\u8BF7\u5148\u5B8C\u6210\u5F53\u524D\u4E3B\u673A\u7684\u7CFB\u7EDF\u68C0\u6D4B\u3002");
+        return !1;
+      }
+      if (topology() === "multi-k3s") {
+        if (nodesFingerprint !== fingerprint() || nodeFacts.length < 2 || nodeFacts.some((node) => node.error)) {
+          showError("\u8BF7\u5148\u6210\u529F\u68C0\u6D4B\u81F3\u5C11 2 \u53F0 Ubuntu \u8282\u70B9\u3002");
+          return !1;
+        }
+        const nodes = target().installation.nodes, count = nodes.filter((node) => node.role === "server").length;
+        if (ha.checked ? count < 3 || count % 2 === 0 : count !== 1) {
+          showError(ha.checked ? "\u9AD8\u53EF\u7528\u9700\u8981\u81F3\u5C11 3 \u4E2A\u3001\u4E14\u4E3A\u5947\u6570\u4E2A\u63A7\u5236\u8282\u70B9\u3002" : "\u8BF7\u9009\u62E9 1 \u4E2A\u63A7\u5236\u8282\u70B9\uFF0C\u5176\u4F59\u4E3A\u5DE5\u4F5C\u8282\u70B9\u3002");
+          return !1;
+        }
+        for (const key of ["host", "name", "address"])
+          if (new Set(nodes.map((node) => node[key])).size !== nodes.length) {
+            showError("\u8282\u70B9\u540D\u79F0\u548C\u5730\u5740\u4E0D\u80FD\u91CD\u590D\u3002");
+            return !1;
+          }
+      }
+    }
+    if (step === 0 && accessMode() !== "private" && (topology() !== "single-k3s" || offline.checked)) {
+      showError("\u516C\u7F51\u5165\u53E3\u76EE\u524D\u652F\u6301\u5728\u7EBF\u5355\u673A K3s\u3002");
+      return !1;
+    }
+    if (connectionBusy) {
+      showError("\u8FDE\u63A5\u7BA1\u7406\u6B63\u5728\u8FDB\u884C\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002");
+      return !1;
+    }
+    if (step === 0 && accessMode() === "relay" && selectedConnection()?.state === "revoked") {
+      showError("\u5F53\u524D\u8FDE\u63A5\u5DF2\u64A4\u9500\uFF0C\u8BF7\u91CD\u65B0\u914D\u5BF9\u3002");
+      return !1;
+    }
+    if (step === 0 && accessMode() !== "private" && (!publicField("public-ip") || accessMode() === "relay" && !selectedConnection() && !publicField("gateway-host"))) {
+      showError("\u8BF7\u914D\u5BF9\u516C\u7F51\u5165\u53E3\uFF0C\u6216\u586B\u5199\u9AD8\u7EA7 SSH \u914D\u7F6E\u3002");
+      return !1;
+    }
+    if (step === 0 && !validIp()) {
+      showError("\u8BF7\u786E\u8BA4\u90E8\u7F72\u73AF\u5883\u4E2D\u7684\u5165\u53E3 IPv4 \u5730\u5740\u3002");
+      return !1;
+    }
+    if (step === 1) {
+      if (!slug.reportValidity() || !domain.reportValidity())
+        return !1;
+      if (!validDomain()) {
+        showError("\u8BF7\u586B\u5199\u6709\u6548\u7684\u5E73\u53F0\u57DF\u540D\u3002");
+        return !1;
+      }
+    }
+    if (step === 3 && apps.some((app) => app.required && !selectedApps().includes(app.id))) {
+      showError("\u8BF7\u4FDD\u7559\u5168\u90E8\u5FC5\u9009\u5E94\u7528\u3002");
+      return !1;
+    }
+    if (step === 2 && !modelSkip.checked && modelPassed !== modelFingerprint()) {
+      showError("\u8BF7\u5148\u6D4B\u8BD5\u5FEB\u901F\u548C\u6DF1\u5EA6\u601D\u8003\u6A21\u578B\uFF0C\u6216\u9009\u62E9\u7A0D\u540E\u914D\u7F6E\u3002");
+      return !1;
+    }
+    return !0;
+  }
+  function renderDeployment(status) {
+    pairedSelect.disabled = !0;
+    currentDeployment = status;
+    form.hidden = !0;
+    get("form-heading").hidden = !0;
+    get("finish-actions").hidden = !1;
+    const access = status.phase === "succeeded" ? status.access : void 0, showTest = Boolean(access && !viewingDeployment && testingPage), showAccess = Boolean(access && !viewingDeployment && !testingPage);
+    get("deployment").hidden = showAccess || showTest;
+    get("verification").hidden = !showTest;
+    renderProgress(showTest ? 6 : showAccess ? 5 : 4);
+    const active = ["preparing", "running", "stopping"].includes(status.phase);
+    get("deployment-title").textContent = status.phase === "stopping" ? status.stopFailed ? "\u505C\u6B62\u5C1A\u672A\u5B8C\u6210\u3002" : "\u6B63\u5728\u505C\u6B62\u90E8\u7F72\u2026" : active ? "\u6B63\u5728\u90E8\u7F72\u2026" : status.phase === "succeeded" ? "\u90E8\u7F72\u5B8C\u6210\u3002" : status.phase === "cancelled" ? "\u90E8\u7F72\u5DF2\u505C\u6B62\u3002" : "\u90E8\u7F72\u5931\u8D25\u3002";
+    get("deployment-message").textContent = status.message;
+    get("deployment-events").replaceChildren(...status.events.map((message) => {
+      const line = document.createElement("span"), level = /^\[(INFO|WARNING|ERROR)\]/.exec(message)?.[1] || "INFO";
+      line.className = `log-${level.toLowerCase()}`;
+      line.textContent = message + `
+`;
+      return line;
+    }));
+    get("deployment-log").textContent = status.log || "\u6B63\u5728\u68C0\u67E5\u5B89\u88C5\u8D44\u6E90";
+    const openLog = get("open-log"), downloadLog = get("download-log");
+    openLog.hidden = downloadLog.hidden = !status.log;
+    openLog.href = endpoint("log");
+    downloadLog.href = endpoint("log/download");
+    get("deployment-environment").textContent = status.environment || "\u5C1A\u672A\u751F\u6210";
+    get("deployment-exit").textContent = status.exitCode === void 0 ? "\u2014" : String(status.exitCode);
+    get("deployment-time").textContent = status.startedAt ? `${Math.max(0, Math.floor(((status.finishedAt ? Date.parse(status.finishedAt) : Date.now()) - Date.parse(status.startedAt)) / 1000))} \u79D2` : "\u2014";
+    get("finish").disabled = active || accessInstalling || verificationBusy;
+    get("edit").hidden = active || showAccess || showTest;
+    get("finish").hidden = Boolean(access && !showTest);
+    get("view-deployment").hidden = !showAccess && !showTest;
+    get("configure-access").hidden = !access || showAccess || showTest;
+    get("to-verification").hidden = !showAccess;
+    get("back-access").hidden = !showTest;
+    const stopButton = get("stop-deployment");
+    stopButton.hidden = !active;
+    stopButton.disabled = deploymentAction || status.phase === "stopping" && !status.stopFailed;
+    stopButton.textContent = status.stopFailed ? "\u91CD\u8BD5\u505C\u6B62" : status.phase === "stopping" ? "\u6B63\u5728\u505C\u6B62\u2026" : "\u505C\u6B62\u90E8\u7F72";
+    const retryButton = get("retry-deployment");
+    retryButton.hidden = !["failed", "cancelled"].includes(status.phase);
+    retryButton.disabled = deploymentAction;
+    get("edit").disabled = deploymentAction;
+    if (deploymentAction)
+      get("finish").disabled = !0;
+    get("deployment-note").textContent = active ? "\u5173\u95ED\u6216\u5237\u65B0\u9875\u9762\u4E0D\u4F1A\u505C\u6B62\u90E8\u7F72\u3002\u70B9\u51FB\u201C\u505C\u6B62\u90E8\u7F72\u201D\u4F1A\u7EC8\u6B62\u90E8\u7F72\u8FDB\u7A0B\uFF0C\u4FDD\u7559\u5DF2\u6709\u8D44\u6E90\uFF1B\u5DF2\u63D0\u4EA4\u7ED9\u96C6\u7FA4\u7684\u4EFB\u52A1\u53EF\u80FD\u7EE7\u7EED\u8FD0\u884C\u3002" : status.phase === "cancelled" ? "\u70B9\u51FB\u201C\u91CD\u65B0\u90E8\u7F72\u201D\u4F7F\u7528\u4E0A\u6B21\u4FDD\u5B58\u7684\u914D\u7F6E\uFF0C\u68C0\u67E5\u8D44\u6E90\u548C Helm \u72B6\u6001\u540E\u91CD\u65B0\u8FD0\u884C\u3002\u4E0D\u4F1A\u65AD\u70B9\u7EED\u8DD1\uFF0C\u4E5F\u4E0D\u4F1A\u5220\u9664\u5DF2\u6709\u96C6\u7FA4\u548C\u6570\u636E\u3002" : status.exitCode === void 0 ? "\u5B89\u88C5\u5728\u51C6\u5907\u9636\u6BB5\u505C\u6B62\u3002\u8BF7\u6839\u636E\u65E5\u5FD7\u4FEE\u6B63\u539F\u56E0\u540E\u91CD\u8BD5\uFF1B\u5DF2\u5B8C\u6210\u7684\u53D8\u66F4\u4E0D\u4F1A\u81EA\u52A8\u56DE\u6EDA\u3002" : "\u65E5\u5FD7\u53EF\u5728\u7F51\u9875\u67E5\u770B\u6216\u4E0B\u8F7D\u3002\u91CD\u8BD5\u4F1A\u91CD\u65B0\u68C0\u67E5\u8D44\u6E90\u5E76\u6267\u884C\u90E8\u7F72\uFF1B\u5DF2\u5B8C\u6210\u7684\u53D8\u66F4\u4E0D\u4F1A\u81EA\u52A8\u56DE\u6EDA\u3002";
+    get("access-complete").hidden = !showAccess;
+    if (access) {
+      renderAccessGuide(access);
+      for (const id of ["private-access-card", "private-access-note", "manual-access"])
+        get(id).hidden = Boolean(access.public);
+      get("completed-connection").hidden = !access.public || !selectedConnection();
+      if (access.public && selectedConnection())
+        get("completed-connection-slot").append(get("connection-manager"));
+      get("access-complete").querySelector(".subtitle").textContent = access.public && selectedConnection()?.state === "revoked" ? "\u516C\u7F51\u8FDE\u63A5\u5DF2\u64A4\u9500\uFF0C\u96C6\u7FA4\u4E0E\u6570\u636E\u4FDD\u7559\u3002\u91CD\u65B0\u914D\u5BF9\u5E76\u90E8\u7F72\u5165\u53E3\u540E\u53EF\u6062\u590D\u8BBF\u95EE\u3002" : access.public ? "\u516C\u7F51 HTTPS \u5165\u53E3\u5DF2\u9A8C\u8BC1\u3002\u65E0\u9700\u914D\u7F6E hosts \u6216\u5B89\u88C5 CA\uFF0C\u53EF\u4EE5\u8FDB\u5165\u6D4B\u8BD5\u3002" : "\u90E8\u7F72\u5DF2\u5B8C\u6210\u3002\u914D\u7F6E\u8FD9\u53F0\u7535\u8111\u7684\u8BBF\u95EE\u65B9\u5F0F\uFF0C\u7136\u540E\u8FDB\u5165\u6D4B\u8BD5\u3002";
+      get("access-entry").textContent = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? "" : ":" + access.httpsPort} \xB7 ${access.public ? "\u516C\u7F51\u8BBF\u95EE" : access.local ? "\u672C\u673A\u6D4B\u8BD5" : "\u5185\u7F51\u8BBF\u95EE"} \xB7 ${access.entryIp}:${access.httpsPort ?? 443}`;
+      get("access-notes").textContent = access.notes.join(" ");
+      const ca = get("download-ca");
+      ca.hidden = !access.ca;
+      ca.href = endpoint("ca.crt");
+      const hosts = get("download-hosts");
+      hosts.hidden = !access.hostsPath;
+      hosts.href = endpoint("hosts.txt");
+      get("ca-path").textContent = access.ca?.path ?? "\u672A\u751F\u6210";
+      get("ca-fingerprint").textContent = access.ca?.fingerprint ?? "\u2014";
+      get("ca-expiry").textContent = access.ca ? new Date(access.ca.expiresAt).toLocaleDateString() : "\u2014";
+    }
+    if (!access) {
+      completedAccess = void 0;
+      dnsFingerprint = "";
+      resetDns();
+    }
+    clearTimeout(timer);
+    if (active)
+      timer = setTimeout(() => {
+        poll();
+      }, 1000);
+    if (showAccess && !access?.public)
+      loadLocalAccess();
+    if (showTest && access) {
+      get("test-open-apeiron").href = `https://apeiron.${access.domain}${(access.httpsPort ?? 443) === 443 ? "" : ":" + access.httpsPort}/`;
+      get("test-open-ops").href = `https://ops.${access.domain}${(access.httpsPort ?? 443) === 443 ? "" : ":" + access.httpsPort}/`;
+      get("verification-scope").textContent = `\u68C0\u6D4B\u53D1\u8D77\u4E8E CLI \u4E3B\u673A ${cliHost.name}\uFF0C\u4F7F\u7528\u7CFB\u7EDF DNS \u4E0E\u8BC1\u4E66\u4FE1\u4EFB\uFF0C\u76F4\u8FDE\u90E8\u7F72\u5165\u53E3\u3002\u6D4F\u89C8\u5668\u5728\u5176\u4ED6\u7535\u8111\u4E0A\u65F6\uFF0C\u9700\u8981\u5728\u90A3\u53F0\u7535\u8111\u4E0A\u53E6\u884C\u786E\u8BA4\u3002`;
+      if (!credentials)
+        loadCredentials();
+      fetch(endpoint("verification")).then((response) => {
+        if (!response.ok)
+          throw Error();
+        return response.json();
+      }).then((result) => {
+        if (result.result && testingPage)
+          renderVerification(result.result);
+      }).catch(() => {});
+    }
+  }
+  function renderLocalAccess(result) {
+    const { capability, status } = result;
+    accessInstalling = status.phase === "installing";
+    const button = get("install-access");
+    button.hidden = !capability.available;
+    button.disabled = accessInstalling || !completedAccess?.ca || !completedAccess?.hostsPath;
+    button.textContent = accessInstalling ? "\u6B63\u5728\u914D\u7F6E\u2026" : status.phase === "succeeded" ? "\u91CD\u65B0\u914D\u7F6E\u672C\u673A\u8BBF\u95EE" : status.phase === "failed" || status.phase === "cancelled" ? "\u91CD\u8BD5\u914D\u7F6E\u672C\u673A\u8BBF\u95EE" : "\u4E00\u952E\u914D\u7F6E\u672C\u673A\u8BBF\u95EE";
+    get("local-access-host").textContent = `\u5C06\u914D\u7F6E CLI \u4E3B\u673A\uFF1A${capability.host}`;
+    get("local-access-description").hidden = !capability.available;
+    get("local-access-status").textContent = !capability.available ? capability.reason : status.message || (!completedAccess?.ca || !completedAccess?.hostsPath ? "\u672C\u6B21\u90E8\u7F72\u7F3A\u5C11\u8BBF\u95EE\u6587\u4EF6\uFF0C\u8BF7\u67E5\u770B\u4E0B\u65B9\u8BF4\u660E\u3002" : "\u7CFB\u7EDF\u4F1A\u4FDD\u7559 hosts \u539F\u6709\u6761\u76EE\uFF0C\u5E76\u5728\u4FEE\u6539\u524D\u5907\u4EFD\u3002");
+    get("local-access-status").dataset.state = status.phase;
+    get("local-access-backup").textContent = status.backup ? `hosts \u5907\u4EFD\uFF1A${status.backup}` : "";
+    get("local-access-checks").replaceChildren(...(status.checks ?? []).map((check) => {
+      const li = document.createElement("li");
+      li.textContent = `${check.passed ? "\u2713" : "\u25CB"} ${check.host} \xB7 ${check.passed ? "\u89E3\u6790\u4E0E HTTPS \u901A\u8FC7" : "\u8BBF\u95EE\u68C0\u67E5\u672A\u901A\u8FC7"}`;
+      return li;
+    }));
+    for (const id of ["finish", "view-deployment", "edit", "to-verification"])
+      get(id).disabled = accessInstalling;
+    clearTimeout(accessTimer);
+    if (accessInstalling)
+      accessTimer = setTimeout(() => {
+        loadLocalAccess();
+      }, 1000);
+  }
+  async function loadLocalAccess() {
+    try {
+      const response = await fetch(endpoint("access"));
+      if (!response.ok)
+        throw Error();
+      renderLocalAccess(await response.json());
+    } catch {
+      get("local-access-status").textContent = "\u65E0\u6CD5\u8BFB\u53D6\u672C\u673A\u914D\u7F6E\u72B6\u6001\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u91CD\u8BD5\u3002";
+      if (accessInstalling)
+        accessTimer = setTimeout(() => {
+          loadLocalAccess();
+        }, 2000);
+    }
+  }
+  get("install-access").addEventListener("click", async () => {
+    if (!completedAccess || accessInstalling)
+      return;
+    accessInstalling = !0;
+    get("install-access").disabled = !0;
+    for (const id of ["finish", "view-deployment", "edit", "to-verification"])
+      get(id).disabled = !0;
+    get("local-access-status").textContent = "\u6B63\u5728\u8BF7\u6C42 macOS \u7BA1\u7406\u5458\u6388\u6743\u2026";
+    try {
+      const response = await fetch(endpoint("access/install"), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }), result = await response.json();
+      if (!response.ok)
+        throw Error(result.error || "\u65E0\u6CD5\u5F00\u59CB\u672C\u673A\u914D\u7F6E\u3002");
+      await loadLocalAccess();
+    } catch (cause) {
+      accessInstalling = !1;
+      for (const id of ["install-access", "finish", "view-deployment", "edit", "to-verification"])
+        get(id).disabled = !1;
+      get("local-access-status").textContent = cause instanceof Error ? cause.message : "\u65E0\u6CD5\u5F00\u59CB\u672C\u673A\u914D\u7F6E\uFF0C\u8BF7\u91CD\u8BD5\u3002";
+    }
+  });
+  function clearCredentials() {
+    credentialSerial++;
+    credentialRequest?.abort();
+    credentials = void 0;
+    get("admin-username").value = "";
+    get("admin-password").value = "";
+    get("admin-password").type = "password";
+    get("toggle-password").textContent = "\u663E\u793A\u5BC6\u7801";
+    get("toggle-password").setAttribute("aria-pressed", "false");
+    for (const id of ["copy-username", "copy-password", "toggle-password", "download-credentials"])
+      get(id).disabled = !0;
+  }
+  async function loadCredentials() {
+    clearCredentials();
+    const serial = credentialSerial;
+    credentialRequest = new AbortController;
+    get("credentials-status").textContent = "\u6B63\u5728\u8BFB\u53D6\u672C\u6B21\u90E8\u7F72\u7684\u521D\u59CB\u7BA1\u7406\u5458\u51ED\u636E\u2026";
+    get("reload-credentials").disabled = !0;
+    try {
+      const response = await fetch(endpoint("credentials"), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: credentialRequest.signal }), result = await response.json();
+      if (!response.ok)
+        throw Error(result.error || "\u65E0\u6CD5\u8BFB\u53D6\u51ED\u636E\uFF0C\u8BF7\u91CD\u8BD5\u3002");
+      if (serial !== credentialSerial || !testingPage)
+        return;
+      credentials = result;
+      get("admin-username").value = result.username;
+      get("admin-password").value = result.password;
+      get("credentials-status").textContent = "\u51ED\u636E\u5DF2\u5C31\u7EEA\u3002\u5BC6\u7801\u9ED8\u8BA4\u9690\u85CF\uFF0C\u53EF\u663E\u793A\u6216\u590D\u5236\u3002";
+      for (const id of ["copy-username", "copy-password", "toggle-password", "download-credentials"])
+        get(id).disabled = !1;
+    } catch (cause) {
+      if (serial === credentialSerial)
+        get("credentials-status").textContent = cause instanceof Error ? cause.message : "\u65E0\u6CD5\u8BFB\u53D6\u51ED\u636E\uFF0C\u8BF7\u91CD\u8BD5\u3002";
+    } finally {
+      if (serial === credentialSerial)
+        get("reload-credentials").disabled = !1;
+    }
+  }
+  get("reload-credentials").addEventListener("click", () => {
+    loadCredentials();
+  });
+  get("toggle-password").addEventListener("click", () => {
+    const input = get("admin-password"), show = input.type === "password";
+    input.type = show ? "text" : "password";
+    get("toggle-password").textContent = show ? "\u9690\u85CF\u5BC6\u7801" : "\u663E\u793A\u5BC6\u7801";
+    get("toggle-password").setAttribute("aria-pressed", String(show));
+  });
+  for (const key of ["username", "password"])
+    get("copy-" + key).addEventListener("click", async () => {
+      if (!credentials)
+        return;
+      try {
+        await navigator.clipboard.writeText(credentials[key]);
+        get("credentials-status").textContent = `${key === "username" ? "\u7528\u6237\u540D" : "\u5BC6\u7801"}\u5DF2\u590D\u5236\u3002`;
+      } catch {
+        get("credentials-status").textContent = "\u65E0\u6CD5\u8BBF\u95EE\u526A\u8D34\u677F\uFF0C\u8BF7\u663E\u793A\u540E\u9009\u4E2D\u5BF9\u5E94\u5B57\u6BB5\u590D\u5236\u3002";
+      }
+    });
+  get("download-credentials").addEventListener("click", () => {
+    if (!credentials)
+      return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(credentials, null, 2) + `
+`], { type: "application/json" })), link = document.createElement("a");
+    link.href = url;
+    link.download = "apeiron-admin.json";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  function renderVerification(result) {
+    get("verification-results").replaceChildren(...result.checks.map((check) => {
+      const li = document.createElement("li"), name = document.createElement("strong");
+      name.textContent = `${check.name} \xB7 ${check.host}`;
+      const message = document.createElement("span");
+      message.textContent = check.message;
+      message.dataset.state = check.https === "passed" ? "passed" : "failed";
+      const details = document.createElement("small");
+      details.textContent = `\u89E3\u6790${check.dns === "passed" ? "\u901A\u8FC7" : "\u672A\u901A\u8FC7"} \xB7 HTTPS ${check.https === "passed" ? "\u901A\u8FC7" : check.https === "skipped" ? "\u672A\u68C0\u6D4B" : "\u672A\u901A\u8FC7"}`;
+      li.append(name, message, details);
+      return li;
+    }));
+    get("verification-status").textContent = `${result.passed ? "\u8FDE\u63A5\u6D4B\u8BD5\u901A\u8FC7\uFF0C\u8BF7\u7EE7\u7EED\u4E0B\u65B9\u767B\u5F55\u6D4B\u8BD5\u3002" : "\u90E8\u5206\u68C0\u67E5\u672A\u901A\u8FC7\uFF0C\u8BF7\u8FD4\u56DE\u914D\u7F6E\u8BBF\u95EE\u6216\u68C0\u67E5\u5E94\u7528\u72B6\u6001\u3002"} \u68C0\u6D4B\u4E8E ${new Date(result.checkedAt).toLocaleTimeString()}`;
+    get("verification-status").dataset.state = result.passed ? "passed" : "failed";
+  }
+  get("run-verification").addEventListener("click", async () => {
+    if (verificationBusy)
+      return;
+    verificationBusy = !0;
+    verificationRequest = new AbortController;
+    for (const id of ["run-verification", "finish"])
+      get(id).disabled = !0;
+    get("verification-status").textContent = "\u6B63\u5728\u68C0\u67E5\u89E3\u6790\u3001\u8BC1\u4E66\u4FE1\u4EFB\u548C HTTPS\u2026";
+    get("verification-status").dataset.state = "";
+    try {
+      const response = await fetch(endpoint("verification"), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: verificationRequest.signal }), result = await response.json();
+      if (!response.ok)
+        throw Error(result.error || "\u6D4B\u8BD5\u672A\u5B8C\u6210\uFF0C\u8BF7\u91CD\u8BD5\u3002");
+      if (testingPage)
+        renderVerification(result.result);
+    } catch (cause) {
+      if (testingPage) {
+        get("verification-status").textContent = cause instanceof Error ? cause.message : "\u6D4B\u8BD5\u672A\u5B8C\u6210\uFF0C\u8BF7\u91CD\u8BD5\u3002";
+        get("verification-status").dataset.state = "failed";
+      }
+    } finally {
+      verificationBusy = !1;
+      get("run-verification").disabled = !1;
+      get("finish").disabled = !1;
+    }
+  });
+  function navigateAfterDeployment(destination) {
+    clearCredentials();
+    verificationRequest?.abort();
+    clearTimeout(accessTimer);
+    viewingDeployment = destination === "deployment";
+    testingPage = destination === "test";
+    history.replaceState(null, "", location.pathname + (testingPage ? "#test" : ""));
+    if (currentDeployment)
+      renderDeployment(currentDeployment);
+  }
+  get("view-deployment").addEventListener("click", () => navigateAfterDeployment("deployment"));
+  get("configure-access").addEventListener("click", () => navigateAfterDeployment("access"));
+  get("back-access").addEventListener("click", () => navigateAfterDeployment("access"));
+  get("to-verification").addEventListener("click", () => navigateAfterDeployment("test"));
+  async function poll() {
+    const serial = ++deploymentRequestSerial;
+    try {
+      const response = await fetch(endpoint("deployment"));
+      if (!response.ok)
+        throw Error();
+      const result = await response.json();
+      if (serial === deploymentRequestSerial)
+        renderDeployment(result);
+    } catch {
+      if (serial !== deploymentRequestSerial)
+        return;
+      get("deployment-message").textContent = "\u6682\u65F6\u65E0\u6CD5\u8BFB\u53D6\u90E8\u7F72\u72B6\u6001\uFF0C\u6B63\u5728\u91CD\u65B0\u8FDE\u63A5\u2026";
+      timer = setTimeout(() => {
+        poll();
+      }, 2000);
+    }
+  }
+  async function deploymentControl(action) {
+    if (deploymentAction)
+      return;
+    deploymentAction = !0;
+    ++deploymentRequestSerial;
+    clearTimeout(timer);
+    if (currentDeployment)
+      renderDeployment(currentDeployment);
+    clearTimeout(timer);
+    try {
+      const response = await fetch(endpoint("deployment/" + action), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action === "retry" ? { revision } : {})
+      }), result = await response.json();
+      if (!response.ok)
+        throw Error(result.error || "\u64CD\u4F5C\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5\u3002");
+      viewingDeployment = !1;
+      testingPage = !1;
+      renderDeployment(result.deployment);
+    } catch (cause) {
+      get("deployment-message").textContent = cause instanceof Error ? cause.message : "\u65E0\u6CD5\u8FDE\u63A5\u672C\u5730\u90E8\u7F72\u670D\u52A1\u3002";
+    } finally {
+      deploymentAction = !1;
+      get("retry-deployment").disabled = !1;
+      get("stop-deployment").disabled = currentDeployment?.phase === "stopping" && !currentDeployment.stopFailed;
+      get("edit").disabled = !1;
+      get("finish").disabled = Boolean(currentDeployment && ["preparing", "running", "stopping"].includes(currentDeployment.phase));
+      if (currentDeployment && ["preparing", "running", "stopping"].includes(currentDeployment.phase)) {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          poll();
+        }, 500);
+      }
+    }
+  }
+  get("stop-deployment").addEventListener("click", () => {
+    deploymentControl("stop");
+  });
+  get("retry-deployment").addEventListener("click", () => {
+    deploymentControl("retry");
+  });
+  back.addEventListener("click", () => {
+    if (!busy && step > 0) {
+      step--;
+      renderStep();
+    }
+  });
+  get("edit").addEventListener("click", () => {
+    clearCredentials();
+    verificationRequest?.abort();
+    testingPage = !1;
+    history.replaceState(null, "", location.pathname);
+    completedAccess = void 0;
+    dnsFingerprint = "";
+    resetDns();
+    clearTimeout(timer);
+    clearTimeout(accessTimer);
+    viewingDeployment = !1;
+    get("deployment").hidden = !0;
+    get("access-complete").hidden = !0;
+    get("verification").hidden = !0;
+    get("finish-actions").hidden = !0;
+    form.hidden = !1;
+    get("form-heading").hidden = !1;
+    step = 0;
+    renderStep();
+    probeEnvironment();
+  });
+  get("finish").addEventListener("click", async () => {
+    const button = get("finish");
+    button.disabled = !0;
+    try {
+      if (!(await fetch(endpoint("finish"), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).ok)
+        throw Error();
+      button.textContent = "\u5411\u5BFC\u5DF2\u5173\u95ED";
+      get("edit").hidden = !0;
+      get("retry-deployment").hidden = !0;
+      clearCredentials();
+      get("credentials-status").textContent = "\u5411\u5BFC\u5DF2\u5173\u95ED\uFF0C\u51ED\u636E\u5DF2\u4ECE\u9875\u9762\u6E05\u9664\u3002";
+      for (const id of ["reload-credentials", "run-verification", "back-access", "view-deployment"])
+        get(id).disabled = !0;
+      get("deployment-note").textContent = get("local-access-status").textContent = "\u672C\u5730\u90E8\u7F72\u5411\u5BFC\u5DF2\u9000\u51FA\uFF0C\u4F60\u53EF\u4EE5\u5173\u95ED\u6B64\u9875\u9762\u3002";
+      clearTimeout(accessTimer);
+      get("install-access").disabled = !0;
+    } catch {
+      button.disabled = !1;
+      get("deployment-note").textContent = get("credentials-status").textContent = "\u65E0\u6CD5\u5173\u95ED\u5411\u5BFC\uFF0C\u8BF7\u7B49\u5F85\u6B63\u5728\u8FDB\u884C\u7684\u64CD\u4F5C\u5B8C\u6210\u540E\u91CD\u8BD5\u3002";
+    }
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy || !validate())
+      return;
+    if (step < titles.length - 1) {
+      step++;
+      renderStep();
+      return;
+    }
+    setBusy(!0);
+    next.textContent = topology() === "single-k3d" ? "\u6B63\u5728\u68C0\u67E5\u7AEF\u53E3\u2026" : "\u6B63\u5728\u542F\u52A8\u2026";
+    error.hidden = !0;
+    try {
+      const response = await fetch(endpoint("deploy"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelSkip.checked ? null : modelInput(), deployment: target() })
+      }), result = await response.json();
+      if (!response.ok || !result.config)
+        throw Error(result.error || "\u542F\u52A8\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u914D\u7F6E\u3002");
+      revision = result.revision;
+      viewingDeployment = !1;
+      testingPage = !1;
+      renderDeployment(result.deployment);
+    } catch (cause) {
+      showError(cause instanceof Error ? cause.message : "\u65E0\u6CD5\u8FDE\u63A5\u672C\u5730\u90E8\u7F72\u670D\u52A1\uFF0C\u8BF7\u68C0\u67E5\u7EC8\u7AEF\u3002");
+    } finally {
+      setBusy(!1);
+      next.textContent = "\u5F00\u59CB\u90E8\u7F72";
+    }
+  });
+  async function load() {
+    setBusy(!0);
+    try {
+      const response = await fetch(endpoint("config"));
+      if (!response.ok)
+        throw Error("\u65E0\u6CD5\u8BFB\u53D6\u914D\u7F6E\uFF0C\u8BF7\u68C0\u67E5\u7EC8\u7AEF\u5E76\u91CD\u65B0\u8FD0\u884C apeiron init\u3002");
+      const result = await response.json();
+      connections = result.connections ?? [];
+      apps = result.apps;
+      revision = result.revision;
+      cliHost = result.host;
+      if (result.config)
+        slug.value = result.config.slug;
+      if (result.gateway) {
+        slug.value = result.gateway.slug;
+        slug.readOnly = !0;
+      }
+      const savedModel = result.config?.models;
+      if (savedModel) {
+        modelProvider.value = savedModel.provider || "";
+        modelUrl.value = savedModel.baseUrl;
+        preferredFast = savedModel.fast;
+        preferredDeep = savedModel.deep;
+        savedModelUrl = savedModel.baseUrl;
+        savedModelKey = savedModel.hasApiKey;
+        modelKey.placeholder = savedModelKey ? "\u5DF2\u4FDD\u5B58\uFF1B\u7559\u7A7A\u4FDD\u6301\u4E0D\u53D8" : "\u65E0\u9274\u6743\u670D\u52A1\u53EF\u7559\u7A7A";
+      }
+      applyTarget(result.config?.deployment ?? result.defaults);
+      renderApps(result.config?.apps ?? apps.filter((app) => app.selected).map((app) => app.id));
+      get("loading").hidden = !0;
+      setBusy(!1);
+      renderStep();
+      if (result.deployment.phase !== "idle")
+        renderDeployment(result.deployment);
+      else
+        probeEnvironment();
+    } catch (cause) {
+      get("loading").hidden = !0;
+      showError(cause instanceof Error ? cause.message : "\u65E0\u6CD5\u8FDE\u63A5\u672C\u5730\u90E8\u7F72\u670D\u52A1\u3002");
+    }
+  }
+  load();
+})(function supportsK3sHost(os, version, architecture) {
+  return os.toLowerCase() === "ubuntu" && (/^22\.04(\.\d+)?$/.test(version) && ["amd64", "x64", "x86_64"].includes(architecture) || /^24\.04(\.\d+)?$/.test(version) && ["arm64", "aarch64"].includes(architecture));
+});</script></body></html>

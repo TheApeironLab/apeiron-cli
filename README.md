@@ -1,6 +1,6 @@
 # Apeiron CLI
 
-统一入口：`apeiron <模块> <命令>`。`apeiron init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。TypeScript strict + Bun 1.3.14+；onto 模块需要已安装依赖的 ontology 仓库。
+统一入口：`apeiron <模块> <命令>`。`apeiron init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。Rust 单文件程序，内嵌浏览器向导；运行不需要 Bun/Node。onto 模块需要外部 CLI 或已安装依赖的 ontology 仓库。
 
 ## 安装发行版
 
@@ -28,8 +28,7 @@ Caddy 自动管理公网证书，ECS 转发使用由 systemd 管理的受限 SSH
 ```sh
 git clone https://github.com/TheApeironLab/apeiron-cli.git
 cd apeiron-cli
-bun install --frozen-lockfile
-bun link
+cargo install --path runtime --locked
 apeiron --help
 ```
 
@@ -147,16 +146,16 @@ apeiron init --help
 ## 独立可执行文件
 
 ```sh
-bun run build
-./dist/apeiron init
+cargo build --release --locked
+./target/release/apeiron init
 ```
 
-构建生成当前系统架构的可执行文件，包含本地配置页面和 Bun 运行时，使用向导无需在目标机器安装 Bun。
+构建生成当前系统架构的可执行文件，包含本地配置页面；Linux 使用 musl 静态构建，macOS 只使用系统库。使用向导无需在目标机器安装 Bun。
 `onto` 转发仍需要其源码/依赖或配置好的外部 CLI。构建产物不提交到 Git。四个平台的发行构建、安装器与 GitHub/OSS 自动发布见 [发布说明](docs/releases.md)。
 
 ## Ontology 模块
 
-默认寻找相邻的 `../ontology` 仓库，也可以指定：
+默认从可执行文件目录寻找 `../ontology` 仓库，也可以指定：
 
 ```sh
 export APEIRON_ONTO_ROOT=/absolute/path/to/ontology
@@ -167,7 +166,7 @@ apeiron onto schema
 apeiron onto --help
 ```
 
-连接与认证沿用 Ontology CLI 的配置，不内置服务地址或凭据。顶层 `apeiron status` / `apeiron verify` 检查本地入口；`apeiron onto status` 查看业务服务。
+连接与认证沿用 Ontology CLI 的配置，不内置服务地址或凭据。顶层 `apeiron verify` 检查 Ontology 入口，`apeiron status` 查看本机连接运行时；`apeiron onto status` 查看业务服务。
 
 ## 扩展模块
 
@@ -182,12 +181,19 @@ apeiron wlk <command>
 ## 验证
 
 ```sh
-bun run typecheck
-bun test
-bun run build
+bun install --frozen-lockfile
+bun scripts/embed-assets.js --check
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+bun run check
+bun run test:rust
+cargo build --release --locked
 bun run test:ui
 apeiron verify
 ```
+
+开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；仓库不包含 TypeScript。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
 
 首次浏览器验证需先运行 `bunx playwright install chromium`。`test:ui` 从临时目录启动编译后的二进制，
 用隔离的部署替身验证七步配置、必选项、失败/重试、刷新恢复、部署后进入访问配置、系统授权取消/重试的页面状态、凭据读取／隐藏／复制／下载、连接检查失败与重试、完成退出、桌面/手机布局以及没有外部网络请求。授权测试使用隔离替身，不弹出真实管理员授权或修改开发机信任库。它不对真实集群执行 sync。
@@ -196,12 +202,12 @@ apeiron verify
 真实 Helmfile 配置读取与编排检查（需要已有宸途工具箱镜像，不挂载 Docker socket 或 kubeconfig，不连接集群）：
 
 ```sh
-bun scripts/test-helmfile.ts /absolute/path/to/chentu chentu-lab
+bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
 ```
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
 
-当前尚未发布到 npm registry。顶层 `status` / `verify` 仍沿用早期 Ontology 入口检查含义；
+当前尚未发布到 npm registry。`connect` / `status` / `disconnect` 使用 Rust 连接运行时；
 `platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
 
 部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）
@@ -233,6 +239,42 @@ apeiron platform connection revoke --id <id>
 
 需要同时发布包含 `bootstrap/public_pairing.py` 的 Chentu 安装包；当前固定的 rc.5 旧包不会被悄悄升级，缺少功能时明确拒绝。贡献者可通过显式 `APEIRON_CHENTU_ROOT` 验证对应 PR 的源码。
 
+## Chat（Matrix）
+
+`apeiron chat` 内置 Matrix Client-Server API 调用，不需要配置外部 Chat CLI。
+
+```sh
+export APEIRON_CHAT_SERVER=https://matrix.example.org
+export APEIRON_CHAT_TOKEN_FILE=/secure/path/matrix-access-token
+apeiron chat status
+apeiron chat user search --query 张三
+apeiron chat room create --user '@zhangsan:example.org'
+apeiron chat message send --room '!room:example.org' --text '你好' --txn-id message-001
+apeiron chat message list --room '!room:example.org' --limit 10
+apeiron chat sync --out /tmp/chat-sync-001.json
+```
+
+凭据文件必须是当前用户拥有的普通文件、权限 0600，不接受符号链接；只读 Matrix access token，
+不读取 `APEIRON_TOKEN`，不把 Apeiron SSO token 自动视为 Matrix 凭据。SSO 委托供应、自动刷新及
+部署注入尚未接入。HTTP 只允许 loopback 本地测试，其他目标必须 HTTPS；请求不跟随重定向。
+
+`--help` 列出房间加入/退出/邀请、已读、消息编辑/撤回、历史分页等命令。私聊通过私有房间邀请实现，
+对方需要加入；不自动更新客户端 `m.direct` 联系人列表。查人遵循服务器目录可见性，不能枚举所有 SSO 用户。
+发送、编辑、撤回必须指定 `--txn-id`，同一次操作重试沿用相同 ID 和内容；切换账号或设备后不承诺跨设备去重。
+建房间没有事务幂等保证，结果不明时不能盲目重建。命令不自动重试。写操作支持 `--dry-run`。
+
+默认输出带版本标识的 TSV 预览，正文截断至 160 字符；`--jsonl` 返回结构化结果，`--out NEW_FILE`
+以 0600 权限保存完整结果且拒绝覆盖。历史默认 10 条、最多 100 条；sync 必须提供输出文件，返回
+`next_cursor` 用于下一次 `--cursor`，timeline 标记 limited 时通过历史接口补齐。发送成功只表示服务器
+接收，不表示对方已读。退出码：2 参数/不支持、4 不存在、5 冲突、7 鉴权/权限、8 限流、9 服务/网络。
+
+本版本不实现端到端加密或附件。发送/编辑前检查房间状态，发现加密即拒绝；该检查不是密码学保证，
+不能防止房间在检查后被并发启用加密，因此只用于明确以非加密方式运行的房间。加密消息在历史中保留
+事件类型，不假装解密。Agent 使用说明见 [Chat Skill](skills/chat/SKILL.md)。
+
+本地协议冒烟：`python3 scripts/smoke-chat.py <local-k3d-cluster> <absolute-cli-binary>`。
+脚本在独立 namespace 启动 Synapse 测试服务，创建一次性用户并调用真实 CLI，结束后删除测试资源。
+这是标准 Matrix API 验证，不代表已验证宸途 Tuwunel 的 SSO、生产权限或加密客户端。
 ### Gateway-hosted setup (development)
 
 With the gateway portal running, generate a connection command for a reserved slug:

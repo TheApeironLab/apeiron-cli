@@ -44,17 +44,18 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 
 ## 维护者发布
 
-1. 更新 `package.json` 的 version。Chentu 更新时先发布并验证安装包，再更新 `src/resources/chentu.ts` 的版本、提交、URL 与 SHA-256。
-2. 运行 `bun install --frozen-lockfile`、`bun run typecheck`、`bun test`，提交推送代码。
+1. 更新根 `Cargo.toml` 的 `workspace.package.version`（唯一版本真源）。Chentu 更新时先发布并验证安装包，再同步更新 `runtime/src/app/resources.rs` 与迁移期 TS 对照的版本、提交、URL 与 SHA-256。
+2. 运行 README 中的 Rust、等价性和浏览器验证，提交推送代码。
 3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.1.0-rc.4`、`git push origin v0.1.0-rc.4`。不要求自动合并 PR。
-4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（glibc）。Linux x64 使用 baseline CPU 构建，Linux ARM64 在 QEMU 下测试，macOS 两种架构在对应原生 runner 测试。另在隔离 Ubuntu 容器内，从非管理员 shell 验证权限不足会失败、sudo 安装后同一 shell 可直接运行、重复更新和文件所有者/权限。
+4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（musl 静态链接）。四个平台均在对应原生 runner 构建并测试；Linux 额外在 Ubuntu 22.04 容器内验证。另在隔离 Ubuntu 容器内，从非管理员 shell 验证权限不足会失败、sudo 安装后同一 shell 可直接运行、重复更新和文件所有者/权限。
 5. 所有平台必须通过无 Bun 的独立启动、页面、favicon、配置 API 测试。发布 job 将相同产物保存到 OSS 与 GitHub Releases，逐文件下载校验后才更新 `install.sh` 和 `latest.txt`。
 
-手动构建（Bun 1.3.14）：
+手动构建当前平台（固定 Rust 工具链 + Bun 1.3.14，仅开发和发行脚本需要 Bun）：
 
 ```sh
 bun run build:release /absolute/external/output
-bun scripts/finalize-release.ts /absolute/external/output
+# 收集四个平台的构建产物后再生成汇总元数据：
+bun scripts/finalize-release.js /absolute/external/output
 ```
 
 每个发行目录包含四个归档、安装脚本、`SHA256SUMS` 和记录版本/源提交/构建器/文件摘要的 `release.json`。版本路径不可覆盖；网络失败重跑仅接受相同摘要，已有不同文件时停止。不要修改已发布版本，应增加新版本号。
