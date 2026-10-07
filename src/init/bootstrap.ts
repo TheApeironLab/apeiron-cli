@@ -28,7 +28,6 @@ export async function prepareFreshInstallation(config: Configuration, context: C
   const nodes: NodeTarget[] = [...installation.nodes];
   // Resolve the release contract before touching target machines.
   target.root = await context.resources(target.root, signal, progress, target);
-  const catalog = await readInstallCatalog(target.root);
   let architecture = nodeArchitecture(process.arch);
   let facts: NodeFacts[] = [];
   if (!docker) {
@@ -43,6 +42,7 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     if (installation.topology === 'single-k3s') nodes.push({ host: 'localhost', name: facts[0]!.name, address: facts[0]!.addresses.includes(installation.entryIp) ? installation.entryIp : facts[0]!.addresses[0]!, role: 'server' });
     for (const node of nodes) if (!facts.find(fact => fact.host === node.host)?.addresses.includes(node.address)) throw new ConfigError(`${node.host} 的内网地址已变化，请重新检测。`);
   }
+  const catalog = await readInstallCatalog(target.root, `${docker ? 'k3d' : 'k3s'}-${architecture}`);
   if (docker) await includeK3dAirgap(catalog, target.root, architecture);
   const plan = installPlan(catalog, `${docker ? 'k3d' : 'k3s'}-${architecture}`, config.apps);
   if (!docker) validateNativeHostPlatform(plan.target, facts);
@@ -66,7 +66,7 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     }
   }
 
-  const cache = target.bundleDir || join(dirname(directory), 'resources');
+  const cache = join(target.bundleDir || join(dirname(directory), 'resources'), catalog.resourceDirectory ?? '');
   progress('按所选应用及依赖检查实际文件；HTTP 404 不会通过。');
   await prepareInstallFiles(plan, cache, target.offline, signal, progress);
   target.workDir = docker && context.installationKey ? localCluster(context.installationKey, installation.domain).workDir : join(directory, 'work');
