@@ -537,6 +537,11 @@ try {
   remaining.releaseLock(); output += await new Response(child.stderr).text();
   assert.equal(output.includes('private-log-test-key'), false);
   console.log(`PASS compiled CLI + fixture deployer: seven-step setup, initial admin display/copy/download, connection tests, separate deployment/access, local installation/cancellation/retry, machine probe/offline switch, selections, failure/retry, browser log view/download, reload, finish, desktop/mobile\nscreenshots: ${dir}`);
+} catch (error) {
+  // Keep failure diagnostics at the same public boundary as the assertions.
+  const page = browser?.contexts()[0]?.pages()[0];
+  if (page) console.error('Wizard state:', await page.locator('h2, #error, #deployment-note, #deployment-events').allTextContents());
+  throw error;
 } finally {
   clearTimeout(timeout); await browser?.close(); child.kill(); await child.exited;
   // Preserve screenshots only; fixture files and logs contain no real credentials.
