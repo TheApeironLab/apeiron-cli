@@ -66,9 +66,9 @@ apeiron init
 
 | 方式 | 目标与限制 | 执行入口 |
 | --- | --- | --- |
-| 单机 K3s | 当前主机；现有宸途安装器支持 Ubuntu 22.04 / AMD64、root 或免密 sudo | 自动生成 local inventory → `bootstrap/hosts.yaml` → Helmfile |
-| 单机 K3d | 本机 Docker；开发测试，使用发行包校验后的工具箱与镜像 | `tests/lab/helmfile.sh prepare` → `sync` |
-| 多机 K3s | SSH 连接的 Ubuntu 22.04 / AMD64 节点；管理机可为 macOS | 校验并分发资源 → 自动生成 inventory → `bootstrap/hosts.yaml` → Helmfile |
+| 单机 K3s | 当前 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64 主机；需要匹配的原生安装包、root 或免密 sudo | 自动生成 local inventory → `bootstrap/hosts.yaml` → Helmfile |
+| 单机 K3d | macOS / ARM64 + Docker；开发测试，使用发行包校验后的工具箱与镜像 | `tests/lab/helmfile.sh prepare` → `sync` |
+| 多机 K3s | SSH 连接的 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64 节点；节点须匹配同一安装包，管理机可为 macOS | 校验并分发资源 → 自动生成 inventory → `bootstrap/hosts.yaml` → Helmfile |
 
 普通多机至少 2 台，1 个控制节点加工作节点。控制平面高可用需至少 3 个、且为奇数个控制节点；不把“至少 3 台”强加给普通多机。SeaweedFS 使用 1 或 3 个存储节点；两节点部署使用 1 个 SeaweedFS 节点，Longhorn 副本数不超过节点数。这不等于所有应用都高可用。
 
@@ -195,5 +195,4 @@ bun scripts/test-helmfile.ts /absolute/path/to/chentu chentu-lab
 决定，生成的 Helmfile values 含相同 `topology`。不再读取 `profile` 或
 `CHENTU_PROFILE`；旧配置明确报错，不自动转换。发行包 target 必须声明
 `deploymentTopology: true`，与新版 Chentu 一起构建。架构来自目标节点探针，
-K3d 来自运行 Docker 的本机架构；不同架构不混用安装包。原生 K3s 当前仍需
-Ubuntu 22.04 AMD64，多机不会自动开启 Longhorn 或三副本存储。
+K3d 来自运行 Docker 的本机架构；不同架构不混用安装包。原生 K3s 主机支持 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，发行包必须用 `hostPlatform` 声明匹配的 Ubuntu 版本和架构。当前公开 rc.5 仍只提供 K3d ARM64 资源；主机兼容不代表原生 K3s 资源已经发布。多机不会自动开启 Longhorn 或三副本存储。

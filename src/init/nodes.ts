@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigError } from './config';
 import { safeHost, safeName, validateConnection } from './installation';
+import { supportsK3sHost } from './host-platform';
 
 export interface NodeFacts {
   host: string; name: string; os: string; version: string; architecture: string;
@@ -63,8 +64,8 @@ export async function probeNode(host: string, connection: Connection, signal: Ab
     const raw = await execute(local ? 'python3' : 'ssh', local ? ['-'] : sshArgs(host, connection), probeScript, signal);
     const facts = JSON.parse(raw) as NodeFacts;
     if (!safeName(facts.name) || !Array.isArray(facts.addresses) || !['cores','memoryGiB','diskGiB'].every(key => Number.isFinite(facts[key as 'cores']))) throw new Error();
-    const supported = facts.os === 'ubuntu' && facts.version === '22.04' && facts.architecture === 'x86_64';
-    return { ...facts, host, supported, error: !supported ? '安装器当前支持 Ubuntu 22.04 / AMD64。' : !facts.sudo ? '需要 root 或免密 sudo。' : facts.existingCluster ? '检测到已有 K3s 数据，请使用未安装集群的机器。' : !facts.addresses.length ? '未发现可用的内网 IPv4。' : undefined };
+    const supported = supportsK3sHost(facts.os, facts.version, facts.architecture);
+    return { ...facts, host, supported, error: !supported ? 'K3s 主机需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : !facts.sudo ? '需要 root 或免密 sudo。' : facts.existingCluster ? '检测到已有 K3s 数据，请使用未安装集群的机器。' : !facts.addresses.length ? '未发现可用的内网 IPv4。' : undefined };
   } catch {
     signal.throwIfAborted();
     return { host, name: '', os: '', version: '', architecture: '', cores: 0, memoryGiB: 0, diskGiB: 0, addresses: [], sudo: false, existingCluster: false, supported: false,

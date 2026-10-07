@@ -3,11 +3,13 @@ import { createReadStream } from 'node:fs';
 import { lstat, mkdir, open, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { ConfigError } from '../init/config';
+import { supportsK3sHost } from '../init/host-platform';
 
 export interface InstallFile { path: string; size: number; sha256: string; url?: string }
 export interface InstallImage { file: string; reference: string; digest: string }
 export interface InstallComponent { requires: string[]; files: string[]; values?: Record<string, unknown>; images?: InstallImage[] }
 export interface InstallTarget {
+  hostPlatform?: { os: 'ubuntu'; version: string; architecture: 'amd64' | 'arm64' };
   deploymentTopology?: boolean;
   publicPorts?: boolean;
   clusterOidc?: boolean;
@@ -70,7 +72,7 @@ function merge(base: Record<string, unknown>, addition: Record<string, unknown>)
 
 export function installPlan(catalog: InstallCatalog, target: string, apps: string[]): InstallPlan {
   const targetConfig = catalog.targets[target];
-  if (!targetConfig || !Array.isArray(targetConfig.base) || !object(targetConfig.environment)) throw new ConfigError(`安装包不支持目标 ${target}。`);
+  if (!targetConfig || !Array.isArray(targetConfig.base) || !object(targetConfig.environment)) throw new ConfigError(`当前宸途发行包不支持 ${target}：缺少此目标的安装资源。请使用包含此目标的发行包；尚未修改任何集群。`);
   if (targetConfig.deploymentTopology !== true) throw new ConfigError('此安装包仍使用旧 profile 部署入口，请使用支持 deploymentTopology 的新版宸途发行包。');
   const visiting = new Set<string>(), done = new Set<string>();
   function visit(name: string) {
@@ -103,6 +105,20 @@ export function installPlan(catalog: InstallCatalog, target: string, apps: strin
     refs.set(image.reference, image);
   }
   return { components: [...done], files, target: targetConfig, environment, images: [...refs.values()] };
+}
+
+export function validateNativeHostPlatform(target: InstallTarget, hosts: { os: string; version: string; architecture: string }[]) {
+  const platform = target.hostPlatform;
+  if (!platform || platform.os !== 'ubuntu' || !['22.04', '24.04'].includes(platform.version) ||
+      !['amd64', 'arm64'].includes(platform.architecture)) {
+    throw new ConfigError('宸途原生 K3s 安装包未声明 hostPlatform（Ubuntu 版本与 CPU 架构），无法确认系统包是否匹配；尚未修改任何集群。');
+  }
+  for (const host of hosts) {
+    const architecture = ['x64', 'x86_64', 'amd64'].includes(host.architecture) ? 'amd64' : host.architecture === 'aarch64' ? 'arm64' : host.architecture;
+    if (!supportsK3sHost(host.os, host.version, host.architecture) || host.version.split('.').slice(0, 2).join('.') !== platform.version || architecture !== platform.architecture) {
+      throw new ConfigError(`当前宸途安装包适用于 Ubuntu ${platform.version} / ${platform.architecture}，与节点 ${host.os} ${host.version} / ${host.architecture} 不匹配。请使用匹配的发行包；尚未修改任何集群。`);
+    }
+  }
 }
 
 async function safeDestination(base: string, path: string) {

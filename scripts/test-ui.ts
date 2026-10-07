@@ -152,6 +152,19 @@ try {
   assert.equal(await page.locator('#kubeconfig').count(), 0, 'Kubeconfig is generated');
   assert.equal(await page.getByRole('heading', { name: '部署选项', exact: true }).isVisible(), true);
   assert.equal(await page.locator('#node-section').isVisible(), false);
+  // A Spark host can advance through environment setup; package support is
+  // independently verified by the server before any installation takes place.
+  detected.machine.os.version = '24.04';
+  detected.machine.hardware.architecture = 'arm64';
+  detected.machine.hardware.runtimeArchitecture = 'arm64';
+  await page.getByRole('button', { name: '重新检测', exact: true }).click();
+  await page.getByText('Ubuntu 24.04', { exact: true }).waitFor();
+  await page.getByRole('radio', { name: /单机 K3s/ }).check();
+  await page.locator('#entry-ip').fill('192.0.2.11');
+  assert.match(await page.locator('#topology-note').innerText(), /匹配系统与架构的安装包/);
+  await page.locator('#next').click();
+  await slug.waitFor({ state: 'visible' });
+  await page.locator('#back').click();
   await page.getByRole('radio', { name: /多机 K3s/ }).check();
   assert.equal(await page.locator('#node-section').isVisible(), true);
   await page.getByRole('button', { name: '下一步', exact: true }).click();

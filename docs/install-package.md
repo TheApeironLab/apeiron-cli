@@ -12,6 +12,8 @@ CLI 固定下载 OSS `0.1.0-rc.5`，提供新版 `deploymentTopology` / `cluster
 
 环境字符串可使用 `__DOMAIN__`、`__REGISTRY__`、`__NODE__`、`__WORK__`、`__BUNDLE__`、`__ARCH__`。这些值在 CLI 生成外部 YAML 时替换。具体应用镜像、模型默认声明、skills bundle 等必须由发行方提供可部署值；占位版本或 `unset` 应被宸途检查器拒绝。模型配置可以通过发行包显式声明延后，这不代表模型对话已经可用。
 
+K3s 目标还必须声明 `hostPlatform: {os: "ubuntu", version: "22.04" | "24.04", architecture: "amd64" | "arm64"}`，当前支持的原生组合为 Ubuntu 22.04 / AMD64 和 Ubuntu 24.04 / ARM64，必须与每一台节点的实际系统及架构匹配。缺失或不匹配时在创建集群之前拒绝。发布工具从已校验的 `bundle.yaml` 的 `ubuntu`（jammy / noble）和 `arch` 生成此字段，并将该文件列入资源校验清单。不能只修改架构标签后复用另一系统版本的 Deb 包。
+
 K3s 资源需包含兼容的系统包、K3s 二进制／安装脚本／airgap 镜像／审计策略、CLI wheels、工具、Charts、应用镜像 tar 与 `images/manifest.txt`、`images/nexus-names.txt`。镜像 manifest／架构／digest 的一致性应在发布时完成验证，不能只把任意文件列入清单。必要的上游镜像包括 docker.io、ghcr.io、quay.io，以及启用相应组件时的 codeberg.org、registry.k8s.io、nvcr.io；自研应用的私有镜像同样必须显式纳入。安装时资源必须全部在本地、匹配大小和 SHA-256 后才能继续。
 
 在线模式接受 HTTPS 重定向（最多 5 次、不携带凭据），完整下载到临时文件，校验后原子替换缓存。若下载需要身份，发行方需提供可直接访问的制品地址；当前该资源接口不会自动继承 GitHub、Docker 或任意域名的凭据。宸途部署程序使用独立的公开 OSS 下载器，仅允许固定发布目录，并由 CLI 内置 SHA-256 与源码提交校验。

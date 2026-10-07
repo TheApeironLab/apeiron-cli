@@ -4,8 +4,8 @@ import { constants } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ConfigError, type Configuration, type DeploymentTarget } from './config';
 import { inventoryFor, type NodeTarget } from './installation';
-import { nodeArchitecture, probeNode, probeNodes } from './nodes';
-import { installPlan, prepareInstallFiles, readInstallCatalog } from '../resources/install';
+import { nodeArchitecture, probeNode, probeNodes, type NodeFacts } from './nodes';
+import { installPlan, prepareInstallFiles, readInstallCatalog, validateNativeHostPlatform } from '../resources/install';
 import type { ResourceResolver } from '../resources/chentu';
 import { checkDns } from './dns';
 import { safeEntryIp } from './installation';
@@ -26,9 +26,10 @@ export async function prepareFreshInstallation(config: Configuration, context: C
   target.root = await context.resources(target.root, signal, progress, target);
   const catalog = await readInstallCatalog(target.root);
   let architecture = nodeArchitecture(process.arch);
+  let facts: NodeFacts[] = [];
   if (!docker) {
     progress('复查节点系统、架构、权限和已有集群。');
-    const facts = installation.topology === 'multi-k3s'
+    facts = installation.topology === 'multi-k3s'
       ? await probeNodes({ ...installation, hosts: nodes.map(node => node.host) }, signal)
       : [await probeNode('localhost', installation, signal, true)];
     for (const node of facts) if (node.error) throw new ConfigError(`${node.host}：${node.error}`);
@@ -39,6 +40,7 @@ export async function prepareFreshInstallation(config: Configuration, context: C
     for (const node of nodes) if (!facts.find(fact => fact.host === node.host)?.addresses.includes(node.address)) throw new ConfigError(`${node.host} 的内网地址已变化，请重新检测。`);
   }
   const plan = installPlan(catalog, `${docker ? 'k3d' : 'k3s'}-${architecture}`, config.apps);
+  if (!docker) validateNativeHostPlatform(plan.target, facts);
   if (config.apps.includes('vasi') && (plan.target.clusterOidc !== true || !plan.components.includes('cluster-access') ||
       !await Bun.file(join(target.root, 'cli/src/chentu/cluster_oidc.py')).exists() ||
       !await Bun.file(join(target.root, 'bootstrap/oidc.yaml')).exists())) {
