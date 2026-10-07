@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { runInit } from '../src/init/command';
+import { version } from '../package.json';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [module, ...args] = process.argv.slice(2);
@@ -11,10 +13,11 @@ function fail(message: string, code = 2): never {
   process.exit(code);
 }
 if (!module || ['--help', '-h', 'describe'].includes(module)) {
-  console.log('schema=apeiron.v1\ncommand\tusage\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nstatus\tShow ontology checkout and configured entry point\nverify\tCheck ontology CLI entry point\n--version\tShow version');
+  console.log('schema=apeiron.v1\ncommand\tusage\ninit\tapeiron init [--port N] [--config path] [--no-open] — local configuration wizard\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nstatus\tShow ontology checkout and configured entry point\nverify\tCheck ontology CLI entry point\n--version\tShow version');
   process.exit(0);
 }
-if (module === '--version') { console.log('0.1.0'); process.exit(0); }
+if (module === '--version') { console.log(version); process.exit(0); }
+if (module === 'init') process.exit(await runInit(args));
 const ontologyRoot = resolve(process.env.APEIRON_ONTO_ROOT || resolve(root, '../ontology'));
 const ontoEntry = resolve(ontologyRoot, 'apps/onto/cli/main.ts');
 if (module === 'status' || module === 'verify') {
