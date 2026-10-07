@@ -1,8 +1,9 @@
 use super::process::{self, Cancellation};
 use super::*;
 use base64::Engine;
+#[cfg(target_os = "macos")]
+use std::fs;
 use std::{
-    fs,
     process::Command,
     sync::{Arc, Mutex},
     thread,
