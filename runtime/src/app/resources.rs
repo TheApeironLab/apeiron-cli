@@ -329,7 +329,9 @@ fn cached_release(
         if ENTRIES.iter().any(|p| !root.join(p).is_file()) {
             return Err(fail("宸途安装包缺少部署入口。", 400));
         }
-        let manifest = json_file(&root.join("chentu-package.json"), 16384)?;
+        // Release metadata includes the full source file inventory (rc.5 is 124 KB),
+        // so use the same bounded JSON budget as the installation catalog.
+        let manifest = json_file(&root.join("chentu-package.json"), 4 * 1024 * 1024)?;
         if manifest["schemaVersion"] != 1
             || manifest["kind"] != "chentu-deployment"
             || manifest["version"] != release.version
@@ -717,13 +719,18 @@ mod tests {
         let temp = Temp::new();
         let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         let mut archive = tar::Builder::new(encoder);
+        let manifest = json!({
+            "schemaVersion":1,"kind":"chentu-deployment","version":VERSION,"revision":REVISION,
+            "files":(0..600).map(|n| json!({
+                "path":format!("deploy/source-{n}.yaml"),"sha256":"a".repeat(64)
+            })).collect::<Vec<_>>()
+        })
+        .to_string();
+        assert!(manifest.len() > 16384);
         for (path, data) in ENTRIES
             .iter()
             .map(|p| (p.to_string(), "fixture source".to_owned()))
-            .chain(std::iter::once((
-                "chentu-package.json".into(),
-                json!({"schemaVersion":1,"kind":"chentu-deployment","version":VERSION,"revision":REVISION}).to_string(),
-            )))
+            .chain(std::iter::once(("chentu-package.json".into(), manifest)))
         {
             let mut header = tar::Header::new_gnu();
             header.set_size(data.len() as u64);
