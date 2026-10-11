@@ -213,7 +213,8 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
             return Err(fail("应用 values 必须是对象。", 400));
         }
     }
-    values["releases"]["nexus"]["values"]["publicProxies"] = json!(config["deployment"]["offline"] != true);
+    // Proxy repositories remain ONLINE in offline deployments; connectivity controls upstream access.
+    values["releases"]["nexus"]["values"]["publicProxies"] = json!(true);
     if config["models"].is_object() && config["apps"].as_array().unwrap().contains(&json!("apeiron")) {
         let v = &mut values["releases"]["apeiron"]["values"];
         v["defaultModel"] = json!("");

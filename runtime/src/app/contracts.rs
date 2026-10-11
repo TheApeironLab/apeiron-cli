@@ -114,7 +114,7 @@ fn iframe_origins_follow_configured_domain_and_allow_https_ports() {
     }
 }
 #[test]
-fn deployment_mode_overrides_stale_nexus_proxies_and_preserves_values_on_replay() {
+fn deployment_keeps_nexus_proxies_online_and_preserves_values_on_replay() {
     for topology in ["single-k3s", "multi-k3s", "single-k3d"] {
         let mut source = json!({"topology":topology,"releases":{"nexus":{"enabled":true,"values":{"publicProxies":false,"storage":"50Gi","node":"node-0"}},"postgres":{"enabled":true,"values":{"storage":"10Gi"}}}});
         for offline in [false, true, false] {
@@ -122,7 +122,7 @@ fn deployment_mode_overrides_stale_nexus_proxies_and_preserves_values_on_replay(
             source = deploy::environment_for(&config, source).unwrap();
             assert_eq!(
                 source["releases"]["nexus"],
-                json!({"enabled":true,"values":{"publicProxies":!offline,"storage":"50Gi","node":"node-0"}})
+                json!({"enabled":true,"values":{"publicProxies":true,"storage":"50Gi","node":"node-0"}})
             );
             assert_eq!(
                 source["releases"]["postgres"],

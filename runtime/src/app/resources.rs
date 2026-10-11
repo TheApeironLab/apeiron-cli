@@ -61,6 +61,22 @@ pub fn destination(base: &Path, relative: &str) -> Result<PathBuf> {
     if !safe_relative(relative) {
         return Err(fail("安装资源路径不正确。", 400));
     }
+    checked_destination(base, relative)
+}
+// Source archives contain legitimate dotfiles such as .gitignore and .github/.
+// Keep the resource catalog contract unchanged and reject Git control data.
+pub(crate) fn source_destination(base: &Path, relative: &str) -> Result<PathBuf> {
+    if relative.is_empty()
+        || relative.contains(['\\', '\0', '\n', '\r'])
+        || relative
+            .split('/')
+            .any(|part| part.is_empty() || [".", "..", ".git"].contains(&part))
+    {
+        return Err(fail("源码路径不安全。", 400));
+    }
+    checked_destination(base, relative)
+}
+fn checked_destination(base: &Path, relative: &str) -> Result<PathBuf> {
     let mut path = base.to_path_buf();
     for part in std::iter::once("").chain(relative.split('/')) {
         if !part.is_empty() {
@@ -583,6 +599,22 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
         json!({"components":done,"files":files,"target":t,"environment":env,"images":images.values().collect::<Vec<_>>()}),
     )
 }
+fn resource_description(file: &Value) -> String {
+    let path = file["path"].as_str().unwrap_or("");
+    if let Some(name) = file["name"].as_str() {
+        let platforms = file["platforms"]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(","))
+            .unwrap_or_default();
+        format!(
+            "{name}（版本={}，架构={platforms}，仓库={}，文件={path}）",
+            file["version"].as_str().unwrap_or(""),
+            file["repository"].as_str().unwrap_or("")
+        )
+    } else {
+        path.into()
+    }
+}
 fn valid_file(path: &Path, f: &Value, cancel: &Cancellation) -> bool {
     (move || -> Result<bool> {
         let file = fs::File::open(path).map_err(|_| fail("文件不可读。", 400))?;
@@ -625,8 +657,7 @@ pub fn prepare_files(
                 "离线资源缺少或校验失败：{}；未发起网络请求。",
                 missing
                     .iter()
-                    .take(8)
-                    .map(|f| f["path"].as_str().unwrap())
+                    .map(|f| resource_description(f))
                     .collect::<Vec<_>>()
                     .join("、")
             ),
@@ -647,7 +678,7 @@ pub fn prepare_files(
         let result = (|| {
             let url = f["url"]
                 .as_str()
-                .ok_or_else(|| fail(format!("资源 {name} 缺少下载地址。"), 400))?;
+                .ok_or_else(|| fail(format!("资源 {} 缺少下载地址。", resource_description(f)), 400))?;
             private_write(&tmp, b"")?;
             let mut file = OpenOptions::new()
                 .write(true)
@@ -683,6 +714,30 @@ pub fn prepare_files(
 mod tests {
     use super::*;
 
+    #[test]
+    fn offline_missing_report_lists_every_artifact_name_version_architecture_and_repository() {
+        let temp = crate::app::contracts::Temp::new();
+        let files = (0..10)
+            .map(|n| {
+                json!({"path":format!("images/image-{n}.tar"),"name":format!("app-{n}"),
+            "version":"1.2.3","platforms":["linux/arm64"],"repository":"docker-hosted",
+            "size":1,"sha256":"a".repeat(64)})
+            })
+            .collect::<Vec<_>>();
+        let error = prepare_files(
+            &json!({"files":files}),
+            &temp.0,
+            true,
+            &Cancellation::default(),
+            &|_| {},
+        )
+        .unwrap_err();
+        assert!(error.message.contains("app-9"));
+        assert!(error.message.contains("版本=1.2.3"));
+        assert!(error.message.contains("架构=linux/arm64"));
+        assert!(error.message.contains("仓库=docker-hosted"));
+        assert!(error.message.contains("未发起网络请求"));
+    }
     #[test]
     fn cancellation_interrupts_stalled_tls_download() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
