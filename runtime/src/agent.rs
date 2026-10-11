@@ -28,11 +28,10 @@ use crate::receiver::Receiver;
 /// to, and a control plane that could set them would have a shell on a
 /// machine it does not own.
 ///
-/// `SUDO_CODE_CONFIG_HOME` belongs on this list for the same reason as `PATH`,
-/// even though it reads like mere configuration: scode loads agents, skills,
-/// plugins and hooks from that directory, so naming it is naming the code to
-/// run. This machine sets it from `--config-home` after the server's env is
-/// applied, and the server does not get a vote.
+/// Config roots belong on this list for the same reason as `PATH`: scode loads
+/// agents, skills, plugins and hooks there. The receiver pins the global root
+/// from `--config-home`; project configuration always follows the real cwd.
+/// v0.2.25 gives SCODE_GLOBAL_CONFIG_DIR precedence over the legacy spelling.
 const NEVER_FROM_SERVER: &[&str] = &[
     "PATH",
     "HOME",
@@ -46,6 +45,8 @@ const NEVER_FROM_SERVER: &[&str] = &[
     "PYTHONSTARTUP",
     "PYTHONPATH",
     "SUDO_CODE_CONFIG_HOME",
+    "SCODE_GLOBAL_CONFIG_DIR",
+    "SCODE_PROJECT_CONFIG_DIR",
 ];
 
 fn allowed_from_server(key: &str) -> bool {
@@ -124,13 +125,13 @@ pub fn spawn(
             command.env(key, value);
         }
     }
-    // Last, so it is this machine's answer and not the server's. Without it
-    // scode falls back to its own default config home (~/.nexus/sudocode) —
-    // which used to be the same path apeiron projected plugins into, so the
-    // two agreed by coincidence rather than by anything saying so. Move the
-    // config home and that coincidence becomes a silent bug: the projector
-    // writes plugins the agent never reads.
+    // Both spellings must name the projected global root: the current spelling
+    // wins in v0.2.25, while older agents still use the legacy one. An inherited
+    // project override would bypass the actual session cwd, even when the
+    // control plane did not send it, so explicitly remove it from the child.
+    command.env("SCODE_GLOBAL_CONFIG_DIR", config_home);
     command.env("SUDO_CODE_CONFIG_HOME", config_home);
+    command.env_remove("SCODE_PROJECT_CONFIG_DIR");
     let operation = receiver.begin("acp.child")?;
     receiver.check()?;
     let mut child = match command.spawn() {
@@ -267,6 +268,29 @@ mod tests {
     /// a silent bug: the projector wrote plugins the agent never read.
     #[tokio::test]
     async fn the_agent_is_told_its_config_home_and_the_server_cannot_change_it() {
+        // Set hostile inherited environment only on a subprocess. Mutating this
+        // test runner's environment would race parallel tests.
+        if std::env::var("APEIRON_TEST_CONFIG_SCOPE_CHILD").as_deref() != Ok("1") {
+            let result = std::process::Command::new(std::env::current_exe().expect("test executable"))
+                .args([
+                    "--exact",
+                    "agent::tests::the_agent_is_told_its_config_home_and_the_server_cannot_change_it",
+                    "--nocapture",
+                ])
+                .env("APEIRON_TEST_CONFIG_SCOPE_CHILD", "1")
+                .env("SUDO_CODE_CONFIG_HOME", "/tmp/host-attacker-legacy")
+                .env("SCODE_GLOBAL_CONFIG_DIR", "/tmp/host-attacker-global")
+                .env("SCODE_PROJECT_CONFIG_DIR", "/tmp/host-attacker-project")
+                .output()
+                .expect("isolated inherited environment test");
+            assert!(
+                result.status.success(),
+                "isolated config scope test failed: {}{}",
+                String::from_utf8_lossy(&result.stdout),
+                String::from_utf8_lossy(&result.stderr)
+            );
+            return;
+        }
         let (out, mut rx) = mpsc::unbounded_channel();
         let home = std::env::temp_dir().join(format!("apeiron-agent-test-{}", std::process::id()));
         let workspace = home.join("workspace");
@@ -277,13 +301,17 @@ mod tests {
             &[
                 "sh".into(),
                 "-c".into(),
-                r#"printf '{"seen":"%s"}\n' "$SUDO_CODE_CONFIG_HOME""#.into(),
+                r#"printf '{"seen":"%s","global":"%s","project":"%s"}\n' "$SUDO_CODE_CONFIG_HOME" "$SCODE_GLOBAL_CONFIG_DIR" "${SCODE_PROJECT_CONFIG_DIR-}""#.into(),
             ],
             std::path::Path::new("."),
             std::path::Path::new("/tmp/apeiron-test-config-home"),
             // A control plane trying to point the agent at a config home of
             // its choosing — i.e. at agents, skills and hooks of its choosing.
-            HashMap::from([("SUDO_CODE_CONFIG_HOME".into(), "/tmp/attacker".into())]),
+            HashMap::from([
+                ("SUDO_CODE_CONFIG_HOME".into(), "/tmp/server-attacker-legacy".into()),
+                ("SCODE_GLOBAL_CONFIG_DIR".into(), "/tmp/server-attacker-global".into()),
+                ("SCODE_PROJECT_CONFIG_DIR".into(), "/tmp/server-attacker-project".into()),
+            ]),
             out,
             receiver,
         )
@@ -292,19 +320,24 @@ mod tests {
         let mut seen = None;
         while let Some(message) = rx.recv().await {
             if let Outbound::AcpMsg { msg, .. } = message {
-                seen = msg.get("seen").and_then(Value::as_str).map(str::to_owned);
+                seen = Some(msg);
                 break;
             }
         }
         child.close().await.expect("child cleanup");
         std::fs::remove_dir_all(home).expect("test cleanup");
-        assert_eq!(seen.as_deref(), Some("/tmp/apeiron-test-config-home"));
+        let seen = seen.expect("observed child environment");
+        assert_eq!(seen["seen"], "/tmp/apeiron-test-config-home");
+        assert_eq!(seen["global"], "/tmp/apeiron-test-config-home");
+        assert_eq!(seen["project"], "");
     }
 
     #[test]
     fn the_names_that_choose_which_code_runs_are_refused() {
         assert!(!allowed_from_server("PATH"));
         assert!(!allowed_from_server("SUDO_CODE_CONFIG_HOME"));
+        assert!(!allowed_from_server("SCODE_GLOBAL_CONFIG_DIR"));
+        assert!(!allowed_from_server("SCODE_PROJECT_CONFIG_DIR"));
         assert!(!allowed_from_server("DYLD_INSERT_LIBRARIES"));
         // Ordinary application configuration still comes from the server:
         // model credentials and internal service URLs are the whole point.
