@@ -771,6 +771,56 @@ export function initWizard(supportsK3sHost) {
         }
         return true;
     }
+    function renderDeploymentStages(status) {
+        const definitions = [
+            ['check', '检查安装包', '核对部署配置、架构和所选应用的完整资源。'],
+            ['cluster', '准备集群', '准备集群连接、网络、存储和入口。'],
+            ['nexus', '启动制品仓库', '启动证书组件和 Nexus，配置仓库与访问凭据。'],
+            ['import', '导入部署资源', '导入镜像、Chart 和部署资源，并实际读取校验。'],
+            ['applications', '安装与初始化应用', '按依赖安装基础服务和所选应用，完成初始化。'],
+            ['access', '准备访问与验证', '配置集群访问，整理地址和验证入口；随后测试登录。'],
+        ];
+        const labels = { pending: '等待', active: '进行中', done: '已完成', skipped: '无需执行', failed: '失败', cancelled: '已停止' };
+        const current = definitions.findIndex(([id]) => id === status.stage);
+        const fallback = status.phase === 'preparing' ? 0 : status.phase === 'running' ? 4 : -1;
+        const index = current < 0 ? fallback : current;
+        get('deployment-stage-title').textContent = status.phase === 'succeeded'
+            ? '部署阶段已完成'
+            : index < 0 ? '安装阶段' : `阶段 ${index + 1} / ${definitions.length} · ${definitions[index][1]}`;
+        get('deployment-stage-note').textContent = status.phase === 'succeeded'
+            ? '下一步配置访问，并测试登录和应用功能。'
+            : status.phase === 'failed' ? '本阶段未完成。修正原因后重新部署，后续阶段仍在等待。'
+                : status.phase === 'cancelled' ? '部署已停止，已完成的阶段和集群资源保留。'
+                    : '阶段进度跟随实际部署状态；刷新页面可以继续查看。';
+        const previous = new Map([...get('deployment-stages').children].map(node => [node.dataset.stage, node]));
+        const selected = index < 0 ? undefined : status.stages?.find(item => item.id === definitions[index][0]);
+        get('deployment-current-stage').hidden = index < 0;
+        get('deployment-current-stage').dataset.state = selected?.state || 'active';
+        get('deployment-current-title').textContent = index < 0 ? '' : `${definitions[index][1]} · ${labels[selected?.state] || '进行中'}`;
+        get('deployment-current-detail').textContent = selected?.detail || status.message || (index < 0 ? '' : definitions[index][2]);
+        const items = definitions.map(([id, title, description], position) => {
+            const saved = status.stages?.find(item => item.id === id);
+            const state = saved && labels[saved.state] ? saved.state : position === index ? 'active' : 'pending';
+            const item = previous.get(id) || document.createElement('li');
+            item.dataset.stage = id;
+            item.dataset.state = state;
+            if (position === index && state !== 'done') item.setAttribute('aria-current', 'step');
+            else item.removeAttribute('aria-current');
+            if (!item.children.length) {
+                const number = document.createElement('span'); number.className = 'deployment-stage-number'; number.setAttribute('aria-hidden', 'true');
+                const copy = document.createElement('div'); copy.className = 'deployment-stage-copy';
+                copy.append(document.createElement('strong'), document.createElement('p'));
+                const badge = document.createElement('span'); badge.className = 'deployment-stage-state';
+                item.append(number, copy, badge);
+            }
+            item.children[0].textContent = state === 'done' ? '✓' : String(position + 1);
+            item.children[1].children[0].textContent = title;
+            item.children[1].children[1].textContent = saved?.detail || description;
+            item.children[2].textContent = labels[state];
+            return item;
+        });
+        get('deployment-stages').replaceChildren(...items);
+    }
     function renderDeployment(status) {
         pairedSelect.disabled = true;
         currentDeployment = status;
@@ -786,6 +836,7 @@ export function initWizard(supportsK3sHost) {
         const active = ['preparing', 'running', 'stopping'].includes(status.phase);
         get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? '正在部署…' : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : '部署失败。';
         get('deployment-message').textContent = status.message;
+        renderDeploymentStages(status);
         get('deployment-events').replaceChildren(...status.events.map(message => {
             const line = document.createElement('span');
             const level = /^\[(INFO|WARNING|ERROR)\]/.exec(message)?.[1] || 'INFO';
