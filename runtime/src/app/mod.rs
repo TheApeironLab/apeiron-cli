@@ -7,6 +7,7 @@ mod config;
 mod contracts;
 pub(crate) mod deploy;
 mod discovery;
+pub(crate) mod distribution;
 mod models;
 mod pairing;
 mod process;
@@ -195,7 +196,7 @@ pub fn run() -> Option<i32> {
     let module = args.first().map(String::as_str).unwrap_or("--help");
     // Preserve runtime status; the old ontology-only status remains available through verify.
     if ["connect", "disconnect", "status", "serve", "cloud-receiver"].contains(&module)
-        || (module.starts_with("--") && !["--help", "--version"].contains(&module))
+        || (module.starts_with("--") && !["--help", "--version", "--build-info"].contains(&module))
     {
         return None;
     }
@@ -204,6 +205,15 @@ pub fn run() -> Option<i32> {
         "register" => register::run(&args[1..]),
         "init" => wizard::run(&args[1..]),
         "platform" => pairing::run(&args[1..]),
+        "--build-info" => {
+            println!(
+                "{}",
+                json!({"schemaVersion":1,"version":env!("CARGO_PKG_VERSION"),
+                "revision":env!("APEIRON_SOURCE_REVISION"),"clean":env!("APEIRON_SOURCE_CLEAN") == "true",
+                "rustc":env!("APEIRON_BUILD_RUSTC"),"platform":std::env::consts::OS,"architecture":std::env::consts::ARCH})
+            );
+            Ok(())
+        }
         "--version" => {
             println!("{}", env!("CARGO_PKG_VERSION"));
             Ok(())

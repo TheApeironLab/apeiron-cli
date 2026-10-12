@@ -8,6 +8,118 @@ use std::{
     thread,
     time::Instant,
 };
+const STAGE_IDS: [&str; 6] = ["check", "cluster", "nexus", "import", "applications", "access"];
+
+fn advance_stage(status: &mut Value, index: usize, detail: &str) -> bool {
+    if !status["stages"].is_array() {
+        status["stages"] = json!(STAGE_IDS.map(|id| json!({"id": id, "state": "pending", "detail": ""})));
+    }
+    let current = STAGE_IDS.iter().position(|id| status["stage"] == *id);
+    if current.is_some_and(|old| index < old) {
+        return false;
+    }
+    let stages = status["stages"].as_array_mut().unwrap();
+    for (previous, item) in stages.iter_mut().enumerate().take(index) {
+        if item["state"] == "active" {
+            item["state"] = json!("done");
+        } else if item["state"] == "pending" && current != Some(previous) {
+            item["state"] = json!("skipped");
+        }
+    }
+    stages[index]["state"] = json!("active");
+    stages[index]["detail"] = json!(detail);
+    status["stage"] = json!(STAGE_IDS[index]);
+    true
+}
+
+fn finish_stages(status: &mut Value, outcome: &str) {
+    let Some(index) = STAGE_IDS.iter().position(|id| status["stage"] == *id) else {
+        return;
+    };
+    if let Some(stages) = status["stages"].as_array_mut() {
+        stages[index]["state"] = json!(if outcome == "succeeded" { "done" } else { outcome });
+    }
+}
+
+#[cfg(test)]
+mod stage_tests {
+    use super::*;
+
+    #[test]
+    fn stages_advance_without_inventing_work_and_do_not_regress() {
+        let mut status = json!({});
+        advance_stage(&mut status, 0, "check");
+        advance_stage(&mut status, 1, "cluster");
+        advance_stage(&mut status, 4, "existing repository");
+        assert_eq!(status["stages"][0]["state"], "done");
+        assert_eq!(status["stages"][1]["state"], "done");
+        assert_eq!(status["stages"][2]["state"], "skipped");
+        assert_eq!(status["stages"][3]["state"], "skipped");
+        assert!(!advance_stage(&mut status, 2, "late bootstrap output"));
+        assert_eq!(status["stage"], "applications");
+        finish_stages(&mut status, "failed");
+        assert_eq!(status["stages"][4]["state"], "failed");
+        assert_eq!(status["stages"][5]["state"], "pending");
+    }
+
+    #[test]
+    fn stages_keep_failures_and_cancellation_at_the_current_step() {
+        for outcome in ["failed", "cancelled"] {
+            let mut status = json!({});
+            for index in 0..=3 {
+                advance_stage(&mut status, index, "working");
+            }
+            finish_stages(&mut status, outcome);
+            for index in 0..3 {
+                assert_eq!(status["stages"][index]["state"], "done");
+            }
+            assert_eq!(status["stages"][3]["state"], outcome);
+            assert_eq!(status["stages"][4]["state"], "pending");
+            assert_eq!(status["stages"][5]["state"], "pending");
+        }
+    }
+
+    #[test]
+    fn stages_follow_nexus_output_then_finish_access_preparation() {
+        let directory = std::env::temp_dir().join(format!("apeiron-stages-{:016x}", rand::random::<u64>()));
+        fs::create_dir(&directory).unwrap();
+        let context = Context::fixture(&directory);
+        context.stage(0, "check");
+        context.stage(1, "cluster");
+        context.nexus_progress("NEXUS-FIRST BOOTSTRAP verified local Charts");
+        assert_eq!(context.owner.snapshot()["stage"], "nexus");
+        context.helm_progress("nexus");
+        assert_eq!(context.owner.snapshot()["stage"], "nexus");
+        context.nexus_progress("NEXUS-FIRST IMPORT importing selected artifacts");
+        context.helm_progress("nexus");
+        assert_eq!(context.owner.snapshot()["stage"], "import");
+        assert_eq!(context.owner.snapshot()["stages"][3]["state"], "active");
+        assert_eq!(context.owner.snapshot()["stages"][4]["state"], "pending");
+        context.nexus_progress("NEXUS-FIRST docker-hosted reused fixture 1.0");
+        assert!(context.owner.snapshot()["message"]
+            .as_str()
+            .unwrap()
+            .contains("fixture 1.0"));
+        context.nexus_progress("NEXUS-FIRST DEPLOY exact Chart versions from helm-hosted");
+        context.nexus_progress("NEXUS-FIRST BOOTSTRAP late output");
+        context.helm_progress("apeiron");
+        assert_eq!(context.owner.snapshot()["stage"], "applications");
+        assert!(context.owner.snapshot()["message"]
+            .as_str()
+            .unwrap()
+            .contains("apeiron"));
+        context.stage(5, "access");
+        let mut status = context.owner.snapshot();
+        finish_stages(&mut status, "succeeded");
+        assert!(status["stages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|stage| stage["state"] == "done"));
+        fs::remove_dir_all(directory).unwrap();
+    }
+}
+
 #[derive(Clone)]
 pub struct Deployment(Arc<Inner>);
 struct Inner {
@@ -41,6 +153,9 @@ impl Context {
         let tagged = format!("[INFO] {message}");
         let mut s = self.owner.0.status.lock().unwrap();
         s["message"] = json!(message);
+        if let Some(index) = STAGE_IDS.iter().position(|id| s["stage"] == *id) {
+            s["stages"][index]["detail"] = json!(message);
+        }
         let events = s["events"].as_array_mut().unwrap();
         events.push(json!(tagged));
         if events.len() > 100 {
@@ -48,6 +163,47 @@ impl Context {
         }
         drop(s);
         let _ = (&self.log).write_all(format!("[{}] {tagged}\n", chrono::Utc::now().to_rfc3339()).as_bytes());
+    }
+    pub fn stage(&self, index: usize, message: &str) {
+        let changed = advance_stage(&mut self.owner.0.status.lock().unwrap(), index, message);
+        if changed {
+            self.event(message);
+        }
+    }
+    fn nexus_progress(&self, line: &str) {
+        let Some(message) = line.trim().strip_prefix("NEXUS-FIRST ") else {
+            return;
+        };
+        if message.starts_with("BOOTSTRAP ") {
+            self.stage(2, "正在启动证书组件和 Nexus，初始化制品仓库。");
+        } else if message.starts_with("IMPORT ") {
+            self.stage(3, "正在将部署资源导入 Nexus，并校验实际存储的内容。");
+        } else if [
+            "docker-hosted ",
+            "helm-hosted ",
+            "raw-hosted ",
+            "npm-hosted ",
+            "pypi-hosted ",
+            "apt-hosted ",
+        ]
+        .iter()
+        .any(|prefix| message.starts_with(prefix))
+        {
+            self.stage(
+                3,
+                &format!("正在导入并校验资源：{}", message.chars().take(400).collect::<String>()),
+            );
+        } else if message.starts_with("DEPLOY ") {
+            self.stage(4, "资源导入与校验已完成，正在从 Nexus 安装应用。");
+        }
+    }
+    fn helm_progress(&self, release: &str) {
+        let message = format!("正在同步应用：{release}");
+        match self.owner.snapshot()["stage"].as_str() {
+            Some("nexus") => self.stage(2, &message),
+            Some("applications") => self.stage(4, &message),
+            _ => self.event(&message),
+        }
     }
     pub fn run(&self, command: &str, args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Result<()> {
         self.cancel.check()?;
@@ -89,8 +245,9 @@ impl Context {
             pending.push_str(&String::from_utf8_lossy(&chunk[..count]));
             if let Some(last) = pending.rfind('\n') {
                 for line in pending[..last].lines() {
+                    self.nexus_progress(line);
                     if let Some(found) = release.captures(line) {
-                        self.event(&format!("正在同步应用：{}", &found[1]));
+                        self.helm_progress(&found[1]);
                     }
                     if let Some(found) = dependency.captures(line.trim()) {
                         self.event(&format!("依赖检查未通过：{} 需要启用 {}。", &found[1], &found[2]));
@@ -213,7 +370,8 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
             return Err(fail("应用 values 必须是对象。", 400));
         }
     }
-    values["releases"]["nexus"]["values"]["publicProxies"] = json!(config["deployment"]["offline"] != true);
+    // Proxy repositories remain ONLINE in offline deployments; connectivity controls upstream access.
+    values["releases"]["nexus"]["values"]["publicProxies"] = json!(true);
     if config["models"].is_object() && config["apps"].as_array().unwrap().contains(&json!("apeiron")) {
         let v = &mut values["releases"]["apeiron"]["values"];
         v["defaultModel"] = json!("");
@@ -253,6 +411,7 @@ impl Deployment {
         *self.0.cancel.lock().unwrap() = Cancellation::default();
         *self.0.completed.lock().unwrap() = None;
         *self.0.status.lock().unwrap() = json!({"phase":"preparing","startedAt":chrono::Utc::now().to_rfc3339(),"message":"正在检查部署配置…","events":[]});
+        advance_stage(&mut self.0.status.lock().unwrap(), 0, "正在检查部署配置和安装资源。");
         let owner = self.clone();
         let path = path.to_owned();
         *self.0.task.lock().unwrap() = Some(thread::spawn(move || owner.execute(path, config)));
@@ -301,9 +460,11 @@ impl Deployment {
                     Path::new(target["environment"].as_str().unwrap()),
                     &environment_for(&config, prepared.values.clone())?,
                 )?;
+                context.stage(1, "正在准备集群网络、存储和部署入口。");
                 super::bootstrap::bootstrap(&mut target, &context, &prepared)?
             } else {
                 target["root"] = json!(resources::resolve(&target, &cancel, &|m| context.event(m))?);
+                context.stage(1, "正在连接已有集群并检查部署环境。");
                 let mut env = BTreeMap::new();
                 env.insert("HELMFILE_NO_COLOR".into(), "true".into());
                 env.insert("HELMFILE_LOG_LEVEL".into(), "info".into());
@@ -349,6 +510,11 @@ impl Deployment {
             } else {
                 "deploy/helmfile/run.sh"
             });
+            if resources::yaml(&output)?["nexusFirst"] == true {
+                context.stage(2, "正在准备制品仓库及必要的基础组件。");
+            } else {
+                context.stage(4, "正在按依赖安装和初始化所选应用。");
+            }
             context.event("正在运行 Helmfile sync。");
             context.run(
                 "bash",
@@ -356,6 +522,7 @@ impl Deployment {
                 root,
                 &env,
             )?;
+            context.stage(5, "应用部署与初始化已完成，正在准备访问和验证入口。");
             if fresh {
                 if config["apps"].as_array().unwrap().contains(&json!("vasi")) {
                     context.event("正在配置集群 SSO 并验证权限。");
@@ -425,6 +592,16 @@ impl Deployment {
             } else {
                 s["exitCode"].as_i64().unwrap_or(9)
             });
+            finish_stages(
+                &mut s,
+                if stopped {
+                    "cancelled"
+                } else if result.is_ok() {
+                    "succeeded"
+                } else {
+                    "failed"
+                },
+            );
             if let Err(error) = result {
                 s["message"] = json!(error.message);
             }

@@ -12,6 +12,7 @@
     "test:release": "bun scripts/smoke-release.js",
     "test": "bun test",
     "test:ui": "bun scripts/test-ui.js",
+    "test:deployment-ui": "bun scripts/test-deployment-stages.js",
     "test:rust": "cargo test --locked && cargo build --locked --bin apeiron --example build-support && bun test",
     "check": "bun scripts/check-sources.js"
   },

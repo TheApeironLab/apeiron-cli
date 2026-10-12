@@ -324,13 +324,13 @@ try {
     await writeFile(join(setup.bin, 'docker'), dockerFixture.replace('"HostPort":"54321"', '"HostPort":"54323"'));
     await page.getByRole('button', { name: '开始部署', exact: true }).click();
     await page.getByText(/已找到本次安装的集群，但入口端口与当前配置不同/).waitFor();
-    assert.match(await page.locator('[aria-current=step]').innerText(), /4[\s\S]*应用/);
+    assert.match(await page.locator('.steps [aria-current=step]').innerText(), /4[\s\S]*应用/);
     assert.equal((await fetch(url + 'api/deployment').then(r => r.json())).phase, 'idle');
     assert.equal(await Bun.file(setup.calls).exists(), false, 'Port rejection never starts prepare or sync');
     await writeFile(join(setup.bin, 'docker'), dockerFixture);
     await page.getByRole('button', { name: '开始部署', exact: true }).click();
     await page.getByRole('heading', { name: '正在部署…', exact: true }).waitFor();
-    assert.match(await page.locator('[aria-current=step]').innerText(), /5[\s\S]*部署/);
+    assert.match(await page.locator('.steps [aria-current=step]').innerText(), /5[\s\S]*部署/);
     assert.equal(await page.locator('[data-step]').nth(6).getAttribute('data-state'), 'pending');
     assert.equal(await page.getByRole('button', { name: '完成并关闭向导' }).isDisabled(), true);
     await page.reload();
@@ -404,7 +404,7 @@ try {
     await freshInstallFixture(dir, setup, 0);
     await page.getByRole('button', { name: '开始部署', exact: true }).click();
     await page.getByRole('heading', { name: '配置访问', exact: true }).waitFor();
-    assert.match(await page.locator('[aria-current=step]').innerText(), /6[\s\S]*配置访问/);
+    assert.match(await page.locator('.steps [aria-current=step]').innerText(), /6[\s\S]*配置访问/);
     assert.equal(await page.locator('[data-step]').nth(4).getAttribute('data-state'), 'done');
     assert.equal(await page.locator('#deployment').isVisible(), false);
     assert.equal(await page.getByRole('link', { name: '下载 CA 证书', exact: true }).isVisible(), false, 'Manual setup stays collapsed');
@@ -427,7 +427,7 @@ try {
     await page.screenshot({ path: join(dir, 'access-configured.png'), fullPage: true });
     await page.getByRole('button', { name: '查看部署记录', exact: true }).click();
     await page.getByRole('heading', { name: '部署完成。', exact: true }).waitFor();
-    assert.match(await page.locator('[aria-current=step]').innerText(), /5[\s\S]*部署/);
+    assert.match(await page.locator('.steps [aria-current=step]').innerText(), /5[\s\S]*部署/);
     await page.getByRole('button', { name: '继续配置访问', exact: true }).click();
     await page.getByRole('heading', { name: '配置访问', exact: true }).waitFor();
     await page.getByText('手动配置 / 其他电脑', { exact: true }).click();
@@ -479,7 +479,7 @@ try {
     await page.getByRole('button', { name: '下一步：测试', exact: true }).click();
     await page.getByRole('heading', { name: '测试', exact: true }).waitFor();
     await page.getByText('凭据已就绪。密码默认隐藏，可显示或复制。', { exact: true }).waitFor();
-    assert.match(await page.locator('[aria-current=step]').innerText(), /7[\s\S]*测试/);
+    assert.match(await page.locator('.steps [aria-current=step]').innerText(), /7[\s\S]*测试/);
     assert.equal(await page.getByLabel('用户名', { exact: true }).inputValue(), 'fixture-admin');
     assert.equal(await page.getByLabel('密码', { exact: true }).inputValue(), 'fixture-only-admin-password');
     assert.equal(await page.getByLabel('密码', { exact: true }).getAttribute('type'), 'password');

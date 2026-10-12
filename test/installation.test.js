@@ -54,8 +54,12 @@ test('an incomplete install package stops before any cluster command', async () 
   const directory = await mkdtemp(join(tmpdir(), 'incomplete-package-'));
   const setup = await deploymentFixture(directory);
   const deployment = new DeploymentClient(join(directory, 'config.json'), directory, { PATH: setup.bin + ':' + process.env.PATH });
+  // This preflight test must not depend on the user's Docker port mappings.
+  const ports = [0, 1].map(() => Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('fixture') }));
+  const installation = { ...localInstallation(), httpPort: ports[0].port, httpsPort: ports[1].port };
+  for (const listener of ports) listener.stop(true);
   try {
-    await deployment.start({ slug: 'example', apps: requiredApps, deployment: { offline: false, installation: localInstallation() } });
+    await deployment.start({ slug: 'example', apps: requiredApps, deployment: { offline: false, installation } });
     while (deployment.active) await Bun.sleep(10);
     expect(deployment.snapshot.phase).toBe('failed');
     expect(deployment.snapshot.message).toContain('setup/install.json');

@@ -61,3 +61,11 @@ bun scripts/publish-resources.js /absolute/bundle /absolute/output --publish
 `setup/install.json` 的 schemaVersion 2 包含 `catalogs`，键为 `k3d-arm64` / `k3s-arm64` 等目标，值是仅含该目标的完整 schemaVersion 1 清单。CLI 根据实际目标先选择清单，再计算应用依赖；未提供的目标、索引不匹配或损坏清单均拒绝。schemaVersion 1 继续兼容；旧 CLI 会拒绝 schemaVersion 2，因此采用新清单必须配套发布 CLI。
 
 多目标离线目录共享 `chentu/` 部署程序，资源分别存于 `targets/<目标>/<清单 path>`。在线缓存也按目标分目录，避免同名 Docker/OCI 归档互相覆盖。运行时 staging 仍使用清单原始 path，不改变宸途工具的路径约定。OSS 对象仍按内容摘要共享，不按目标重复上传。单目标发布器处理每个目标的独立资源目录，再由宸途 `bundle/release_catalog.py` 合并已发布清单；不能把不同目标的组件与文件直接拼成一个平面清单。
+
+## 正式 Nexus 发布契约
+
+新目标以 nexusFirst 能力显式启用正式分发。setup/release-manifest.json 本身必须列入安装目录的 SHA-256 清单；发布清单完整记录 release、Chentu/CLI 的确切 Git commit、工具链、仓库、profile、组件依赖及统一 artifacts。镜像分别记录来源和目标 digest，Chart 记录名称、版本、release 归属及 tgz 校验值。目标路径只使用仓库内部路径，运行时域名不进入发布版本身份。
+
+CLI 在创建集群前验证完整发布目录、所选应用依赖、完整 Nexus bootstrap 闭包，以及实际 Chentu 源码/生成目录的逐文件 SHA-256。新版 sourceOverlay 必须为空。只接受 ONLINE hosted/proxy 仓库；proxy 必须启用 autoBlocking。联网与离线使用同一个正式 nexus_first.py 部署流程，proxy 始终 ONLINE。旧版无 nexusFirst 能力的目录继续使用原安装契约。
+
+CLI 生成 nexus/install-selection.json，保留同一个 release 并声明所选 profile、组件闭包和 artifact ID；images/install-manifest.json 的 bootstrap 标记来自同一基础闭包。离线缺包错误逐项显示名称、版本、平台、仓库及路径。目前正式 hosted 分发仅支持 macOS ARM64 管理机上的 single-k3d；Linux、AMD64 与原生 K3s 不因此获得支持，预检查会拒绝。

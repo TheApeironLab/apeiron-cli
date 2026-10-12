@@ -97,7 +97,26 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     }
     let key = format!("{}-{arch}", if docker { "k3d" } else { "k3s" });
     let catalog = resources::catalog(&root, &key)?;
-    let plan = resources::plan(&catalog, &key, &config["apps"])?;
+    let mut plan = resources::plan(&catalog, &key, &config["apps"])?;
+    let cache = if target["bundleDir"].as_str().unwrap_or("").is_empty() {
+        c.directory.parent().unwrap().join("resources")
+    } else {
+        path(&target, "bundleDir")
+    }
+    .join(catalog["resourceDirectory"].as_str().unwrap_or(""));
+    distribution::prepare(
+        &root,
+        &cache,
+        &catalog,
+        &mut plan,
+        &key,
+        i["topology"].as_str().unwrap(),
+        distribution::Preparation {
+            offline: target["offline"] == true,
+            cancel: &c.cancel,
+            progress: &|m| c.event(m),
+        },
+    )?;
     if !docker {
         discovery::validate_platform(&plan["target"], &facts)?;
     }
@@ -146,12 +165,6 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     {
         return Err(fail("管理机 DNS 检查未通过，尚未创建集群。", 400));
     }
-    let cache = if target["bundleDir"].as_str().unwrap_or("").is_empty() {
-        c.directory.parent().unwrap().join("resources")
-    } else {
-        path(&target, "bundleDir")
-    }
-    .join(catalog["resourceDirectory"].as_str().unwrap_or(""));
     resources::prepare_files(&plan, &cache, target["offline"] == true, &c.cancel, &|m| c.event(m))?;
     let work = if docker {
         cluster::identity(&c.config, i["domain"].as_str().unwrap()).0
@@ -184,6 +197,12 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
                     .unwrap();
                 image["size"] = file["size"].clone();
                 image["sha256"] = file["sha256"].clone();
+                if plan.get("releaseManifest").is_some() {
+                    image["bootstrap"] = json!(plan["bootstrapImages"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&image["reference"]));
+                }
                 image
             })
             .collect::<Vec<_>>();
@@ -209,6 +228,14 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
                 generated.push(name.into());
             }
         }
+    }
+    if let Some(selection) = plan.get("installSelection") {
+        process::private_directory(&bundle.join("nexus"))?;
+        write_managed(
+            &bundle.join("nexus/install-selection.json"),
+            serde_json::to_string(selection).unwrap().as_bytes(),
+        )?;
+        generated.push("nexus/install-selection.json".into());
     }
     let mut sums = plan["files"]
         .as_array()
@@ -268,6 +295,11 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         &mut values,
         &json!({"topology":i["topology"],"domain":domain,"registry":format!("registry.{domain}"),"node":node,"work":work_value,"bundle":bundle_value,"architecture":arch,"publicHttpsPort":i["httpsPort"],"publicHttpPort":i["httpPort"]}),
     )?;
+    if plan.get("releaseManifest").is_some() {
+        values["nexusFirst"] = json!(true);
+    } else {
+        values.as_object_mut().unwrap().remove("nexusFirst");
+    }
     if i["publicAccess"].is_object() {
         values["publicAccess"] = json!({"mode":i["publicAccess"]["mode"]});
     }
