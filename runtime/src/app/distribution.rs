@@ -614,10 +614,12 @@ mod tests {
             "version":"0.8.0","file":"cli/annotated_types-0.8.0-py3-none-any.whl",
             "targetPath":"packages/annotated-types/0.8.0/annotated_types-0.8.0-py3-none-any.whl"});
         assert!(native_package_path(&wheel, "amd64"));
-        for path in ["../escape", "packages/other/0.8.0/annotated_types-0.8.0-py3-none-any.whl"] {
+        for path in [
+            "../escape",
+            "packages/other/0.8.0/annotated_types-0.8.0-py3-none-any.whl",
+        ] {
             wheel["targetPath"] = json!(path);
             assert!(!native_package_path(&wheel, "amd64"));
         }
     }
-
 }
