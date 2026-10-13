@@ -117,6 +117,12 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
             progress: &|m| c.event(m),
         },
     )?;
+    if !docker
+        && plan.get("releaseManifest").is_some()
+        && (nodes.len() != 3 || nodes.iter().any(|n| n["role"] != "server"))
+    {
+        return Err(fail("原生 Nexus-first 当前需要三个 server 节点；尚未修改集群。", 400));
+    }
     if !docker {
         discovery::validate_platform(&plan["target"], &facts)?;
     }
@@ -213,8 +219,9 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         generated.push("images/install-manifest.json".into());
         if !docker {
             for (name, repeat) in [("images/manifest.txt", false), ("images/nexus-names.txt", true)] {
-                let data = images
+                let data = enriched
                     .iter()
+                    .filter(|i| i.get("bootstrap").is_none_or(|b| b == true))
                     .map(|i| {
                         let reference = i["reference"].as_str().unwrap();
                         if repeat {
@@ -340,7 +347,10 @@ fn native_tools(plan: &Value, target: &Value, bundle: &Path, c: &Context) -> Res
         .iter()
         .filter(|p| config::matches(r"^python/cpython-3\.12[.-][a-zA-Z0-9._-]+\.tar\.gz$", p))
         .collect::<Vec<_>>();
-    let binaries = ["uv", "helm", "helmfile", "age", "age-keygen", "s5cmd"];
+    let mut binaries = vec!["uv", "helm", "helmfile", "age", "age-keygen", "s5cmd"];
+    if plan.get("releaseManifest").is_some() {
+        binaries.push("crane");
+    }
     if python.len() != 1
         || binaries.iter().any(|n| !paths.contains(&format!("bin/{n}").as_str()))
         || !paths.contains(&"k3s/k3s")
@@ -632,6 +642,7 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         p.bundle.to_string_lossy().into_owned()
     };
     let inventory = c.directory.join("inventory.yaml");
+    env.insert("CHENTU_INVENTORY".into(), inventory.to_string_lossy().into_owned());
     let hosts = |role: &str| {
         p.nodes
             .iter()
