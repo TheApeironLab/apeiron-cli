@@ -14,7 +14,7 @@ Common commands:
 - `apeiron verify`: check configured module entry exists; exit 4 if missing.
 - `apeiron onto status`: ontology context; configure APEIRON_ONTO_ROOT or APEIRON_ONTO_BIN as needed.
 
-The wizard writes ~/.config/apeiron/config.json (or XDG_CONFIG_HOME/apeiron/config.json). Use --config to change the destination; keep it outside Git.
+The wizard writes ~/.apeiron/config.json. Use --config to change the destination; keep it outside Git.
 Online deployment downloads the pinned Chentu release and checksum-verified resources for selected apps. Offline mode requires a full bundle directory on the CLI host and performs no resource downloads. A CLI binary for a platform does not imply a matching Chentu deployment target exists. Current published Chentu supports K3d ARM64; Docker is required. See docs/install-package.md.
 
 Required apps: Nexus, Vasi, Limani, Apeiron (including Ops).

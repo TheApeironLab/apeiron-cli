@@ -5,7 +5,7 @@ Run the apeiron agent on your own machine.
 A laptop has no address apeiron can reach, so this dials out: one WebSocket to
 the control plane, authenticated with a Personal Access Token, and the user
 that token belongs to gets their agent *here* — with their files, their tools,
-their model credentials, their `~/.nexus/sudocode`.
+their model credentials, their `~/.apeiron/sudocode`.
 
 ```sh
 apeiron connect --server https://api.apeironlab.cn --token apeiron_sk_…
@@ -18,7 +18,7 @@ attaches this machine. Everything else has a default:
 | --- | --- | --- |
 | `--root` | `~/.apeiron/workspaces` | where session directories live |
 | `--agent` | `scode acp` | the agent to spawn |
-| `--config-home` | `~/.nexus/sudocode` | where Plugins are projected |
+| `--config-home` | `~/.apeiron/sudocode` | where Plugins are projected |
 | `--verbose` | off | log every ACP message and operation |
 
 Each has an `APEIRON_*` environment variable (see `--help`). `--token`
