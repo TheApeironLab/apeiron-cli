@@ -88,10 +88,22 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
     if profile["architecture"] != arch
         || supported != names(&capability["supportedTopologies"], "目标拓扑声明无效")?
         || !supported.contains(topology)
-        || key != "k3d-arm64"
-        || topology != "single-k3d"
+        || !matches!(
+            (key, topology),
+            ("k3d-arm64", "single-k3d") | ("k3s-amd64", "multi-k3s")
+        )
     {
-        return Err(invalid("此包不支持所选架构或部署拓扑；当前 Nexus 分发仅支持 K3d ARM64"));
+        return Err(invalid(
+            "此包不支持所选架构或部署拓扑；当前 Nexus 分发支持 K3d ARM64 或 Ubuntu 22.04 AMD64 三节点",
+        ));
+    }
+    if key == "k3s-amd64"
+        && plan["target"]["hostPlatform"]
+            != json!({
+                "os":"ubuntu", "version":"22.04", "architecture":"amd64"
+            })
+    {
+        return Err(invalid("原生 Nexus 分发必须声明 Ubuntu 22.04 AMD64"));
     }
     let components = manifest["components"]
         .as_object()
@@ -422,6 +434,29 @@ mod tests {
             json!(["library/cert-manager:1.0", "library/nexus:1.0"])
         );
         assert_eq!(plan["files"][0]["repository"], "docker-hosted");
+    }
+    #[test]
+    fn native_hosted_requires_exact_platform_and_topology() {
+        let (mut manifest, mut catalog, _) = fixture();
+        let mut profile = manifest["profiles"]["k3d-arm64"].take();
+        profile["architecture"] = json!("amd64");
+        profile["supportedTopologies"] = json!(["multi-k3s"]);
+        manifest["profiles"] = json!({"k3s-amd64":profile});
+        for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+            if artifact["kind"] == "image" {
+                artifact["image"]["architecture"] = json!("amd64");
+            }
+            artifact["platforms"] = json!(["linux/amd64"]);
+        }
+        let mut target = catalog["targets"]["k3d-arm64"].take();
+        target["nexusFirst"]["supportedTopologies"] = json!(["multi-k3s"]);
+        target["hostPlatform"] = json!({"os":"ubuntu","version":"22.04","architecture":"amd64"});
+        catalog["targets"] = json!({"k3s-amd64":target});
+        let mut plan = resources::plan(&catalog, "k3s-amd64", &json!(["apeiron"])).unwrap();
+        validate(&manifest, &catalog, &mut plan, "k3s-amd64", "multi-k3s").unwrap();
+        assert!(validate(&manifest, &catalog, &mut plan, "k3s-amd64", "single-k3s").is_err());
+        plan["target"]["hostPlatform"]["version"] = json!("24.04");
+        assert!(validate(&manifest, &catalog, &mut plan, "k3s-amd64", "multi-k3s").is_err());
     }
     #[test]
     fn unsupported_topology_architecture_and_incomplete_bootstrap_fail_closed() {
