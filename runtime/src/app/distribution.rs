@@ -115,11 +115,11 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
         || !supported.contains(topology)
         || !matches!(
             (key, topology),
-            ("k3d-arm64", "single-k3d") | ("k3s-amd64", "multi-k3s")
+            ("k3d-arm64" | "k3d-amd64", "single-k3d") | ("k3s-amd64", "multi-k3s")
         )
     {
         return Err(invalid(
-            "此包不支持所选架构或部署拓扑；当前 Nexus 分发支持 K3d ARM64 或 Ubuntu 22.04 AMD64 三节点",
+            "此包不支持所选架构或部署拓扑；当前 Nexus 分发支持 K3d ARM64/AMD64 或 Ubuntu 22.04 AMD64 三节点",
         ));
     }
     if key == "k3s-amd64"
@@ -362,6 +362,10 @@ fn validate_management_platform(
     let runtime_arch = discovery::architecture(hardware["runtimeArchitecture"].as_str().unwrap_or(""));
     let supported = match (runtime_os, arch, runtime_arch, key, topology) {
         ("macos", "arm64", "arm64", "k3d-arm64", "single-k3d") => machine["os"]["name"] == "macOS",
+        ("linux", "amd64", "amd64", "k3d-amd64", "single-k3d") => {
+            plan["target"]["nexusFirst"]["supportedTopologies"] == json!(["single-k3d"])
+                && machine["os"]["name"].as_str().is_some_and(|name| !name.is_empty())
+        }
         ("linux", "amd64", "amd64", "k3s-amd64", "multi-k3s") => {
             plan["target"]["hostPlatform"] == json!({"os":"ubuntu","version":"22.04","architecture":"amd64"})
                 && discovery::validate_platform(
@@ -373,7 +377,7 @@ fn validate_management_platform(
         _ => false,
     };
     if !supported {
-        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 / single-k3d，或 Ubuntu 22.04 AMD64 / multi-k3s"));
+        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 或 Linux AMD64 / single-k3d，或 Ubuntu 22.04 AMD64 / multi-k3s"));
     }
     Ok(())
 }
@@ -492,6 +496,39 @@ mod tests {
         let plan = resources::plan(&catalog, "k3s-amd64", &json!(["apeiron"])).unwrap();
         (manifest, catalog, plan)
     }
+    fn amd64_k3d_fixture() -> (Value, Value, Value) {
+        let (mut manifest, mut catalog, _) = native_fixture();
+        let mut profile = manifest["profiles"]["k3s-amd64"].take();
+        profile["supportedTopologies"] = json!(["single-k3d"]);
+        manifest["profiles"] = json!({"k3d-amd64":profile});
+        let mut target = catalog["targets"]["k3s-amd64"].take();
+        target.as_object_mut().unwrap().remove("hostPlatform");
+        target["nexusFirst"]["supportedTopologies"] = json!(["single-k3d"]);
+        catalog["targets"] = json!({"k3d-amd64":target});
+        let plan = resources::plan(&catalog, "k3d-amd64", &json!(["apeiron"])).unwrap();
+        (manifest, catalog, plan)
+    }
+    #[test]
+    fn linux_amd64_k3d_requires_matching_profile_architecture_and_topology() {
+        let (manifest, catalog, mut plan) = amd64_k3d_fixture();
+        validate(&manifest, &catalog, &mut plan, "k3d-amd64", "single-k3d").unwrap();
+        let linux = management_machine("Ubuntu", "22.04", "x86_64", "x86_64");
+        validate_management_platform(&plan, "k3d-amd64", "single-k3d", "linux", &linux).unwrap();
+        for (os, arch, runtime_arch, key, topology) in [
+            ("macos", "amd64", "amd64", "k3d-amd64", "single-k3d"),
+            ("linux", "arm64", "amd64", "k3d-amd64", "single-k3d"),
+            ("linux", "amd64", "arm64", "k3d-amd64", "single-k3d"),
+            ("linux", "amd64", "amd64", "k3d-arm64", "single-k3d"),
+            ("linux", "amd64", "amd64", "k3d-amd64", "multi-k3s"),
+        ] {
+            let machine = management_machine("Ubuntu", "22.04", arch, runtime_arch);
+            assert!(validate_management_platform(&plan, key, topology, os, &machine).is_err());
+        }
+        let mut wrong = manifest.clone();
+        wrong["profiles"]["k3d-amd64"]["architecture"] = json!("arm64");
+        assert!(validate(&wrong, &catalog, &mut plan, "k3d-amd64", "single-k3d").is_err());
+        assert!(validate(&manifest, &catalog, &mut plan, "k3d-amd64", "multi-k3s").is_err());
+    }
     fn management_machine(os: &str, version: &str, arch: &str, runtime_arch: &str) -> Value {
         json!({"os":{"name":os,"version":version},"hardware":{"architecture":arch,"runtimeArchitecture":runtime_arch}})
     }
@@ -548,6 +585,7 @@ mod tests {
     }
     fn preparation_fixture(
         native: bool,
+        linux_k3d: bool,
     ) -> (
         crate::app::contracts::Temp,
         crate::app::contracts::Temp,
@@ -555,8 +593,16 @@ mod tests {
         Value,
         Value,
     ) {
-        let (mut manifest, mut catalog, _) = if native { native_fixture() } else { fixture() };
-        let (key, topology) = if native {
+        let (mut manifest, mut catalog, _) = if linux_k3d {
+            amd64_k3d_fixture()
+        } else if native {
+            native_fixture()
+        } else {
+            fixture()
+        };
+        let (key, topology) = if linux_k3d {
+            ("k3d-amd64", "single-k3d")
+        } else if native {
             ("k3s-amd64", "multi-k3s")
         } else {
             ("k3d-arm64", "single-k3d")
@@ -606,12 +652,47 @@ mod tests {
         validate(&manifest, &catalog, &mut plan, key, topology).unwrap();
         (root, cache, manifest, catalog, plan)
     }
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn linux_amd64_k3d_actual_prepare_checks_integrity_before_cluster_creation() {
+        let (root, cache, _, catalog, mut plan) = preparation_fixture(false, true);
+        let cancel = process::Cancellation::default();
+        prepare(
+            &root.0,
+            &cache.0,
+            &catalog,
+            &mut plan,
+            "k3d-amd64",
+            "single-k3d",
+            Preparation {
+                offline: true,
+                cancel: &cancel,
+                progress: &|_| {},
+            },
+        )
+        .unwrap();
+        root.write("deploy/helmfile/scripts/nexus_first.py", b"tampered");
+        assert!(prepare(
+            &root.0,
+            &cache.0,
+            &catalog,
+            &mut plan,
+            "k3d-amd64",
+            "single-k3d",
+            Preparation {
+                offline: true,
+                cancel: &cancel,
+                progress: &|_| {}
+            }
+        )
+        .is_err());
+    }
     // Exercises the public prepare entry with real machine discovery and real
     // manifest/provenance/resource bytes. On other hosts it verifies rejection.
     #[test]
     fn actual_prepare_checks_management_machine_and_preserves_integrity() {
         let native_host = cfg!(target_os = "linux");
-        let (root, cache, manifest, catalog, mut plan) = preparation_fixture(native_host);
+        let (root, cache, manifest, catalog, mut plan) = preparation_fixture(native_host, false);
         let (key, topology) = if native_host {
             ("k3s-amd64", "multi-k3s")
         } else {
@@ -621,7 +702,7 @@ mod tests {
         let driver = b"official driver";
         // Another otherwise valid profile must fail at the public entry, not
         // merely in the helper. This catches accidental removal of the gate.
-        let (other_root, other_cache, _, other_catalog, mut other_plan) = preparation_fixture(!native_host);
+        let (other_root, other_cache, _, other_catalog, mut other_plan) = preparation_fixture(!native_host, false);
         let (other_key, other_topology) = if native_host {
             ("k3d-arm64", "single-k3d")
         } else {
