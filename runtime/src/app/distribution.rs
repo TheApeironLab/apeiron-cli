@@ -62,6 +62,31 @@ fn target_path(value: &Value, image: bool) -> bool {
         && (!image || config::matches(r"^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]+)?$", path))
 }
 
+fn native_package_path(artifact: &Value, architecture: &str) -> bool {
+    let name = artifact["name"].as_str().unwrap_or("");
+    let version = artifact["version"].as_str().unwrap_or("");
+    if artifact["transport"] != "native"
+        || !config::matches(r"^[a-z0-9][a-z0-9.+-]*$", name)
+        || !config::matches(r"^[A-Za-z0-9][A-Za-z0-9.+:!~_-]*$", version)
+    {
+        return false;
+    }
+    let expected = if artifact["kind"] == "apt" {
+        let arch = artifact["packageArchitecture"].as_str().unwrap_or("");
+        if arch != architecture && arch != "all" {
+            return false;
+        }
+        format!("pool/{}/{name}/{name}_{version}_{arch}.deb", &name[..1])
+    } else {
+        let filename = artifact["file"].as_str().unwrap_or("").rsplit('/').next().unwrap_or("");
+        if !config::matches(r"^[A-Za-z0-9][A-Za-z0-9_.+-]*\.whl$", filename) {
+            return false;
+        }
+        format!("packages/{name}/{version}/{filename}")
+    };
+    artifact["targetPath"] == expected
+}
+
 pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, topology: &str) -> Result<()> {
     let capability = &plan["target"]["nexusFirst"];
     if capability["schemaVersion"] != 1 || capability["manifest"] != MANIFEST {
@@ -174,7 +199,11 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
             || !text(&artifact["name"])
             || !text(&artifact["version"])
             || !artifact["bootstrap"].is_boolean()
-            || !target_path(&artifact["targetPath"], kind == "image")
+            || if ["apt", "pypi"].contains(&kind) {
+                !native_package_path(artifact, arch)
+            } else {
+                !target_path(&artifact["targetPath"], kind == "image")
+            }
             || repositories.get(artifact["repository"].as_str().unwrap_or("")) != Some(&(format, "hosted"))
             || artifacts.insert(id, artifact).is_some()
         {
@@ -570,5 +599,27 @@ mod tests {
         package["revision"] = json!("d".repeat(40));
         temp.write("chentu-package.json", package.to_string());
         assert!(verify_source(&temp.0, &manifest, &cancel).is_err());
+    }
+    #[test]
+    fn native_packages_keep_epoch_coordinates_without_relaxing_resource_paths() {
+        let mut apt = json!({"kind":"apt","transport":"native","name":"libaudit1",
+            "version":"1:3.0.7-1ubuntu0.1","packageArchitecture":"amd64",
+            "targetPath":"pool/l/libaudit1/libaudit1_1:3.0.7-1ubuntu0.1_amd64.deb"});
+        assert!(native_package_path(&apt, "amd64"));
+        assert!(!native_package_path(&apt, "arm64"));
+        assert!(!target_path(&apt["targetPath"], false));
+        apt["transport"] = json!("tar-v1");
+        assert!(!native_package_path(&apt, "amd64"));
+        let mut wheel = json!({"kind":"pypi","transport":"native","name":"annotated-types",
+            "version":"0.8.0","file":"cli/annotated_types-0.8.0-py3-none-any.whl",
+            "targetPath":"packages/annotated-types/0.8.0/annotated_types-0.8.0-py3-none-any.whl"});
+        assert!(native_package_path(&wheel, "amd64"));
+        for path in [
+            "../escape",
+            "packages/other/0.8.0/annotated_types-0.8.0-py3-none-any.whl",
+        ] {
+            wheel["targetPath"] = json!(path);
+            assert!(!native_package_path(&wheel, "amd64"));
+        }
     }
 }

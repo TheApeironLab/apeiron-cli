@@ -73,3 +73,7 @@ CLI 生成 nexus/install-selection.json，保留同一个 release 并声明所�
 原生 Nexus-first 候选目标为 `k3s-amd64 / multi-k3s`，要求包中明确声明 Ubuntu 22.04
 AMD64，节点恰为三个 server。CLI 将同一 inventory 传入 Chentu 驱动，并只预载 bootstrap
 闭包镜像；随包原生工具须含 crane。正式支持以对应发行版本的独立断网验收记录为准。
+
+APT 与 PyPI 发布制品使用原生 hosted 坐标。CLI 分别验证 Deb 包名、版本、架构和 wheel 文件名，
+只允许对应的确定性原生路径；Deb epoch 等版本字符不会放宽本地文件路径校验。两类制品必须声明 native transport，
+目标架构不符、路径篡改或封装声明错误在修改集群前拒绝。
