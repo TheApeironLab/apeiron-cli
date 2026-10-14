@@ -347,6 +347,37 @@ fn verify_source(root: &Path, manifest: &Value, cancel: &process::Cancellation) 
     Ok(())
 }
 
+// Installation profiles describe target nodes; management machines must also
+// match the operator tools shipped by the same release. Use discovered facts,
+// including the runtime architecture, rather than inferring an OS from a profile.
+fn validate_management_platform(
+    plan: &Value,
+    key: &str,
+    topology: &str,
+    runtime_os: &str,
+    machine: &Value,
+) -> Result<()> {
+    let hardware = &machine["hardware"];
+    let arch = discovery::architecture(hardware["architecture"].as_str().unwrap_or(""));
+    let runtime_arch = discovery::architecture(hardware["runtimeArchitecture"].as_str().unwrap_or(""));
+    let supported = match (runtime_os, arch, runtime_arch, key, topology) {
+        ("macos", "arm64", "arm64", "k3d-arm64", "single-k3d") => machine["os"]["name"] == "macOS",
+        ("linux", "amd64", "amd64", "k3s-amd64", "multi-k3s") => {
+            plan["target"]["hostPlatform"] == json!({"os":"ubuntu","version":"22.04","architecture":"amd64"})
+                && discovery::validate_platform(
+                    &plan["target"],
+                    &[json!({"os":machine["os"]["name"],"version":machine["os"]["version"],"architecture":arch})],
+                )
+                .is_ok()
+        }
+        _ => false,
+    };
+    if !supported {
+        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 / single-k3d，或 Ubuntu 22.04 AMD64 / multi-k3s"));
+    }
+    Ok(())
+}
+
 pub struct Preparation<'a> {
     pub offline: bool,
     pub cancel: &'a process::Cancellation,
@@ -364,9 +395,7 @@ pub fn prepare(
     if plan["target"].get("nexusFirst").is_none() {
         return Ok(());
     }
-    if !cfg!(target_os = "macos") || discovery::architecture(std::env::consts::ARCH) != "arm64" {
-        return Err(invalid("当前正式 Nexus 分发包仅验收 macOS ARM64 管理机"));
-    }
+    validate_management_platform(plan, key, topology, std::env::consts::OS, &discovery::machine())?;
     resources::read(&root.join("deploy/helmfile/scripts/nexus_first.py"), 4 * 1024 * 1024)
         .map_err(|_| invalid("缺少 Chentu 正式 nexus_first.py 部署入口"))?;
     let entry = catalog["files"]
@@ -444,6 +473,232 @@ mod tests {
         let plan = resources::plan(&catalog, "k3d-arm64", &json!(["apeiron"])).unwrap();
         (manifest, catalog, plan)
     }
+    fn native_fixture() -> (Value, Value, Value) {
+        let (mut manifest, mut catalog, _) = fixture();
+        let mut profile = manifest["profiles"]["k3d-arm64"].take();
+        profile["architecture"] = json!("amd64");
+        profile["supportedTopologies"] = json!(["multi-k3s"]);
+        manifest["profiles"] = json!({"k3s-amd64":profile});
+        for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+            if artifact["kind"] == "image" {
+                artifact["image"]["architecture"] = json!("amd64");
+            }
+            artifact["platforms"] = json!(["linux/amd64"]);
+        }
+        let mut target = catalog["targets"]["k3d-arm64"].take();
+        target["nexusFirst"]["supportedTopologies"] = json!(["multi-k3s"]);
+        target["hostPlatform"] = json!({"os":"ubuntu","version":"22.04","architecture":"amd64"});
+        catalog["targets"] = json!({"k3s-amd64":target});
+        let plan = resources::plan(&catalog, "k3s-amd64", &json!(["apeiron"])).unwrap();
+        (manifest, catalog, plan)
+    }
+    fn management_machine(os: &str, version: &str, arch: &str, runtime_arch: &str) -> Value {
+        json!({"os":{"name":os,"version":version},"hardware":{"architecture":arch,"runtimeArchitecture":runtime_arch}})
+    }
+    #[test]
+    fn management_machine_must_match_the_exact_distribution_profile() {
+        let (_, _, native) = native_fixture();
+        let (_, _, k3d) = fixture();
+        for version in ["22.04", "22.04.5"] {
+            for arch in ["amd64", "x86_64"] {
+                let linux = management_machine("Ubuntu", version, arch, "x86_64");
+                validate_management_platform(&native, "k3s-amd64", "multi-k3s", "linux", &linux).unwrap();
+                assert!(validate_management_platform(&k3d, "k3d-arm64", "single-k3d", "linux", &linux).is_err());
+            }
+        }
+        let mac = management_machine("macOS", "26.0", "arm64", "aarch64");
+        validate_management_platform(&k3d, "k3d-arm64", "single-k3d", "macos", &mac).unwrap();
+        assert!(validate_management_platform(&native, "k3s-amd64", "multi-k3s", "macos", &mac).is_err());
+        for (os, version, arch, runtime_arch) in [
+            ("Ubuntu", "24.04", "amd64", "amd64"),
+            ("Ubuntu", "20.04", "amd64", "amd64"),
+            ("Ubuntu", "22.040", "amd64", "amd64"),
+            ("Debian GNU/Linux", "22.04", "amd64", "amd64"),
+            ("", "22.04", "amd64", "amd64"),
+            ("Ubuntu", "", "amd64", "amd64"),
+            ("Ubuntu", "22.04", "arm64", "arm64"),
+            ("Ubuntu", "22.04", "amd64", "arm64"),
+            ("Ubuntu", "22.04", "arm64", "amd64"),
+            ("Ubuntu", "22.04", "amd64", ""),
+        ] {
+            let machine = management_machine(os, version, arch, runtime_arch);
+            assert!(validate_management_platform(&native, "k3s-amd64", "multi-k3s", "linux", &machine).is_err());
+        }
+        let linux = management_machine("Ubuntu", "22.04", "amd64", "amd64");
+        for (runtime_os, key, topology) in [
+            ("windows", "k3s-amd64", "multi-k3s"),
+            ("linux", "k3s-amd64", "single-k3s"),
+            ("linux", "k3s-arm64", "multi-k3s"),
+            ("linux", "k3d-amd64", "single-k3d"),
+            ("linux", "unknown-amd64", "multi-k3s"),
+        ] {
+            assert!(validate_management_platform(&native, key, topology, runtime_os, &linux).is_err());
+        }
+        for platform in [
+            Value::Null,
+            json!({"os":"ubuntu","version":"24.04","architecture":"amd64"}),
+            json!({"os":"ubuntu","version":"22.04","architecture":"arm64"}),
+        ] {
+            let mut wrong = native.clone();
+            wrong["target"]["hostPlatform"] = platform;
+            assert!(validate_management_platform(&wrong, "k3s-amd64", "multi-k3s", "linux", &linux).is_err());
+        }
+        let translated = management_machine("macOS", "26.0", "arm64", "x86_64");
+        assert!(validate_management_platform(&k3d, "k3d-arm64", "single-k3d", "macos", &translated).is_err());
+    }
+    fn preparation_fixture(
+        native: bool,
+    ) -> (
+        crate::app::contracts::Temp,
+        crate::app::contracts::Temp,
+        Value,
+        Value,
+        Value,
+    ) {
+        let (mut manifest, mut catalog, _) = if native { native_fixture() } else { fixture() };
+        let (key, topology) = if native {
+            ("k3s-amd64", "multi-k3s")
+        } else {
+            ("k3d-arm64", "single-k3d")
+        };
+        let root = crate::app::contracts::Temp::new();
+        let cache = crate::app::contracts::Temp::new();
+        let driver = b"official driver";
+        root.write("deploy/helmfile/scripts/nexus_first.py", driver);
+        for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+            let path = artifact["file"].as_str().unwrap().to_owned();
+            let bytes = format!("fixture bytes for {path}");
+            cache.write(&path, &bytes);
+            artifact["size"] = json!(bytes.len());
+            artifact["sha256"] = json!(config::hash(bytes.as_bytes()));
+            let file = catalog["files"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|f| f["path"] == path)
+                .unwrap();
+            file["size"] = artifact["size"].clone();
+            file["sha256"] = artifact["sha256"].clone();
+        }
+        let manifest_bytes = manifest.to_string();
+        cache.write(MANIFEST, &manifest_bytes);
+        let entry = catalog["files"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|f| f["path"] == MANIFEST)
+            .unwrap();
+        entry["size"] = json!(manifest_bytes.len());
+        entry["sha256"] = json!(config::hash(manifest_bytes.as_bytes()));
+        // Keep K3d's ordinary catalog reader on its declared airgap path.
+        if !native {
+            catalog["targets"][key]["k3sAirgap"] = json!("images/nexus.tar");
+        }
+        let catalog_bytes = catalog.to_string();
+        root.write("setup/install.json", &catalog_bytes);
+        let package = json!({"schemaVersion":1,"kind":"chentu-deployment","version":manifest["release"],
+            "revision":manifest["sources"]["chentu"]["commit"],"sourceOverlay":{},
+            "files":{"deploy/helmfile/scripts/nexus_first.py":config::hash(driver)},
+            "generatedFiles":{"setup/install.json":config::hash(catalog_bytes.as_bytes())}});
+        root.write("chentu-package.json", package.to_string());
+        let catalog = resources::catalog(&root.0, key).unwrap();
+        let mut plan = resources::plan(&catalog, key, &json!(["apeiron"])).unwrap();
+        validate(&manifest, &catalog, &mut plan, key, topology).unwrap();
+        (root, cache, manifest, catalog, plan)
+    }
+    // Exercises the public prepare entry with real machine discovery and real
+    // manifest/provenance/resource bytes. On other hosts it verifies rejection.
+    #[test]
+    fn actual_prepare_checks_management_machine_and_preserves_integrity() {
+        let native_host = cfg!(target_os = "linux");
+        let (root, cache, manifest, catalog, mut plan) = preparation_fixture(native_host);
+        let (key, topology) = if native_host {
+            ("k3s-amd64", "multi-k3s")
+        } else {
+            ("k3d-arm64", "single-k3d")
+        };
+        let manifest_bytes = manifest.to_string();
+        let driver = b"official driver";
+        // Another otherwise valid profile must fail at the public entry, not
+        // merely in the helper. This catches accidental removal of the gate.
+        let (other_root, other_cache, _, other_catalog, mut other_plan) = preparation_fixture(!native_host);
+        let (other_key, other_topology) = if native_host {
+            ("k3d-arm64", "single-k3d")
+        } else {
+            ("k3s-amd64", "multi-k3s")
+        };
+        let cancel = process::Cancellation::default();
+        assert!(prepare(
+            &other_root.0,
+            &other_cache.0,
+            &other_catalog,
+            &mut other_plan,
+            other_key,
+            other_topology,
+            Preparation {
+                offline: true,
+                cancel: &cancel,
+                progress: &|_| {}
+            }
+        )
+        .unwrap_err()
+        .message
+        .contains("管理机平台"));
+        let machine = discovery::machine();
+        let os = machine["os"]["name"].as_str().unwrap_or("");
+        let version = machine["os"]["version"].as_str().unwrap_or("");
+        let arch = machine["hardware"]["architecture"].as_str().unwrap_or("");
+        // Decide the expected outcome from independent host facts, so a broken
+        // management helper cannot turn a supported-host regression into a skip.
+        let supported = if native_host {
+            discovery::architecture(std::env::consts::ARCH) == "amd64"
+                && arch == "amd64"
+                && version.split('.').take(2).collect::<Vec<_>>() == ["22", "04"]
+                && discovery::supported(os, version, arch)
+        } else {
+            cfg!(target_os = "macos")
+                && discovery::architecture(std::env::consts::ARCH) == "arm64"
+                && arch == "arm64"
+                && os == "macOS"
+        };
+        let cancel = process::Cancellation::default();
+        let run = |plan: &mut Value| {
+            prepare(
+                &root.0,
+                &cache.0,
+                &catalog,
+                plan,
+                key,
+                topology,
+                Preparation {
+                    offline: true,
+                    cancel: &cancel,
+                    progress: &|_| {},
+                },
+            )
+        };
+        let result = run(&mut plan);
+        if !supported {
+            assert!(result.unwrap_err().message.contains("管理机平台"));
+            return;
+        }
+        result.unwrap();
+        eprintln!("real prepare passed on {os} {version} {arch} for {key} / {topology}");
+        assert_eq!(plan["installSelection"]["profile"], key);
+        assert_eq!(plan["installSelection"]["release"], manifest["release"]);
+        resources::prepare_files(&plan, &cache.0, true, &cancel, &|_| {}).unwrap();
+        cache.write(MANIFEST, "tampered manifest");
+        assert!(run(&mut plan).unwrap_err().message.contains("校验失败"));
+        cache.write(MANIFEST, &manifest_bytes);
+        root.write("deploy/helmfile/scripts/nexus_first.py", "tampered driver");
+        assert!(run(&mut plan).unwrap_err().message.contains("SHA-256"));
+        root.write("deploy/helmfile/scripts/nexus_first.py", driver);
+        cache.write("images/nexus.tar", "tampered resource");
+        assert!(resources::prepare_files(&plan, &cache.0, true, &cancel, &|_| {})
+            .unwrap_err()
+            .message
+            .contains("校验失败"));
+    }
     #[test]
     fn formal_release_selection_keeps_release_fixed_and_stages_manifest_outside_app_closure() {
         let (manifest, catalog, mut plan) = fixture();
@@ -466,22 +721,7 @@ mod tests {
     }
     #[test]
     fn native_hosted_requires_exact_platform_and_topology() {
-        let (mut manifest, mut catalog, _) = fixture();
-        let mut profile = manifest["profiles"]["k3d-arm64"].take();
-        profile["architecture"] = json!("amd64");
-        profile["supportedTopologies"] = json!(["multi-k3s"]);
-        manifest["profiles"] = json!({"k3s-amd64":profile});
-        for artifact in manifest["artifacts"].as_array_mut().unwrap() {
-            if artifact["kind"] == "image" {
-                artifact["image"]["architecture"] = json!("amd64");
-            }
-            artifact["platforms"] = json!(["linux/amd64"]);
-        }
-        let mut target = catalog["targets"]["k3d-arm64"].take();
-        target["nexusFirst"]["supportedTopologies"] = json!(["multi-k3s"]);
-        target["hostPlatform"] = json!({"os":"ubuntu","version":"22.04","architecture":"amd64"});
-        catalog["targets"] = json!({"k3s-amd64":target});
-        let mut plan = resources::plan(&catalog, "k3s-amd64", &json!(["apeiron"])).unwrap();
+        let (manifest, catalog, mut plan) = native_fixture();
         validate(&manifest, &catalog, &mut plan, "k3s-amd64", "multi-k3s").unwrap();
         assert!(validate(&manifest, &catalog, &mut plan, "k3s-amd64", "single-k3s").is_err());
         plan["target"]["hostPlatform"]["version"] = json!("24.04");
