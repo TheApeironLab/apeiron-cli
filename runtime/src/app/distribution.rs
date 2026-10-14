@@ -347,6 +347,19 @@ fn verify_source(root: &Path, manifest: &Value, cancel: &process::Cancellation) 
     Ok(())
 }
 
+fn validate_operator(key: &str, topology: &str, os: &str, architecture: &str) -> Result<()> {
+    if matches!(
+        (key, topology, os, architecture),
+        ("k3d-arm64", "single-k3d", "macos", "arm64") | ("k3s-amd64", "multi-k3s", "linux", "amd64")
+    ) {
+        Ok(())
+    } else {
+        Err(invalid(
+            "管理机与部署目标不匹配：K3d ARM64 需要 macOS ARM64，原生三节点 K3s AMD64 需要 Linux AMD64",
+        ))
+    }
+}
+
 pub struct Preparation<'a> {
     pub offline: bool,
     pub cancel: &'a process::Cancellation,
@@ -364,9 +377,12 @@ pub fn prepare(
     if plan["target"].get("nexusFirst").is_none() {
         return Ok(());
     }
-    if !cfg!(target_os = "macos") || discovery::architecture(std::env::consts::ARCH) != "arm64" {
-        return Err(invalid("当前正式 Nexus 分发包仅验收 macOS ARM64 管理机"));
-    }
+    validate_operator(
+        key,
+        topology,
+        std::env::consts::OS,
+        discovery::architecture(std::env::consts::ARCH),
+    )?;
     resources::read(&root.join("deploy/helmfile/scripts/nexus_first.py"), 4 * 1024 * 1024)
         .map_err(|_| invalid("缺少 Chentu 正式 nexus_first.py 部署入口"))?;
     let entry = catalog["files"]
@@ -599,6 +615,101 @@ mod tests {
         package["revision"] = json!("d".repeat(40));
         temp.write("chentu-package.json", package.to_string());
         assert!(verify_source(&temp.0, &manifest, &cancel).is_err());
+    }
+    #[test]
+    fn hosted_operator_requires_matching_supported_target() {
+        assert!(validate_operator("k3d-arm64", "single-k3d", "macos", "arm64").is_ok());
+        assert!(validate_operator("k3s-amd64", "multi-k3s", "linux", "amd64").is_ok());
+        for (key, topology, os, arch) in [
+            ("k3s-amd64", "single-k3s", "linux", "amd64"),
+            ("k3s-amd64", "multi-k3s", "linux", "arm64"),
+            ("k3s-amd64", "multi-k3s", "macos", "arm64"),
+            ("k3s-amd64", "multi-k3s", "windows", "amd64"),
+            ("k3d-arm64", "single-k3d", "linux", "amd64"),
+            ("k3d-arm64", "single-k3d", "macos", "amd64"),
+            ("k3d-amd64", "single-k3d", "macos", "amd64"),
+        ] {
+            assert!(
+                validate_operator(key, topology, os, arch).is_err(),
+                "{key}/{topology}/{os}/{arch}"
+            );
+        }
+    }
+    // Regression: https://github.com/TheApeironLab/apeiron-cli/issues/15
+    // Exercise prepare, not just the manifest validator: the operator gate runs first.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn native_prepare_reaches_verified_manifest_on_linux_amd64() {
+        let (mut manifest, mut catalog, _) = fixture();
+        let mut profile = manifest["profiles"]["k3d-arm64"].take();
+        profile["architecture"] = json!("amd64");
+        profile["supportedTopologies"] = json!(["multi-k3s"]);
+        manifest["profiles"] = json!({"k3s-amd64":profile});
+        for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+            if artifact["kind"] == "image" {
+                artifact["image"]["architecture"] = json!("amd64");
+            }
+            artifact["platforms"] = json!(["linux/amd64"]);
+        }
+        let mut target = catalog["targets"]["k3d-arm64"].take();
+        target["nexusFirst"]["supportedTopologies"] = json!(["multi-k3s"]);
+        target["hostPlatform"] = json!({"os":"ubuntu","version":"22.04","architecture":"amd64"});
+        catalog["targets"] = json!({"k3s-amd64":target});
+        let bytes = manifest.to_string();
+        for file in catalog["files"].as_array_mut().unwrap() {
+            if file["path"] == MANIFEST {
+                file["size"] = json!(bytes.len());
+                file["sha256"] = json!(config::hash(bytes.as_bytes()));
+            }
+        }
+        let temp = crate::app::contracts::Temp::new();
+        temp.write(MANIFEST, &bytes);
+        temp.write("deploy/helmfile/scripts/nexus_first.py", "official driver");
+        temp.write("setup/install.json", "{}");
+        temp.write(
+            "chentu-package.json",
+            json!({
+                "schemaVersion":1,"kind":"chentu-deployment","version":manifest["release"],
+                "revision":manifest["sources"]["chentu"]["commit"],"sourceOverlay":{},
+                "files":{"deploy/helmfile/scripts/nexus_first.py":config::hash(b"official driver")},
+                "generatedFiles":{"setup/install.json":config::hash(b"{}")}
+            })
+            .to_string(),
+        );
+        let cancel = process::Cancellation::default();
+        let mut plan = resources::plan(&catalog, "k3s-amd64", &json!(["apeiron"])).unwrap();
+        prepare(
+            &temp.0,
+            &temp.0,
+            &catalog,
+            &mut plan,
+            "k3s-amd64",
+            "multi-k3s",
+            Preparation {
+                offline: true,
+                cancel: &cancel,
+                progress: &|_| {},
+            },
+        )
+        .unwrap();
+        assert_eq!(plan["installSelection"]["profile"], "k3s-amd64");
+        assert_eq!(plan["releaseManifest"]["release"], manifest["release"]);
+        temp.write("deploy/helmfile/scripts/nexus_first.py", "tampered driver");
+        let error = prepare(
+            &temp.0,
+            &temp.0,
+            &catalog,
+            &mut plan,
+            "k3s-amd64",
+            "multi-k3s",
+            Preparation {
+                offline: true,
+                cancel: &cancel,
+                progress: &|_| {},
+            },
+        )
+        .unwrap_err();
+        assert!(error.message.contains("SHA-256"));
     }
     #[test]
     fn native_packages_keep_epoch_coordinates_without_relaxing_resource_paths() {
