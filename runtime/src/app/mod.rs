@@ -2,7 +2,7 @@ mod access;
 mod bootstrap;
 mod chat;
 mod cluster;
-mod config;
+pub(crate) mod config;
 #[cfg(test)]
 mod contracts;
 pub(crate) mod deploy;
