@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { renderPage } from '../src/init/page';
 
+const embeddedPage = await Bun.file(new URL('../runtime/assets/setup.html', import.meta.url)).text();
+assert.equal(embeddedPage, renderPage('APEIRON_NONCE_PLACEHOLDER'), 'Committed runtime page must match the frontend before exercising deployment controls');
+
 const ids = ['check', 'cluster', 'nexus', 'import', 'applications', 'access'];
 const labels = ['检查安装包', '准备集群', '启动制品仓库', '导入部署资源', '安装与初始化应用', '准备访问与验证'];
 const directory = process.argv[2] || await mkdtemp(join(tmpdir(), 'apeiron-stages-ui-'));
@@ -20,7 +23,7 @@ const defaults = { offline: true, bundleDir: '/offline/bundle', installation: { 
 const apps = await Bun.file(new URL('../runtime/assets/apps.json', import.meta.url)).json();
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === '/') return new Response(renderPage('test-nonce'), { headers: { 'Content-Type': 'text/html' } });
+    if (path === '/') return new Response(embeddedPage.replaceAll('APEIRON_NONCE_PLACEHOLDER', 'test-nonce'), { headers: { 'Content-Type': 'text/html' } });
     if (path === '/api/config') return Response.json({ apps, defaults, revision: 'fixture-revision', config: null, host: { name: 'fixture-mac', platform: 'darwin', architecture: 'arm64' }, deployment: status });
     if (path === '/api/deployment') return Response.json(status);
     if (path === '/api/deployment/retry') { retries++; status = snapshot(0, 'preparing'); return Response.json({ deployment: status }); }
