@@ -257,6 +257,9 @@ impl State {
                     return Err(fail("组织标识必须与网关申请的名称一致。", 400));
                 }
                 if route == "api/deploy" {
+                    if resume::load(&self.path)?.is_some() {
+                        return Err(fail("存在原部署检查点，请继续原部署；不会覆盖配置启动另一安装。", 409));
+                    }
                     let current = config::read(&self.path)?;
                     let candidate = config::validate(&input, &current["config"])?;
                     cluster::preflight(&self.path, &candidate["deployment"]["installation"], &self.cancel)?;
@@ -273,6 +276,21 @@ impl State {
                     return Ok(Reply::json(public, 202));
                 }
                 public
+            }
+            "api/deployment/resume" => {
+                self.busy()?;
+                if input.as_object().is_none_or(|o| o.len() != 1) || !input["revision"].is_string() {
+                    return Err(fail("继续部署需要当前配置版本。", 400));
+                }
+                let saved = config::read(&self.path)?;
+                if input["revision"] != saved["revision"] {
+                    return Err(fail("配置已变化。", 409));
+                }
+                self.deployment.resume(&self.path, saved["config"].clone())?;
+                *self.deployed_revision.lock().unwrap() = saved["revision"].clone();
+                self.access.reset();
+                *self.verification.lock().unwrap() = Value::Null;
+                return Ok(Reply::json(json!({"deployment":self.deployment.snapshot()}), 202));
             }
             "api/deployment/retry" => {
                 self.busy()?;
@@ -470,7 +488,7 @@ fn serve(
         stop: AtomicBool::new(false),
         cancel: Cancellation::default(),
         gate: Mutex::new(()),
-        deployment: deploy::Deployment::new(),
+        deployment: deploy::Deployment::restore(&path)?,
         access: access::LocalAccess::new(),
         verification: Mutex::new(Value::Null),
         deployed_revision: Mutex::new(Value::Null),

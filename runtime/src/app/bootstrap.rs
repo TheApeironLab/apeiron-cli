@@ -7,9 +7,9 @@ use std::{fs, path::PathBuf, process::Command};
 pub struct Prepared {
     pub target: Value,
     pub values: Value,
-    plan: Value,
+    pub(crate) plan: Value,
     nodes: Vec<Value>,
-    bundle: PathBuf,
+    pub(crate) bundle: PathBuf,
     cluster: String,
     arch: String,
     generated: Vec<String>,

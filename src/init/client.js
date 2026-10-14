@@ -834,7 +834,7 @@ export function initWizard(supportsK3sHost) {
         get('verification').hidden = !showTest;
         renderProgress(showTest ? 6 : showAccess ? 5 : 4);
         const active = ['preparing', 'running', 'stopping'].includes(status.phase);
-        get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? '正在部署…' : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : '部署失败。';
+        get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? '正在部署…' : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : status.phase === 'interrupted' ? '部署等待继续。' : '部署失败。';
         get('deployment-message').textContent = status.message;
         renderDeploymentStages(status);
         get('deployment-events').replaceChildren(...status.events.map(message => {
@@ -865,12 +865,13 @@ export function initWizard(supportsK3sHost) {
         stopButton.disabled = deploymentAction || (status.phase === 'stopping' && !status.stopFailed);
         stopButton.textContent = status.stopFailed ? '重试停止' : status.phase === 'stopping' ? '正在停止…' : '停止部署';
         const retryButton = get('retry-deployment');
-        retryButton.hidden = !['failed', 'cancelled'].includes(status.phase);
+        retryButton.hidden = !['failed', 'cancelled', 'interrupted'].includes(status.phase);
         retryButton.disabled = deploymentAction;
+        retryButton.textContent = status.resumable ? '继续原部署' : '重新部署';
         get('edit').disabled = deploymentAction;
         if (deploymentAction)
             get('finish').disabled = true;
-        get('deployment-note').textContent = active ? '关闭或刷新页面不会停止部署。点击“停止部署”会终止部署进程，保留已有资源；已提交给集群的任务可能继续运行。' : status.phase === 'cancelled'
+        get('deployment-note').textContent = status.resumable ? '仅继续已完成集群引导的同一次部署。将重新核对安装包、配置与集群身份，再执行同步；未完成引导的安装不会自动接管，升级新包需独立流程。' : active ? '关闭或刷新页面不会停止部署。点击“停止部署”会终止部署进程，保留已有资源；已提交给集群的任务可能继续运行。' : status.phase === 'cancelled'
             ? '点击“重新部署”使用上次保存的配置，检查资源和 Helm 状态后重新运行。不会断点续跑，也不会删除已有集群和数据。'
             : status.exitCode === undefined
                 ? '安装在准备阶段停止。请根据日志修正原因后重试；已完成的变更不会自动回滚。'
@@ -1134,7 +1135,7 @@ export function initWizard(supportsK3sHost) {
         clearTimeout(timer);
         try {
             const response = await fetch(endpoint('deployment/' + action), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(action === 'retry' ? { revision } : {}) });
+                body: JSON.stringify(['retry', 'resume'].includes(action) ? { revision } : {}) });
             const result = await response.json();
             if (!response.ok)
                 throw new Error(result.error || '操作失败，请重试。');
@@ -1158,7 +1159,7 @@ export function initWizard(supportsK3sHost) {
         }
     }
     get('stop-deployment').addEventListener('click', () => { void deploymentControl('stop'); });
-    get('retry-deployment').addEventListener('click', () => { void deploymentControl('retry'); });
+    get('retry-deployment').addEventListener('click', () => { void deploymentControl(currentDeployment?.resumable ? 'resume' : 'retry'); });
     back.addEventListener('click', () => { if (!busy && step > 0) {
         step--;
         renderStep();

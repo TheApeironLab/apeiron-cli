@@ -13,6 +13,7 @@ mod pairing;
 mod process;
 mod register;
 pub(crate) mod resources;
+mod resume;
 mod wizard;
 use serde_json::{json, Value};
 use std::{
