@@ -68,7 +68,7 @@ bun scripts/publish-resources.js /absolute/bundle /absolute/output --publish
 
 CLI 在创建集群前验证完整发布目录、所选应用依赖、完整 Nexus bootstrap 闭包，以及实际 Chentu 源码/生成目录的逐文件 SHA-256。新版 sourceOverlay 必须为空。只接受 ONLINE hosted/proxy 仓库；proxy 必须启用 autoBlocking。联网与离线使用同一个正式 nexus_first.py 部署流程，proxy 始终 ONLINE。旧版无 nexusFirst 能力的目录继续使用原安装契约。
 
-CLI 生成 nexus/install-selection.json，保留同一个 release 并声明所选 profile、组件闭包和 artifact ID；images/install-manifest.json 的 bootstrap 标记来自同一基础闭包。离线缺包错误逐项显示名称、版本、平台、仓库及路径。正式 Nexus 分发的管理机契约为 macOS ARM64 对应 `k3d-arm64 / single-k3d`，或 Ubuntu 22.04 AMD64（含 22.04.x 点版本）对应 `k3s-amd64 / multi-k3s`。CLI 使用实际管理机系统、硬件架构和运行架构核对契约；其他系统、版本、架构、安装目标或拓扑组合在资源准备前拒绝。Apple Silicon 上运行 AMD64 CLI 同样不满足 macOS ARM64 契约。
+CLI 生成 nexus/install-selection.json，保留同一个 release 并声明所选 profile、组件闭包和 artifact ID；images/install-manifest.json 的 bootstrap 标记来自同一基础闭包。离线缺包错误逐项显示名称、版本、平台、仓库及路径。正式 Nexus 分发的管理机契约为 macOS ARM64 对应 `k3d-arm64 / single-k3d`、Linux AMD64 对应 `k3d-amd64 / single-k3d`，或 Ubuntu 22.04 AMD64（含 22.04.x 点版本）对应 `k3s-amd64 / multi-k3s`。CLI 使用实际管理机系统、硬件架构和运行架构核对契约；其他系统、版本、架构、安装目标或拓扑组合在资源准备前拒绝。Apple Silicon 上运行 AMD64 CLI 同样不满足 macOS ARM64 契约。
 
 原生 Nexus-first 候选目标为 `k3s-amd64 / multi-k3s`，要求包中明确声明 Ubuntu 22.04
 AMD64，节点恰为三个 server。安装目标声明描述的是部署节点；管理机还必须满足上述对应平台契约，不能由安装目标标签推断实际管理机系统。每个节点继续独立通过系统和架构检测。CLI 将同一 inventory 传入 Chentu 驱动，并只预载 bootstrap
