@@ -45,6 +45,110 @@ fn finish_stages(status: &mut Value, outcome: &str) {
 mod stage_tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn recovery_owner_process_fixture() {
+        let Some(directory) = std::env::var_os("APEIRON_RECOVERY_PROCESS_FIXTURE") else {
+            return;
+        };
+        let directory = PathBuf::from(directory);
+        let context = Context::fixture(&directory);
+        let checkpoint = directory.join("checkpoint.json");
+        resume::write(
+            &checkpoint,
+            &json!({"ownerPid":std::process::id(),"commandActive":false}),
+        )
+        .unwrap();
+        *context.owner.0.checkpoint.lock().unwrap() = Some(checkpoint);
+        context
+            .run(
+                "sh",
+                &strings(&["-c", "while [ ! -f release ]; do sleep 0.1; done"]),
+                &directory,
+                &BTreeMap::new(),
+            )
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn killed_owner_does_not_allow_recovery_over_a_surviving_process_group() {
+        let temp = contracts::Temp::new();
+        let mut owner = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "app::deploy::stage_tests::recovery_owner_process_fixture",
+                "--nocapture",
+            ])
+            .env("APEIRON_RECOVERY_PROCESS_FIXTURE", &temp.0)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let record = loop {
+            if let Ok(record) = resources::json_file(&temp.0.join("checkpoint.json"), 4096) {
+                if record["commandPid"].is_number() {
+                    break record;
+                }
+            }
+            if Instant::now() > deadline {
+                let _ = owner.kill();
+                let _ = owner.wait();
+                panic!("command checkpoint was not written");
+            }
+            thread::sleep(Duration::from_millis(20));
+        };
+        assert!(resume::inactive(&record).is_err());
+        owner.kill().unwrap();
+        owner.wait().unwrap();
+        assert!(!resume::running(record["ownerPid"].as_i64().unwrap(), false));
+        let group = record["commandPid"].as_i64().unwrap();
+        assert!(resume::running(group, true));
+        assert!(resume::inactive(&record).unwrap_err().message.contains("子进程"));
+        fs::write(temp.0.join("release"), b"done").unwrap();
+        // Explicitly clean only this fixture's process group; normal recovery
+        // never kills a possibly live previous deployment.
+        thread::sleep(Duration::from_millis(200));
+        unsafe {
+            libc::kill(-(group as i32), libc::SIGKILL);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_leader_cannot_hide_descendants_with_a_later_command() {
+        let temp = contracts::Temp::new();
+        let context = Context::fixture(&temp.0);
+        let checkpoint = temp.0.join("checkpoint.json");
+        resume::write(
+            &checkpoint,
+            &json!({"ownerPid":std::process::id(),"commandActive":false}),
+        )
+        .unwrap();
+        *context.owner.0.checkpoint.lock().unwrap() = Some(checkpoint.clone());
+        let first = context.run("sh", &strings(&["-c", "sleep 20 & exit 0"]), &temp.0, &BTreeMap::new());
+        let record = resources::json_file(&checkpoint, 4096).unwrap();
+        let group = record["commandPid"].as_i64().unwrap();
+        struct Cleanup(i64);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                unsafe {
+                    libc::kill(-(self.0 as i32), libc::SIGKILL);
+                }
+            }
+        }
+        let _cleanup = Cleanup(group);
+        assert!(first.unwrap_err().message.contains("子进程"));
+        assert_eq!(record["commandActive"], true);
+        assert!(resume::running(group, true));
+        assert!(context
+            .run("sh", &strings(&["-c", "touch must-not-run"]), &temp.0, &BTreeMap::new())
+            .is_err());
+        assert!(!temp.0.join("must-not-run").exists());
+        assert_eq!(resources::json_file(&checkpoint, 4096).unwrap(), record);
+    }
+
     #[test]
     fn stages_advance_without_inventing_work_and_do_not_regress() {
         let mut status = json!({});
@@ -129,6 +233,7 @@ struct Inner {
     completed: Mutex<Option<(Value, Value)>>,
     lock: Mutex<Option<PathBuf>>,
     container: Mutex<Option<String>>,
+    checkpoint: Mutex<Option<PathBuf>>,
 }
 pub struct Context {
     pub config: PathBuf,
@@ -149,6 +254,18 @@ impl Context {
         }
     }
 
+    fn command_checkpoint(&self, active: bool, pid: Option<u32>) -> Result<()> {
+        if let Some(path) = self.owner.0.checkpoint.lock().unwrap().as_ref() {
+            let mut record = resources::json_file(path, 16 * 1024 * 1024)?;
+            if active && pid.is_none() && record["commandActive"] == true {
+                return Err(fail("上一部署命令的子进程尚未确认退出，无法启动下一步。", 409));
+            }
+            record["commandActive"] = json!(active);
+            record["commandPid"] = json!(pid);
+            resume::write(path, &record)?;
+        }
+        Ok(())
+    }
     pub fn event(&self, message: &str) {
         let tagged = format!("[INFO] {message}");
         let mut s = self.owner.0.status.lock().unwrap();
@@ -237,7 +354,21 @@ impl Context {
         let dependency =
             regex::Regex::new(r"^configuration error: ([a-z0-9-]+) requires enabled release ([a-z0-9/-]+)$").unwrap();
         let mut pending = String::new();
-        let mut child = cmd.spawn().map_err(|_| fail("无法启动部署工具。", 500))?;
+        // Mark the spawn window first. If the process dies before the child PID
+        // is durable, recovery fails closed instead of assuming no child exists.
+        self.command_checkpoint(true, None)?;
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(_) => {
+                self.command_checkpoint(false, None)?;
+                return Err(fail("无法启动部署工具。", 500));
+            }
+        };
+        if let Err(error) = self.command_checkpoint(true, Some(child.id())) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
         let mut stopping = None;
         loop {
             let mut chunk = [0u8; 65536];
@@ -287,6 +418,11 @@ impl Context {
                         unsafe {
                             libc::kill(-(child.id() as i32), libc::SIGKILL);
                         }
+                    }
+                    let descendants = resume::running(child.id() as i64, true);
+                    self.command_checkpoint(descendants, Some(child.id()))?;
+                    if descendants {
+                        return Err(fail("部署命令已退出，但仍有子进程运行；已停止后续步骤。", 409));
                     }
                     self.cancel.check()?;
                     self.owner.0.status.lock().unwrap()["exitCode"] = json!(status.code().unwrap_or(130));
@@ -393,7 +529,49 @@ impl Deployment {
             completed: Mutex::new(None),
             lock: Mutex::new(None),
             container: Mutex::new(None),
+            checkpoint: Mutex::new(None),
         }))
+    }
+    pub fn restore(path: &Path) -> Result<Self> {
+        resume::bind_executable()?;
+        let owner = Self::new();
+        let record = match resume::load(path) {
+            Ok(record) => record,
+            Err(_) => {
+                *owner.0.status.lock().unwrap() = json!({"phase":"failed","events":[],
+                    "checkpointBlocked":true,"resumable":false,
+                    "message":"恢复记录损坏、权限不安全或身份无效，不能自动继续或开始另一安装。请先人工确认旧进程和工具箱已停止，再备份移走检查点；不会自动覆盖记录或接管集群。"});
+                return Ok(owner);
+            }
+        };
+        if let Some(record) = record {
+            *owner.0.status.lock().unwrap() = json!({"phase":"interrupted","events":[],
+                "message":"发现已完成集群引导的部署记录。继续前将核对配置、安装包、集群身份与运行中的命令，并重新执行 Helm 同步。",
+                "log":Path::new(record["directory"].as_str().unwrap()).join("install.log"),"resumable":true});
+        }
+        Ok(owner)
+    }
+    pub fn resume(&self, path: &Path, config: Value) -> Result<()> {
+        if self.active() {
+            return Err(fail("部署正在进行。", 409));
+        }
+        let record =
+            resume::load(path)?.ok_or_else(|| fail("没有可信的部署检查点；不能自动接管未完成的集群引导。", 409))?;
+        resume::inactive(&record)?;
+        if record["configHash"] != resume::config_hash(&config) {
+            return Err(fail("配置已变化，不能作为同一次安装继续。", 409));
+        }
+        if let Some(task) = self.0.task.lock().unwrap().take() {
+            let _ = task.join();
+        }
+        *self.0.cancel.lock().unwrap() = Cancellation::default();
+        *self.0.completed.lock().unwrap() = None;
+        *self.0.status.lock().unwrap() = json!({"phase":"preparing","events":[],"message":"正在核对原部署检查点…","startedAt":chrono::Utc::now().to_rfc3339()});
+        advance_stage(&mut self.0.status.lock().unwrap(), 0, "正在核对原部署检查点。");
+        let owner = self.clone();
+        let path = path.to_owned();
+        *self.0.task.lock().unwrap() = Some(thread::spawn(move || owner.execute(path, config, Some(record))));
+        Ok(())
     }
     pub fn snapshot(&self) -> Value {
         self.0.status.lock().unwrap().clone()
@@ -414,23 +592,39 @@ impl Deployment {
         advance_stage(&mut self.0.status.lock().unwrap(), 0, "正在检查部署配置和安装资源。");
         let owner = self.clone();
         let path = path.to_owned();
-        *self.0.task.lock().unwrap() = Some(thread::spawn(move || owner.execute(path, config)));
+        *self.0.task.lock().unwrap() = Some(thread::spawn(move || owner.execute(path, config, None)));
         Ok(())
     }
-    fn execute(&self, path: PathBuf, config: Value) {
+    fn execute(&self, path: PathBuf, config: Value, recovered: Option<Value>) {
         let cancel = self.0.cancel.lock().unwrap().clone();
         let result = (|| {
-            let directory = path
-                .parent()
-                .unwrap()
-                .join("deployments")
-                .join(format!("run-{:016x}", rand::random::<u64>()));
+            let _guard = resume::guard(&path)?;
+            // Do not overwrite another process's pending recovery record.
+            if recovered.is_none() && resume::load(&path)?.is_some() {
+                return Err(fail("存在未完成的部署记录，请先继续原部署。", 409));
+            }
+            let directory = if let Some(record) = &recovered {
+                PathBuf::from(record["directory"].as_str().unwrap())
+            } else {
+                path.parent()
+                    .unwrap()
+                    .join("deployments")
+                    .join(format!("run-{:016x}", rand::random::<u64>()))
+            };
             process::private_directory(&directory)?;
             let log_path = directory.join("install.log");
-            private_write(&log_path, b"")?;
+            if recovered.is_none() {
+                private_write(&log_path, b"")?;
+            }
             self.0.status.lock().unwrap()["log"] = json!(log_path);
-            let log = OpenOptions::new()
-                .append(true)
+            let mut log_options = OpenOptions::new();
+            log_options.append(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                log_options.custom_flags(libc::O_NOFOLLOW);
+            }
+            let log = log_options
                 .open(&log_path)
                 .map_err(|_| fail("无法打开安装日志。", 500))?;
             let context = Context {
@@ -450,10 +644,48 @@ impl Deployment {
                     .map_err(|_| fail("环境 values 文件不存在。", 400))?;
                 PathBuf::from(format!("{}.apeiron-deploy.lock", env.display()))
             };
+            let recovered_env = if let Some(record) = &recovered {
+                // Re-read under the cross-process guard; another continuation may
+                // have updated the record after the HTTP request was accepted.
+                let current = resume::load(&path)?.ok_or_else(|| fail("恢复记录已变化。", 409))?;
+                if current != *record {
+                    return Err(fail("恢复记录已变化。", 409));
+                }
+                resume::inactive(record)?;
+                let env = resume::validate(record, &config, &cancel)?;
+                if lock_path.exists() {
+                    let pid = String::from_utf8(resources::read(&lock_path, 128)?)
+                        .ok()
+                        .and_then(|v| v.parse::<i64>().ok())
+                        .ok_or_else(|| fail("旧部署锁无法核对。", 409))?;
+                    if Some(pid) != record["ownerPid"].as_i64() || resume::running(pid, false) {
+                        return Err(fail("旧部署锁身份不符。", 409));
+                    }
+                    fs::remove_file(&lock_path).map_err(|_| fail("无法释放已退出进程的旧部署锁。", 409))?;
+                }
+                target = record["target"].clone();
+                let mut current = record.clone();
+                current["ownerPid"] = json!(std::process::id());
+                current["finished"] = json!(false);
+                current["commandActive"] = json!(false);
+                current["commandPid"] = Value::Null;
+                resume::write(&resume::location(&path), &current)?;
+                *self.0.checkpoint.lock().unwrap() = Some(resume::location(&path));
+                context.stage(
+                    1,
+                    "原部署身份与文件校验通过；复用已完成的集群引导与凭据，重新检查 Helm 状态并同步。",
+                );
+                Some(env)
+            } else {
+                None
+            };
             private_write(&lock_path, std::process::id().to_string().as_bytes())
                 .map_err(|_| fail("此环境已有部署锁，请检查安装进程。", 409))?;
             *self.0.lock.lock().unwrap() = Some(lock_path);
-            let env = if fresh {
+            let mut prepared_identity = (Value::Null, PathBuf::new());
+            let env = if let Some(env) = recovered_env {
+                env
+            } else if fresh {
                 let prepared = super::bootstrap::prepare(&config, &context)?;
                 target = prepared.target.clone();
                 resources::write_yaml(
@@ -461,7 +693,9 @@ impl Deployment {
                     &environment_for(&config, prepared.values.clone())?,
                 )?;
                 context.stage(1, "正在准备集群网络、存储和部署入口。");
-                super::bootstrap::bootstrap(&mut target, &context, &prepared)?
+                let env = super::bootstrap::bootstrap(&mut target, &context, &prepared)?;
+                prepared_identity = (prepared.plan.clone(), prepared.bundle.clone());
+                env
             } else {
                 target["root"] = json!(resources::resolve(&target, &cancel, &|m| context.event(m))?);
                 context.stage(1, "正在连接已有集群并检查部署环境。");
@@ -488,7 +722,13 @@ impl Deployment {
                 return Err(fail("请提供已渲染的普通 YAML 文件。", 400));
             }
             let output = directory.join("environment.yaml");
-            resources::write_yaml(&output, &environment_for(&config, resources::yaml(input)?)?)?;
+            if recovered.is_none() {
+                resources::write_yaml(&output, &environment_for(&config, resources::yaml(input)?)?)?;
+            } else if env.get("CHENTU_ENV") != Some(&output.to_string_lossy().into_owned()) {
+                return Err(fail("原部署环境路径不匹配，不能继续。", 409));
+            }
+            // Recovery reuses the exact environment bytes verified by the checkpoint.
+            // Re-rendering here would overwrite the original installation contract.
             self.0.status.lock().unwrap()["environment"] = json!(output);
             let mut env = env;
             env.insert("CHENTU_ENV".into(), output.to_string_lossy().into_owned());
@@ -498,10 +738,27 @@ impl Deployment {
                     *self.0.container.lock().unwrap() = Some(name.clone());
                 }
             }
+            if fresh && recovered.is_none() && prepared_identity.0["releaseManifest"].is_object() {
+                resume::checkpoint(
+                    &path,
+                    &config,
+                    &directory,
+                    &target,
+                    &env,
+                    (&prepared_identity.0, &prepared_identity.1),
+                    &cancel,
+                )?;
+                *self.0.checkpoint.lock().unwrap() = Some(resume::location(&path));
+            }
             context.event("检查 Helm 是否存在未完成的操作。");
             cluster::helm_state(&target, &env, &cancel)?;
             if config["models"].is_object() && config["apps"].as_array().unwrap().contains(&json!("apeiron")) {
-                cluster::model_key(&config["models"], &target, &env, &cancel)?;
+                // This bounded capture owns its child internally. Persist an
+                // uncertain-operation barrier if the CLI dies inside it.
+                context.command_checkpoint(true, None)?;
+                let applied = cluster::model_key(&config["models"], &target, &env, &cancel);
+                context.command_checkpoint(false, None)?;
+                applied?;
             }
             self.0.status.lock().unwrap()["phase"] = json!("running");
             let root = Path::new(target["root"].as_str().unwrap());
@@ -553,6 +810,11 @@ impl Deployment {
                 *self.0.completed.lock().unwrap() = Some((target, artifacts));
             }
             context.event("部署完成。");
+            if self.0.checkpoint.lock().unwrap().is_some() {
+                fs::rename(resume::location(&path), directory.join("completed-checkpoint.json"))
+                    .map_err(|_| fail("无法完成部署检查点归档。", 500))?;
+                *self.0.checkpoint.lock().unwrap() = None;
+            }
             Ok(())
         })();
         if let Err(ref error) = result {
@@ -571,7 +833,22 @@ impl Deployment {
         }
         let stopped = cancel.check().is_err();
         let cleanup = self.cleanup();
+        let resumable = if cleanup {
+            if let Some(checkpoint) = self.0.checkpoint.lock().unwrap().as_ref() {
+                if let Ok(mut record) = resources::json_file(checkpoint, 16 * 1024 * 1024) {
+                    record["finished"] = json!(true);
+                    resume::write(checkpoint, &record).is_ok()
+                } else {
+                    false
+                }
+            } else {
+                resume::load(&path).ok().flatten().is_some()
+            }
+        } else {
+            false
+        };
         let mut s = self.0.status.lock().unwrap();
+        s["resumable"] = json!(resumable);
         if !cleanup {
             s["phase"] = json!("stopping");
             s["stopFailed"] = json!(true);

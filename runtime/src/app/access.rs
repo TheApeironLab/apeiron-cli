@@ -41,6 +41,18 @@ pub fn public_ca(pem: &str) -> Result<Value> {
         json!({"pem":format!("-----BEGIN CERTIFICATE-----\n{body}\n-----END CERTIFICATE-----\n"),"fingerprint":fingerprint,"expiresAt":expires}),
     )
 }
+// A resumed run may already have exported these public artifacts. Reuse only
+// identical regular files; never overwrite a different CA or follow a symlink.
+fn write_public_artifact(path: &Path, bytes: &[u8]) -> Result<()> {
+    if path.try_exists().map_err(|_| fail("无法检查访问产物。", 400))? {
+        if resources::read(path, 65536)? != bytes {
+            return Err(fail("本次运行已有不同的访问产物。", 409));
+        }
+        Ok(())
+    } else {
+        private_write(path, bytes)
+    }
+}
 pub fn collect(target: &Value, dir: &Path, cancel: &Cancellation) -> Result<Value> {
     let i = &target["installation"];
     if i["publicAccess"].is_object() {
@@ -56,7 +68,7 @@ pub fn collect(target: &Value, dir: &Path, cancel: &Cancellation) -> Result<Valu
         )?;
         let ca = public_ca(std::str::from_utf8(&raw).map_err(|_| fail("无效 CA。", 400))?)?;
         let path = dir.join("chentu-ca.crt");
-        private_write(&path, ca["pem"].as_str().unwrap().as_bytes())?;
+        write_public_artifact(&path, ca["pem"].as_str().unwrap().as_bytes())?;
         Ok::<_, Error>((path, ca))
     })();
     match ca {
@@ -100,7 +112,7 @@ pub fn collect(target: &Value, dir: &Path, cancel: &Cancellation) -> Result<Valu
             "# Apeiron {domain}\n# Add these entries to this workstation's hosts file. Do not replace the file.\n{}",
             names.iter().map(|n| format!("{ip} {n}\n")).collect::<String>()
         );
-        private_write(&dir.join("apeiron-hosts.txt"), text.as_bytes())?;
+        write_public_artifact(&dir.join("apeiron-hosts.txt"), text.as_bytes())?;
         Ok::<_, Error>(text)
     })();
     match hosts {
@@ -890,6 +902,26 @@ pub(super) mod contracts {
                 .as_str()
                 .unwrap()
                 .contains("hosts.before"));
+        }
+    }
+}
+
+#[cfg(test)]
+mod resumed_artifact_tests {
+    use super::*;
+    #[test]
+    fn resumes_identical_public_artifacts_without_replacing_conflicts() {
+        let temp = crate::app::contracts::Temp::new();
+        let path = temp.0.join("public.crt");
+        write_public_artifact(&path, b"same public certificate").unwrap();
+        write_public_artifact(&path, b"same public certificate").unwrap();
+        assert!(write_public_artifact(&path, b"different certificate").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"same public certificate");
+        #[cfg(unix)]
+        {
+            let link = temp.0.join("link.crt");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            assert!(write_public_artifact(&link, b"same public certificate").is_err());
         }
     }
 }
