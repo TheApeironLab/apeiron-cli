@@ -535,7 +535,16 @@ impl Deployment {
     pub fn restore(path: &Path) -> Result<Self> {
         resume::bind_executable()?;
         let owner = Self::new();
-        if let Some(record) = resume::load(path)? {
+        let record = match resume::load(path) {
+            Ok(record) => record,
+            Err(_) => {
+                *owner.0.status.lock().unwrap() = json!({"phase":"failed","events":[],
+                    "checkpointBlocked":true,"resumable":false,
+                    "message":"恢复记录损坏、权限不安全或身份无效，不能自动继续或开始另一安装。请先人工确认旧进程和工具箱已停止，再备份移走检查点；不会自动覆盖记录或接管集群。"});
+                return Ok(owner);
+            }
+        };
+        if let Some(record) = record {
             *owner.0.status.lock().unwrap() = json!({"phase":"interrupted","events":[],
                 "message":"发现已完成集群引导的部署记录。继续前将核对配置、安装包、集群身份与运行中的命令，并重新执行 Helm 同步。",
                 "log":Path::new(record["directory"].as_str().unwrap()).join("install.log"),"resumable":true});

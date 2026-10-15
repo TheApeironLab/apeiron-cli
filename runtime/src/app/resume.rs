@@ -28,12 +28,37 @@ pub fn write(path: &Path, value: &Value) -> Result<()> {
     }
     result
 }
+fn private_file(path: &Path, create: bool) -> Result<fs::File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        let file = OpenOptions::new().read(true).write(create).create(create).truncate(false)
+            .mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path).map_err(|_| error())?;
+        let metadata = file.metadata().map_err(|_| error())?;
+        if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
+            return Err(error());
+        }
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    { let _ = (path, create); Err(error()) }
+}
 pub fn load(config: &Path) -> Result<Option<Value>> {
     let path = location(config);
-    if !path.try_exists().map_err(|_| error())? {
-        return Ok(None);
+    match fs::symlink_metadata(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(error()),
+        Ok(_) => {}
     }
-    let value = resources::json_file(&path, 16 * 1024 * 1024)?;
+    // Validate the opened inode, then parse that same file; a path-only mode
+    // check could race a replacement between validation and reading.
+    let file = private_file(&path, false)?;
+    let mut bytes = Vec::new();
+    file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|_| error())?;
+    if bytes.len() > 16 * 1024 * 1024 { return Err(error()); }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| error())?;
     if value["schemaVersion"] != 1 || value["configPath"] != json!(config) {
         return Err(error());
     }
@@ -144,16 +169,8 @@ pub fn inactive(record: &Value) -> Result<()> {
 pub fn guard(config: &Path) -> Result<fs::File> {
     #[cfg(unix)]
     {
-        use std::os::{fd::AsRawFd, unix::fs::OpenOptionsExt};
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(format!("{}.installation-owner", config.display()))
-            .map_err(|_| error())?;
+        use std::os::fd::AsRawFd;
+        let file = private_file(Path::new(&format!("{}.installation-owner", config.display())), true)?;
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
             return Err(fail("另一个进程正在部署或继续此安装。", 409));
         }
@@ -566,4 +583,52 @@ mod tests {
         fs::write(location(&config), "partial checkpoint").unwrap();
         assert!(load(&config).is_err());
     }
+    #[test]
+    fn checkpoint_and_guard_reject_shared_or_exposed_inodes() {
+        let (temp, _, _) = fixture();
+        let config = temp.0.join("config.json");
+        let checkpoint = location(&config);
+        fs::set_permissions(&checkpoint, fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(load(&config).is_err());
+        fs::set_permissions(&checkpoint, fs::Permissions::from_mode(0o600)).unwrap();
+        let alias = temp.0.join("checkpoint-alias");
+        fs::hard_link(&checkpoint, &alias).unwrap();
+        assert!(load(&config).is_err());
+        fs::remove_file(alias).unwrap();
+        assert!(load(&config).unwrap().is_some());
+        if unsafe { libc::geteuid() } == 0 {
+            use std::os::unix::ffi::OsStrExt;
+            let name = std::ffi::CString::new(checkpoint.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::chown(name.as_ptr(), 12345, u32::MAX) }, 0);
+            assert!(load(&config).is_err());
+            assert_eq!(unsafe { libc::chown(name.as_ptr(), 0, u32::MAX) }, 0);
+        }
+        fs::remove_file(&checkpoint).unwrap();
+        std::os::unix::fs::symlink(temp.0.join("missing"), &checkpoint).unwrap();
+        assert!(load(&config).is_err());
+        let lock = PathBuf::from(format!("{}.installation-owner", config.display()));
+        drop(guard(&config).unwrap());
+        fs::set_permissions(&lock, fs::Permissions::from_mode(0o660)).unwrap();
+        assert!(guard(&config).is_err());
+        fs::set_permissions(&lock, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::hard_link(&lock, temp.0.join("lock-alias")).unwrap();
+        assert!(guard(&config).is_err());
+    }
+    #[test]
+    fn malformed_checkpoint_keeps_wizard_available_without_allowing_deploy() {
+        let (temp, config, mut record) = fixture();
+        let path = temp.0.join("config.json");
+        for malformed in [false, true] {
+            if malformed { fs::write(location(&path), "broken JSON").unwrap(); }
+            else { record["directory"] = json!("/tmp/foreign/run-0000000000000001"); write(&location(&path), &record).unwrap(); }
+            let deployment = deploy::Deployment::restore(&path).unwrap();
+            assert_eq!(deployment.snapshot()["phase"], "failed");
+            assert_eq!(deployment.snapshot()["checkpointBlocked"], true);
+            assert_eq!(deployment.snapshot()["resumable"], false);
+            assert!(!deployment.active());
+            assert!(deployment.resume(&path, config.clone()).is_err());
+            assert!(load(&path).is_err()); // New-run guards retain this refusal.
+        }
+    }
+
 }
