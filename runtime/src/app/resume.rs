@@ -32,18 +32,30 @@ fn private_file(path: &Path, create: bool) -> Result<fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-        let file = OpenOptions::new().read(true).write(create).create(create).truncate(false)
-            .mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path).map_err(|_| error())?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(create)
+            .create(create)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .map_err(|_| error())?;
         let metadata = file.metadata().map_err(|_| error())?;
-        if !metadata.is_file() || metadata.uid() != unsafe { libc::geteuid() }
-            || metadata.mode() & 0o077 != 0 || metadata.nlink() != 1 {
+        if !metadata.is_file()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.mode() & 0o077 != 0
+            || metadata.nlink() != 1
+        {
             return Err(error());
         }
         Ok(file)
     }
     #[cfg(not(unix))]
-    { let _ = (path, create); Err(error()) }
+    {
+        let _ = (path, create);
+        Err(error())
+    }
 }
 pub fn load(config: &Path) -> Result<Option<Value>> {
     let path = location(config);
@@ -56,8 +68,12 @@ pub fn load(config: &Path) -> Result<Option<Value>> {
     // check could race a replacement between validation and reading.
     let file = private_file(&path, false)?;
     let mut bytes = Vec::new();
-    file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes).map_err(|_| error())?;
-    if bytes.len() > 16 * 1024 * 1024 { return Err(error()); }
+    file.take(16 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| error())?;
+    if bytes.len() > 16 * 1024 * 1024 {
+        return Err(error());
+    }
     let value: Value = serde_json::from_slice(&bytes).map_err(|_| error())?;
     if value["schemaVersion"] != 1 || value["configPath"] != json!(config) {
         return Err(error());
@@ -619,8 +635,12 @@ mod tests {
         let (temp, config, mut record) = fixture();
         let path = temp.0.join("config.json");
         for malformed in [false, true] {
-            if malformed { fs::write(location(&path), "broken JSON").unwrap(); }
-            else { record["directory"] = json!("/tmp/foreign/run-0000000000000001"); write(&location(&path), &record).unwrap(); }
+            if malformed {
+                fs::write(location(&path), "broken JSON").unwrap();
+            } else {
+                record["directory"] = json!("/tmp/foreign/run-0000000000000001");
+                write(&location(&path), &record).unwrap();
+            }
             let deployment = deploy::Deployment::restore(&path).unwrap();
             assert_eq!(deployment.snapshot()["phase"], "failed");
             assert_eq!(deployment.snapshot()["checkpointBlocked"], true);
@@ -630,5 +650,4 @@ mod tests {
             assert!(load(&path).is_err()); // New-run guards retain this refusal.
         }
     }
-
 }
