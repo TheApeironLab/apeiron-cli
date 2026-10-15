@@ -97,6 +97,14 @@ try {
     assert.equal(retries, 1);
     await page.reload();
     assert.equal(resumes, 1, 'Reload never starts another continuation');
+    status = { phase: 'interrupted', resumable: true, completedRecovery: true, events: [], message: '等待核对成功部署身份。' };
+    await page.reload();
+    await page.getByRole('button', { name: '恢复访问配置', exact: true }).waitFor();
+    assert.match(await page.locator('#deployment-note').innerText(), /此操作不重新执行部署/);
+    assert.equal(resumes, 1, 'Reload never restores completed installation without a click');
+    await page.getByRole('button', { name: '恢复访问配置', exact: true }).click();
+    await page.getByRole('heading', { name: /阶段 1 \/ 6/ }).waitFor();
+    assert.equal(resumes, 2);
     status = snapshot(5, 'succeeded'); status.stages.forEach(stage => { stage.state = 'done'; });
     await page.reload();
     await page.getByRole('heading', { name: '部署阶段已完成', exact: true }).waitFor();

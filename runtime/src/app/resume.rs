@@ -7,6 +7,33 @@ use std::{fs, path::PathBuf};
 pub fn location(config: &Path) -> PathBuf {
     PathBuf::from(format!("{}.installation-resume.json", config.display()))
 }
+pub fn completed_location(config: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.installation-complete.json", config.display()))
+}
+pub fn recovery(config: &Path) -> Result<Option<Value>> {
+    if let Some(record) = load(config)? {
+        return Ok(Some(record));
+    }
+    let record = load_record(config, &completed_location(config))?;
+    if record
+        .as_ref()
+        .is_some_and(|r| r["succeeded"] != true || r["finished"] != true || r["commandActive"] != false)
+    {
+        return Err(error());
+    }
+    Ok(record)
+}
+pub fn complete(config: &Path, directory: &Path) -> Result<()> {
+    let mut record = load(config)?.ok_or_else(error)?;
+    record["succeeded"] = json!(true);
+    record["finished"] = json!(true);
+    record["commandActive"] = json!(false);
+    record["commandPid"] = Value::Null;
+    // Publish the completed record before archiving the active checkpoint. A
+    // crash between the two leaves the active recovery path taking precedence.
+    write(&completed_location(config), &record)?;
+    fs::rename(location(config), directory.join("completed-checkpoint.json")).map_err(|_| error())
+}
 fn error() -> Error {
     fail(
         "无法安全继续部署：检查点、配置、安装包或集群身份已变化。请查看原部署记录；不会自动接管或升级。",
@@ -58,15 +85,17 @@ fn private_file(path: &Path, create: bool) -> Result<fs::File> {
     }
 }
 pub fn load(config: &Path) -> Result<Option<Value>> {
-    let path = location(config);
-    match fs::symlink_metadata(&path) {
+    load_record(config, &location(config))
+}
+fn load_record(config: &Path, path: &Path) -> Result<Option<Value>> {
+    match fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(error()),
         Ok(_) => {}
     }
     // Validate the opened inode, then parse that same file; a path-only mode
     // check could race a replacement between validation and reading.
-    let file = private_file(&path, false)?;
+    let file = private_file(path, false)?;
     let mut bytes = Vec::new();
     file.take(16 * 1024 * 1024 + 1)
         .read_to_end(&mut bytes)
@@ -450,6 +479,10 @@ mod tests {
         let config = resources::json_file(&config_path, 65536).unwrap();
         let deployment = deploy::Deployment::restore(&config_path).unwrap();
         assert_eq!(deployment.snapshot()["phase"], "interrupted");
+        assert_eq!(
+            deployment.snapshot()["completedRecovery"],
+            std::env::var("APEIRON_RESTART_FIXTURE_MODE").unwrap() == "completed"
+        );
         // Debug test executables are large; isolate integrity hashing from the
         // bounded deployment continuation assertion below. Production hashes in
         // its worker so wizard startup remains responsive.
@@ -520,12 +553,114 @@ mod tests {
                 assert!(Path::new(record["directory"].as_str().unwrap())
                     .join("completed-checkpoint.json")
                     .exists());
+                assert!(
+                    child("completed").wait().unwrap().success(),
+                    "{}",
+                    fs::read_to_string(temp.0.join("completed.stderr")).unwrap()
+                );
+                let restored = resources::json_file(&temp.0.join("result.json"), 65536).unwrap();
+                assert_eq!(restored["phase"], "succeeded", "{restored}");
+                assert_eq!(
+                    fs::read_to_string(temp.0.join("sync-marker")).unwrap(),
+                    "synchronized\n",
+                    "restoring a completed deployment must never run sync again"
+                );
             }
             assert_eq!(
                 fs::read_to_string(temp.0.join("kubeconfig")).unwrap(),
                 "private-fixture-kubeconfig"
             );
         }
+    }
+    #[test]
+    fn cluster_dns_failure_survives_restart_and_reuses_identity_without_provisioning() {
+        let (temp, mut config, original) = fixture();
+        let path = temp.0.join("config.json");
+        let installation = json!({"topology":"multi-k3s","domain":"fixture.example.internal",
+            "entryIp":"192.0.2.10","httpsPort":443});
+        config["deployment"]["installation"] = installation.clone();
+        let mut target = original["target"].clone();
+        target["installation"] = installation;
+        target["workDir"] = json!(temp.0.join("work"));
+        let helper = temp.write(
+            "source/bootstrap/private_dns.py",
+            r#"import sys
+from pathlib import Path
+root = Path(__file__).resolve().parents[1]
+assert sys.argv[1:] == ['cluster', '--domain', 'fixture.example.internal', '--address', '192.0.2.10']
+with (root / 'dns-calls').open('a') as stream:
+    stream.write('cluster\n')
+if (root / 'dns-blocked').exists():
+    raise SystemExit(17)
+"#,
+        );
+        let package_path = temp.0.join("source/chentu-package.json");
+        let mut package = resources::json_file(&package_path, 65536).unwrap();
+        package["files"]["bootstrap/private_dns.py"] = json!(digest(&helper).unwrap());
+        fs::write(package_path, package.to_string()).unwrap();
+        temp.tool(
+            "bin/ansible-playbook",
+            "#!/bin/sh\nprintf 'unexpected provision' > \"$RESUME_FIXTURE_MARKER.provision\"\nexit 99\n",
+        );
+        let env = serde_json::from_value(original["environment"].clone()).unwrap();
+        let directory = Path::new(original["directory"].as_str().unwrap());
+        let mut record = checkpoint(
+            &path,
+            &config,
+            directory,
+            &target,
+            &env,
+            (&original["plan"], Path::new(original["bundle"].as_str().unwrap())),
+            &Cancellation::default(),
+        )
+        .unwrap();
+        record["finished"] = json!(true);
+        write(&location(&path), &record).unwrap();
+        temp.write("config.json", config.to_string());
+        temp.write("source/dns-blocked", "simulate transient Kubernetes failure");
+        let child = |mode| {
+            std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "app::resume::tests::recovery_restart_fixture", "--nocapture"])
+                .env("APEIRON_RESTART_FIXTURE", &temp.0)
+                .env("APEIRON_RESTART_FIXTURE_MODE", mode)
+                .stdout(std::process::Stdio::null())
+                .stderr(fs::File::create(temp.0.join(format!("{mode}.stderr"))).unwrap())
+                .status()
+                .unwrap()
+        };
+        assert!(
+            child("dns-fail").success(),
+            "{}",
+            fs::read_to_string(temp.0.join("dns-fail.stderr")).unwrap()
+        );
+        let failed = resources::json_file(&temp.0.join("result.json"), 65536).unwrap();
+        assert_eq!(failed["phase"], "failed");
+        assert_eq!(failed["resumable"], true);
+        assert!(failed["message"].as_str().unwrap().contains("退出码 17"), "{failed}");
+        assert_eq!(load(&path).unwrap().unwrap()["clusterUid"], record["clusterUid"]);
+        assert!(!temp.0.join("sync-marker").exists());
+        fs::remove_file(temp.0.join("source/dns-blocked")).unwrap();
+        assert!(
+            child("dns-retry").success(),
+            "{}",
+            fs::read_to_string(temp.0.join("dns-retry.stderr")).unwrap()
+        );
+        let restored = resources::json_file(&temp.0.join("result.json"), 65536).unwrap();
+        assert_eq!(restored["phase"], "succeeded", "{restored}");
+        assert_eq!(
+            fs::read_to_string(temp.0.join("source/dns-calls")).unwrap(),
+            "cluster\ncluster\n"
+        );
+        assert_eq!(
+            fs::read_to_string(temp.0.join("sync-marker")).unwrap(),
+            "synchronized\n"
+        );
+        assert!(!temp.0.join("sync-marker.provision").exists());
+        assert_eq!(
+            fs::read_to_string(temp.0.join("kubeconfig")).unwrap(),
+            "private-fixture-kubeconfig"
+        );
+        assert_eq!(restored["log"], json!(directory.join("install.log")));
     }
     #[test]
     fn checkpoint_binds_config_package_credentials_and_cluster_without_copying_secrets() {
@@ -558,6 +693,69 @@ mod tests {
             fs::write(path, original).unwrap();
         }
         validate(&record, &config, &cancel).unwrap();
+    }
+    #[test]
+    fn completed_records_are_private_verified_and_active_recovery_takes_precedence() {
+        let (temp, config, record) = fixture();
+        let path = temp.0.join("config.json");
+        complete(&path, Path::new(record["directory"].as_str().unwrap())).unwrap();
+        assert!(load(&path).unwrap().is_none());
+        let completed = recovery(&path).unwrap().unwrap();
+        assert_eq!(completed["succeeded"], true);
+        assert_eq!(
+            fs::metadata(completed_location(&path)).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        validate(&completed, &config, &Cancellation::default()).unwrap();
+        fs::write(temp.0.join("uid"), "replacement-cluster").unwrap();
+        assert!(validate(&completed, &config, &Cancellation::default()).is_err());
+        assert!(!completed.to_string().contains("private-fixture-key"));
+        write(&location(&path), &record).unwrap();
+        assert_eq!(recovery(&path).unwrap().unwrap(), record);
+        fs::remove_file(location(&path)).unwrap();
+        fs::set_permissions(completed_location(&path), fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(recovery(&path).is_err());
+    }
+    #[test]
+    fn completed_native_install_restores_access_only_after_identity_validation() {
+        for changed_cluster in [false, true] {
+            let (temp, mut config, mut record) = fixture();
+            let path = temp.0.join("config.json");
+            let installation = json!({"topology":"multi-k3s","domain":"fixture.example.internal",
+                "entryIp":"192.0.2.10","httpsPort":443});
+            config["deployment"]["installation"] = installation.clone();
+            record["target"]["installation"] = installation;
+            record["target"]["workDir"] = json!(temp.0.join("work"));
+            record["configHash"] = json!(config_hash(&config));
+            write(&location(&path), &record).unwrap();
+            complete(&path, Path::new(record["directory"].as_str().unwrap())).unwrap();
+            if changed_cluster {
+                temp.write("uid", "different-cluster");
+            }
+            let deployment = deploy::Deployment::restore(&path).unwrap();
+            assert_eq!(deployment.snapshot()["completedRecovery"], true);
+            assert!(deployment.artifacts().is_err(), "identity is not verified at startup");
+            deployment.resume(&path, config).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            while deployment.active() {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(
+                !temp.0.join("sync-marker").exists(),
+                "access recovery never executes sync"
+            );
+            if changed_cluster {
+                assert_eq!(deployment.snapshot()["phase"], "failed");
+                assert!(deployment.artifacts().is_err());
+            } else {
+                assert_eq!(deployment.snapshot()["phase"], "succeeded", "{}", deployment.snapshot());
+                assert_eq!(
+                    deployment.artifacts().unwrap()["info"]["domain"],
+                    "fixture.example.internal"
+                );
+            }
+        }
     }
     #[test]
     fn active_or_reused_pids_and_uncertain_spawn_windows_fail_closed() {

@@ -191,12 +191,12 @@ export function initWizard(supportsK3sHost) {
     }
     function renderAccessGuide(access) {
         completedAccess = access;
-        get('completed-dns-guide').textContent = access.local ? `将下载的完整 hosts 配置合并到运行 CLI 的这台机器。本机 K3d HTTPS 入口为 127.0.0.1:${access.httpsPort ?? 443}。下面是 Apeiron 和 IAM 的示例。` : '在内网 DNS 添加以下 A 记录，并让访问设备使用该 DNS。少量工作站也可使用下载的 hosts 配置。';
+        get('completed-dns-guide').textContent = access.local ? `将下载的完整 hosts 配置合并到运行 CLI 的这台机器。本机 K3d HTTPS 入口为 127.0.0.1:${access.httpsPort ?? 443}。下面是 Apeiron 和 IAM 的示例。` : access.private ? '管理机和集群节点已配置内部解析。浏览器在其他电脑上时，请合并下载的 hosts 配置，或在内网 DNS 添加以下记录。' : '在内网 DNS 添加以下 A 记录，并让访问设备使用该 DNS。少量工作站也可使用下载的 hosts 配置。';
         get('dns-records').textContent = access.local
             ? `127.0.0.1 apeiron.${access.domain}\n127.0.0.1 iam.${access.domain}`
             : `*.${access.domain}    A    ${access.entryIp}\n${access.domain}      A    ${access.entryIp}`;
-        get('dns-scope').textContent = `检测发起于 CLI 主机 ${cliHost.name || '当前主机'}。${access.local ? '检查 Apeiron 与 IAM 的本机解析。' : '检查 Apeiron、IAM 和随机子域名的泛解析。'}浏览器若在其他电脑上，需在那台电脑上配置解析与证书信任；此检查不代表 HTTPS 或应用已经可用。`;
-        const fingerprint = JSON.stringify([access.domain, access.entryIp, access.local]);
+        get('dns-scope').textContent = `检测发起于 CLI 主机 ${cliHost.name || '当前主机'}。${access.local || access.private ? '通过系统解析检查 Apeiron 与 IAM，包含 hosts 配置。' : '检查 Apeiron、IAM 和随机子域名的泛解析。'}浏览器若在其他电脑上，需在那台电脑上配置解析与证书信任；此检查不代表 HTTPS 或应用已经可用。`;
+        const fingerprint = JSON.stringify([access.domain, access.entryIp, access.local, access.private]);
         if (dnsFingerprint !== fingerprint) {
             dnsFingerprint = fingerprint;
             resetDns();
@@ -308,7 +308,7 @@ export function initWizard(supportsK3sHost) {
         get('dns-status').dataset.state = '';
         try {
             const response = await fetch(endpoint('dns'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ domain: access.domain, entryIp: access.entryIp, local: access.local }), signal: dnsRequest.signal });
+                body: JSON.stringify({ domain: access.domain, entryIp: access.entryIp, local: access.local, ...(access.private ? { private: true } : {}) }), signal: dnsRequest.signal });
             const result = await response.json();
             if (serial !== dnsSerial)
                 return;
@@ -834,7 +834,7 @@ export function initWizard(supportsK3sHost) {
         get('verification').hidden = !showTest;
         renderProgress(showTest ? 6 : showAccess ? 5 : 4);
         const active = ['preparing', 'running', 'stopping'].includes(status.phase);
-        get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? '正在部署…' : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : status.phase === 'interrupted' ? '部署等待继续。' : '部署失败。';
+        get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? (status.completedRecovery ? '正在恢复访问配置…' : '正在部署…') : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : status.phase === 'interrupted' ? '部署等待继续。' : '部署失败。';
         get('deployment-message').textContent = status.message;
         renderDeploymentStages(status);
         get('deployment-events').replaceChildren(...status.events.map(message => {
@@ -867,11 +867,11 @@ export function initWizard(supportsK3sHost) {
         const retryButton = get('retry-deployment');
         retryButton.hidden = !['failed', 'cancelled', 'interrupted'].includes(status.phase);
         retryButton.disabled = deploymentAction;
-        retryButton.textContent = status.resumable ? '继续原部署' : '重新部署';
+        retryButton.textContent = status.completedRecovery ? '恢复访问配置' : status.resumable ? '继续原部署' : '重新部署';
         get('edit').disabled = deploymentAction;
         if (deploymentAction)
             get('finish').disabled = true;
-        get('deployment-note').textContent = status.resumable ? '仅继续已完成集群引导的同一次部署。将重新核对安装包、配置与集群身份，再执行同步；未完成引导的安装不会自动接管，升级新包需独立流程。' : active ? '关闭或刷新页面不会停止部署。点击“停止部署”会终止部署进程，保留已有资源；已提交给集群的任务可能继续运行。' : status.phase === 'cancelled'
+        get('deployment-note').textContent = status.completedRecovery ? '核对原安装的配置、CLI、安装包、资源和集群身份后，恢复访问配置与登录测试。此操作不重新执行部署。' : status.resumable ? '仅继续已完成集群引导的同一次部署。将重新核对安装包、配置与集群身份，再执行同步；未完成引导的安装不会自动接管，升级新包需独立流程。' : active ? '关闭或刷新页面不会停止部署。点击“停止部署”会终止部署进程，保留已有资源；已提交给集群的任务可能继续运行。' : status.phase === 'cancelled'
             ? '点击“重新部署”使用上次保存的配置，检查资源和 Helm 状态后重新运行。不会断点续跑，也不会删除已有集群和数据。'
             : status.exitCode === undefined
                 ? '安装在准备阶段停止。请根据日志修正原因后重试；已完成的变更不会自动回滚。'

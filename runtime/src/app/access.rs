@@ -60,7 +60,7 @@ pub fn collect(target: &Value, dir: &Path, cancel: &Cancellation) -> Result<Valu
             json!({"info":{"domain":i["domain"],"entryIp":i["publicAccess"]["publicIp"],"local":false,"public":true,"httpsPort":443,"notes":["公网 DNS 与 HTTPS 已通过检查，证书由 Caddy 自动续期。"]}}),
         );
     }
-    let mut result = json!({"info":{"domain":i["domain"],"entryIp":i["entryIp"],"local":i["topology"]=="single-k3d","httpsPort":i["httpsPort"],"notes":[]}});
+    let mut result = json!({"info":{"domain":i["domain"],"entryIp":i["entryIp"],"local":i["topology"]=="single-k3d","private":i["topology"]!="single-k3d","httpsPort":i["httpsPort"],"notes":[]}});
     let ca = (|| {
         let raw = resources::read(
             &Path::new(target["workDir"].as_str().unwrap()).join("state/chentu-ca.crt"),

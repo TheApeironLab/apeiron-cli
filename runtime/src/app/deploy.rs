@@ -535,7 +535,7 @@ impl Deployment {
     pub fn restore(path: &Path) -> Result<Self> {
         resume::bind_executable()?;
         let owner = Self::new();
-        let record = match resume::load(path) {
+        let record = match resume::recovery(path) {
             Ok(record) => record,
             Err(_) => {
                 *owner.0.status.lock().unwrap() = json!({"phase":"failed","events":[],
@@ -546,7 +546,8 @@ impl Deployment {
         };
         if let Some(record) = record {
             *owner.0.status.lock().unwrap() = json!({"phase":"interrupted","events":[],
-                "message":"发现已完成集群引导的部署记录。继续前将核对配置、安装包、集群身份与运行中的命令，并重新执行 Helm 同步。",
+                "message":if record["succeeded"] == true {"发现已成功部署的记录。恢复访问配置前将核对配置、安装包、资源和集群身份。"} else {"发现已完成集群引导的部署记录。继续前将核对配置、安装包、集群身份与运行中的命令，并重新执行 Helm 同步。"},
+                "completedRecovery":record["succeeded"] == true,
                 "log":Path::new(record["directory"].as_str().unwrap()).join("install.log"),"resumable":true});
         }
         Ok(owner)
@@ -556,7 +557,7 @@ impl Deployment {
             return Err(fail("部署正在进行。", 409));
         }
         let record =
-            resume::load(path)?.ok_or_else(|| fail("没有可信的部署检查点；不能自动接管未完成的集群引导。", 409))?;
+            resume::recovery(path)?.ok_or_else(|| fail("没有可信的部署检查点；不能自动接管未完成的集群引导。", 409))?;
         resume::inactive(&record)?;
         if record["configHash"] != resume::config_hash(&config) {
             return Err(fail("配置已变化，不能作为同一次安装继续。", 409));
@@ -566,7 +567,7 @@ impl Deployment {
         }
         *self.0.cancel.lock().unwrap() = Cancellation::default();
         *self.0.completed.lock().unwrap() = None;
-        *self.0.status.lock().unwrap() = json!({"phase":"preparing","events":[],"message":"正在核对原部署检查点…","startedAt":chrono::Utc::now().to_rfc3339()});
+        *self.0.status.lock().unwrap() = json!({"phase":"preparing","events":[],"completedRecovery":record["succeeded"] == true,"message":"正在核对原部署检查点…","startedAt":chrono::Utc::now().to_rfc3339()});
         advance_stage(&mut self.0.status.lock().unwrap(), 0, "正在核对原部署检查点。");
         let owner = self.clone();
         let path = path.to_owned();
@@ -602,6 +603,13 @@ impl Deployment {
             // Do not overwrite another process's pending recovery record.
             if recovered.is_none() && resume::load(&path)?.is_some() {
                 return Err(fail("存在未完成的部署记录，请先继续原部署。", 409));
+            }
+            if recovered.is_none() {
+                match fs::remove_file(resume::completed_location(&path)) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(_) => return Err(fail("无法清除上次完成记录；尚未开始新的部署。", 409)),
+                }
             }
             let directory = if let Some(record) = &recovered {
                 PathBuf::from(record["directory"].as_str().unwrap())
@@ -647,12 +655,26 @@ impl Deployment {
             let recovered_env = if let Some(record) = &recovered {
                 // Re-read under the cross-process guard; another continuation may
                 // have updated the record after the HTTP request was accepted.
-                let current = resume::load(&path)?.ok_or_else(|| fail("恢复记录已变化。", 409))?;
+                let current = resume::recovery(&path)?.ok_or_else(|| fail("恢复记录已变化。", 409))?;
                 if current != *record {
                     return Err(fail("恢复记录已变化。", 409));
                 }
                 resume::inactive(record)?;
                 let env = resume::validate(record, &config, &cancel)?;
+                if record["succeeded"] == true {
+                    if lock_path.exists() {
+                        return Err(fail("发现部署锁，请先确认原部署已完全停止后再恢复访问配置。", 409));
+                    }
+                    target = record["target"].clone();
+                    context.stage(5, "已核对成功部署的身份，正在恢复访问配置。");
+                    if fresh {
+                        let artifacts = super::access::collect(&target, &directory, &cancel)?;
+                        self.0.status.lock().unwrap()["access"] = artifacts["info"].clone();
+                        *self.0.completed.lock().unwrap() = Some((target, artifacts));
+                    }
+                    context.event("已恢复成功部署记录；请继续配置访问并测试登录。");
+                    return Ok(());
+                }
                 if lock_path.exists() {
                     let pid = String::from_utf8(resources::read(&lock_path, 128)?)
                         .ok()
@@ -750,6 +772,9 @@ impl Deployment {
                 )?;
                 *self.0.checkpoint.lock().unwrap() = Some(resume::location(&path));
             }
+            // Retryable post-provision work belongs after the durable cluster
+            // checkpoint and is replayed on same-installation continuation.
+            super::bootstrap::private_cluster_dns(&target, &context, &env)?;
             context.event("检查 Helm 是否存在未完成的操作。");
             cluster::helm_state(&target, &env, &cancel)?;
             if config["models"].is_object() && config["apps"].as_array().unwrap().contains(&json!("apeiron")) {
@@ -811,8 +836,7 @@ impl Deployment {
             }
             context.event("部署完成。");
             if self.0.checkpoint.lock().unwrap().is_some() {
-                fs::rename(resume::location(&path), directory.join("completed-checkpoint.json"))
-                    .map_err(|_| fail("无法完成部署检查点归档。", 500))?;
+                resume::complete(&path, &directory)?;
                 *self.0.checkpoint.lock().unwrap() = None;
             }
             Ok(())
@@ -842,13 +866,20 @@ impl Deployment {
                     false
                 }
             } else {
-                resume::load(&path).ok().flatten().is_some()
+                resume::recovery(&path).ok().flatten().is_some()
             }
         } else {
             false
         };
         let mut s = self.0.status.lock().unwrap();
         s["resumable"] = json!(resumable);
+        s["completedRecovery"] = json!(
+            resume::load(&path).ok().flatten().is_none()
+                && resume::recovery(&path)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|r| r["succeeded"] == true)
+        );
         if !cleanup {
             s["phase"] = json!("stopping");
             s["stopFailed"] = json!(true);

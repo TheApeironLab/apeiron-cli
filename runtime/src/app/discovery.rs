@@ -350,11 +350,16 @@ fn dns_with(
     if !config::safe_domain(domain) || !config::safe_ip(ip) || (local && ip != "127.0.0.1") {
         return Err(fail("请填写有效的域名和入口 IPv4 地址。", 400));
     }
+    let private = match input.get("private") {
+        None => false,
+        Some(value) => value.as_bool().ok_or_else(|| fail("内部解析模式必须为布尔值。", 400))?,
+    };
+    let dns_only = !local && !private;
     let mut hosts = vec![format!("apeiron.{domain}"), format!("iam.{domain}")];
     if include_root {
         hosts.push(domain.into());
     }
-    if !local {
+    if dns_only {
         hosts.push(format!(
             "apeiron-check-{:012x}.{domain}",
             rand::random::<u64>() & 0xffffffffffff
@@ -369,7 +374,7 @@ fn dns_with(
                     let (send, receive) = mpsc::channel();
                     let name = host.clone();
                     thread::spawn(move || {
-                        let addresses = lookup(&name, !local);
+                        let addresses = lookup(&name, dns_only);
                         let _ = send.send(addresses);
                     });
                     let start = Instant::now();
@@ -399,7 +404,7 @@ fn dns_with(
         handles.into_iter().map(|h| h.join().unwrap()).collect::<Vec<_>>()
     });
     Ok(
-        json!({"checkedFrom":host()["name"],"checkedAt":chrono::Utc::now().to_rfc3339(),"passed":checks.iter().all(|c|c["status"]=="matched"),"wildcard":!local,"checks":checks}),
+        json!({"checkedFrom":host()["name"],"checkedAt":chrono::Utc::now().to_rfc3339(),"passed":checks.iter().all(|c|c["status"]=="matched"),"wildcard":dns_only,"checks":checks}),
     )
 }
 pub fn aliases() -> Result<Value> {
@@ -611,6 +616,35 @@ mod cpu_contracts {
 mod dns_contracts {
     use super::*;
     use std::sync::{Arc, Mutex};
+    #[test]
+    fn private_native_resolution_accepts_hosts_without_wildcard_and_rejects_wrong_addresses() {
+        let input = json!({"domain":"example.internal","entryIp":"192.0.2.10","local":false,"private":true});
+        for (addresses, expected) in [
+            (vec!["192.0.2.10"], true),
+            (vec![], false),
+            (vec!["192.0.2.10", "192.0.2.11"], false),
+        ] {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let copy = seen.clone();
+            let result = dns_with(
+                &input,
+                false,
+                &Cancellation::default(),
+                Duration::from_secs(1),
+                Arc::new(move |name, dns_only| {
+                    assert!(!dns_only, "hosts must participate in private resolution");
+                    copy.lock().unwrap().push(name.to_owned());
+                    Ok(addresses.iter().map(|s| s.to_string()).collect())
+                }),
+            )
+            .unwrap();
+            assert_eq!(result["passed"], expected);
+            assert_eq!(result["wildcard"], false);
+            let mut names = seen.lock().unwrap().clone();
+            names.sort();
+            assert_eq!(names, ["apeiron.example.internal", "iam.example.internal"]);
+        }
+    }
     #[test]
     fn dns_checks_every_address_wildcard_and_matrix_root_with_bounded_cancellation() {
         let input = json!({"domain":"team.apeironlab.internal","entryIp":"192.0.2.10","local":false});

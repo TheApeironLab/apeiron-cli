@@ -24,7 +24,50 @@ fn present(tool: &str, env: &BTreeMap<String, String>) -> bool {
         .cloned()
         .or_else(|| std::env::var("PATH").ok())
         .unwrap_or_default();
-    std::env::split_paths(&paths).any(|p| p.join(tool).is_file())
+    std::env::split_paths(&paths).any(|p| {
+        let Ok(metadata) = fs::metadata(p.join(tool)) else {
+            return false;
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+        }
+        #[cfg(not(unix))]
+        metadata.is_file()
+    })
+}
+fn require_tools(tools: &[&str], env: &BTreeMap<String, String>) -> Result<()> {
+    let missing = tools
+        .iter()
+        .filter(|tool| !present(tool, env))
+        .copied()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(fail(
+            format!(
+                "管理机缺少可执行工具：{}。请在 CLI 主机安装，或使用包含这些工具的离线安装包后重试；尚未创建集群。",
+                missing.join("、")
+            ),
+            400,
+        ));
+    }
+    Ok(())
+}
+fn check_offline_operator(target: &Value, c: &Context) -> Result<()> {
+    let helper = path(target, "root").join("bootstrap/prepare-operator.py");
+    if target["offline"] != true || !helper.is_file() {
+        return Ok(());
+    }
+    let bundle = path(target, "bundleDir");
+    if !bundle.is_absolute() {
+        return Err(fail("管理机离线依赖预检需要原始安装包的绝对路径。", 400));
+    }
+    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    c.checked("python3", strings(&[&helper.to_string_lossy(), "--bundle", &bundle.to_string_lossy(), "--check"]),
+        target, &BTreeMap::new(), "检查管理机离线工具及本地供应资源（只读）")
+        .map_err(|_| fail(format!("管理机离线依赖预检未通过，请查看日志。若缺少工具，可在 CLI 主机显式运行 sudo python3 {} --bundle {} --install 后重试。",
+            quote(&helper.to_string_lossy()), quote(&bundle.to_string_lossy())), 400))
 }
 fn replace(v: &mut Value, entries: &[(&str, String)]) {
     match v {
@@ -50,6 +93,17 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     let mut target = config["deployment"].clone();
     let i = target["installation"].clone();
     let docker = i["topology"] == "single-k3d";
+    let mut system_tools = if docker {
+        vec!["bash", "docker"]
+    } else {
+        vec!["bash", "tar", "python3"]
+    };
+    if i["topology"] == "multi-k3s" {
+        system_tools.push("ssh");
+    }
+    // These tools cannot be supplied by target-node resources. Fail before
+    // resolving or downloading the deployment package.
+    require_tools(&system_tools, &BTreeMap::new())?;
     if !config::safe_ip(i["entryIp"].as_str().unwrap_or("")) {
         return Err(fail("请确认平台入口 IP。", 400));
     }
@@ -98,6 +152,16 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     let key = format!("{}-{arch}", if docker { "k3d" } else { "k3s" });
     let catalog = resources::catalog(&root, &key)?;
     let mut plan = resources::plan(&catalog, &key, &config["apps"])?;
+    let bundled = !docker
+        && plan["target"]["operatorTools"] == true
+        && cfg!(target_os = "linux")
+        && discovery::architecture(std::env::consts::ARCH) == arch;
+    if bundled && key == "k3s-amd64" {
+        check_offline_operator(&target, c)?;
+    }
+    if !docker && !bundled {
+        require_tools(&["ansible-playbook", "helm", "helmfile", "curl"], &BTreeMap::new())?;
+    }
     let cache = if target["bundleDir"].as_str().unwrap_or("").is_empty() {
         c.directory.parent().unwrap().join("resources")
     } else {
@@ -140,36 +204,16 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     if docker && (i["httpPort"] != 80 || i["httpsPort"] != 443) && plan["target"]["publicPorts"] != true {
         return Err(fail("安装包不支持自定义入口端口。", 400));
     }
-    let bundled = !docker
-        && plan["target"]["operatorTools"] == true
-        && cfg!(target_os = "linux")
-        && discovery::architecture(std::env::consts::ARCH) == arch;
-    let mut tools = if docker {
-        vec!["docker"]
-    } else if bundled {
-        vec!["tar", "python3"]
-    } else {
-        vec!["ansible-playbook", "helm", "helmfile", "python3"]
-    };
-    if i["topology"] == "multi-k3s" {
-        tools.push("ssh");
-    }
-    for tool in tools {
-        if !present(tool, &BTreeMap::new()) {
-            return Err(fail(format!("管理机缺少 {tool}，请安装后重新检测。"), 400));
-        }
-    }
     if i["publicAccess"].is_object() {
         public_access("check", &target, c, &BTreeMap::new())?;
-    } else if !docker
-        && discovery::dns(
-            &json!({"domain":i["domain"],"entryIp":i["entryIp"],"local":false}),
-            false,
-            &c.cancel,
-        )?["passed"]
-            != true
-    {
-        return Err(fail("管理机 DNS 检查未通过，尚未创建集群。", 400));
+    } else if !docker {
+        if !root.join("bootstrap/private_dns.py").is_file() {
+            return Err(fail(
+                "此安装包缺少原生内部解析准备程序，请使用新版完整包；尚未修改主机。",
+                400,
+            ));
+        }
+        c.event("私有安装将按入口 IP 配置管理机、节点和集群内部解析，无需预先配置外部 DNS。");
     }
     resources::prepare_files(&plan, &cache, target["offline"] == true, &c.cancel, &|m| c.event(m))?;
     let work = if docker {
@@ -266,6 +310,22 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     } else {
         BTreeMap::new()
     };
+    if !docker {
+        require_tools(&["curl"], &tool_env)?;
+        process::text(
+            Command::new("curl").arg("--version").envs(&tool_env),
+            b"",
+            10,
+            8192,
+            &c.cancel,
+        )
+        .map_err(|_| {
+            fail(
+                "管理机 curl 无法运行。请检查 CLI 主机或离线安装包的 curl 及其运行库后重试；尚未创建集群。",
+                400,
+            )
+        })?;
+    }
     let cluster = format!("apeiron-{}", &config::hash(work.to_string_lossy().as_bytes())[..12]);
     let node = if docker {
         format!("k3d-{cluster}-server-0")
@@ -667,8 +727,39 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         &json!({"all":{"vars":vars,"children":{"server":{"hosts":hosts("server")},"agent":{"hosts":hosts("agent")}}}}),
     )?;
     let mut tasks = Vec::new();
-    if !i["publicAccess"].is_object() {
-        tasks.push(json!({"name":"Verify platform DNS on each node","ansible.builtin.command":{"argv":["python3","-c","import socket,sys; domain,ip=sys.argv[1:]; hosts=['apeiron.'+domain,'iam.'+domain]; assert all({a[4][0] for a in socket.getaddrinfo(h,443,type=socket.SOCK_STREAM)}=={ip} for h in hosts)",i["domain"],i["entryIp"]]},"changed_when":false,"async":15,"poll":1}));
+    let private_dns = !i["publicAccess"].is_object();
+    let mut plays = Vec::new();
+    if private_dns {
+        let script = root.join("bootstrap/private_dns.py");
+        let names_path = c.directory.join("private-dns-names.json");
+        c.checked(
+            "python3",
+            strings(&[
+                &script.to_string_lossy(),
+                "plan",
+                "--domain",
+                i["domain"].as_str().unwrap(),
+                "--address",
+                i["entryIp"].as_str().unwrap(),
+                "--output",
+                &names_path.to_string_lossy(),
+            ]),
+            target,
+            &env,
+            "生成内部解析清单",
+        )?;
+        let names = private_names(&names_path, i["domain"].as_str().unwrap())?;
+        let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+        let command = format!(
+            "{} hosts --domain {} --address {} --names {}",
+            quote(&script.to_string_lossy()),
+            quote(i["domain"].as_str().unwrap()),
+            quote(i["entryIp"].as_str().unwrap()),
+            quote(&names.join(","))
+        );
+        let prepare_dns = json!({"name":"Establish and verify managed private resolution","ansible.builtin.script":{"cmd":command,"executable":"python3"},"register":"private_dns_result","changed_when":"private_dns_result.stdout | trim == 'changed'","timeout":60});
+        plays.push(json!({"name":"Prepare operator private resolution","hosts":"localhost","connection":"local","become":true,"become_flags":"-n","gather_facts":false,"tasks":[prepare_dns.clone()]}));
+        tasks.push(prepare_dns);
     }
     if multi {
         tasks.push(json!({"name":"Check peer SSH reachability","ansible.builtin.wait_for":{"host":"{{ item }}","port":i["sshPort"],"timeout":8,"connect_timeout":3},"loop":p.nodes.iter().map(|n|n["address"].clone()).collect::<Vec<_>>()}));
@@ -689,10 +780,8 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
     }
     tasks.push(json!({"name":"Verify staged bundle on each node","ansible.builtin.command":{"argv":["sha256sum","--check","SHA256SUMS"],"chdir":"{{ chentu_bundle }}"},"changed_when":false}));
     let preflight = c.directory.join("prepare-hosts.yaml");
-    resources::write_yaml(
-        &preflight,
-        &json!([{"name":"Prepare verified installation resources","hosts":"server:agent","become":true,"gather_facts":false,"tasks":tasks}]),
-    )?;
+    plays.push(json!({"name":"Prepare verified installation resources","hosts":"server:agent","become":true,"gather_facts":false,"tasks":tasks}));
+    resources::write_yaml(&preflight, &json!(plays))?;
     c.checked(
         "ansible-playbook",
         strings(&["-i", &inventory.to_string_lossy(), &preflight.to_string_lossy()]),
@@ -713,6 +802,56 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
     )?;
     public_access("prepare", target, c, &env)?;
     Ok(env)
+}
+// Runs only after the cluster identity checkpoint is durable. A transient
+// Kubernetes/CoreDNS failure must be retryable without provisioning K3s again.
+pub fn private_cluster_dns(target: &Value, c: &Context, env: &BTreeMap<String, String>) -> Result<()> {
+    let i = &target["installation"];
+    if target["runner"] != "native" || !i.is_object() || i["publicAccess"].is_object() {
+        return Ok(());
+    }
+    c.checked(
+        "python3",
+        strings(&[
+            &path(target, "root").join("bootstrap/private_dns.py").to_string_lossy(),
+            "cluster",
+            "--domain",
+            i["domain"].as_str().unwrap(),
+            "--address",
+            i["entryIp"].as_str().unwrap(),
+        ]),
+        target,
+        env,
+        "配置集群内部解析",
+    )
+}
+fn private_names(path: &Path, domain: &str) -> Result<Vec<String>> {
+    let names = resources::json_file(path, 65536)?;
+    let names = names
+        .as_array()
+        .filter(|names| !names.is_empty() && names.len() <= 1024)
+        .ok_or_else(|| fail("内部解析清单无效。", 400))?;
+    let suffix = format!(".{domain}");
+    let mut unique = std::collections::BTreeSet::new();
+    for name in names {
+        let name = name
+            .as_str()
+            .filter(|name| config::safe_domain(name))
+            .ok_or_else(|| fail("内部解析名称无效。", 400))?;
+        let label = name
+            .strip_suffix(&suffix)
+            .filter(|label| !label.is_empty() && !label.contains('.'))
+            .ok_or_else(|| fail("内部解析名称不属于本次安装域名。", 400))?;
+        if label.is_empty() || !unique.insert(name.to_owned()) {
+            return Err(fail("内部解析清单包含重复名称。", 400));
+        }
+    }
+    for service in ["apeiron", "iam", "nexus", "registry"] {
+        if !unique.contains(&format!("{service}.{domain}")) {
+            return Err(fail("内部解析清单缺少必要服务。", 400));
+        }
+    }
+    Ok(unique.into_iter().collect())
 }
 pub fn public_access(phase: &str, target: &Value, c: &Context, env: &BTreeMap<String, String>) -> Result<()> {
     let i = &target["installation"];
@@ -775,6 +914,70 @@ pub fn public_access(phase: &str, target: &Value, c: &Context, env: &BTreeMap<St
 mod tool_contracts {
     use super::*;
     use crate::app::contracts::Temp;
+    #[test]
+    fn offline_operator_check_uses_original_bundle_and_never_installs() {
+        let temp = Temp::new();
+        let c = Context::fixture(&temp.0);
+        let root = temp.0.join("chentu");
+        temp.write("chentu/bootstrap/prepare-operator.py", "raise SystemExit(17)\n");
+        let target = json!({"root":root,"offline":true,"bundleDir":temp.0});
+        let error = check_offline_operator(&target, &c).unwrap_err();
+        assert!(error.message.contains("sudo python3") && error.message.contains("--install 后重试"));
+        let log = fs::read_to_string(temp.0.join("install.log")).unwrap();
+        assert!(log.contains("退出码 17"), "{log}");
+        // If this function invoked --install, this fixture would fail the test
+        // through an observable side effect instead of just its read-only exit.
+        temp.write("chentu/bootstrap/prepare-operator.py", format!(
+            "import sys\nfrom pathlib import Path\nassert sys.argv[1:] == ['--bundle', {:?}, '--check']\nPath({:?}).write_text('checked')\n",
+            temp.0.to_string_lossy(), temp.0.join("operator-checked").to_string_lossy()));
+        check_offline_operator(&target, &c).unwrap();
+        assert_eq!(fs::read_to_string(temp.0.join("operator-checked")).unwrap(), "checked");
+    }
+    #[test]
+    fn private_dns_plan_rejects_foreign_nested_duplicate_and_missing_service_names() {
+        let temp = Temp::new();
+        let valid = json!([
+            "apeiron.example.internal",
+            "iam.example.internal",
+            "nexus.example.internal",
+            "registry.example.internal"
+        ]);
+        let path = temp.write("names.json", valid.to_string());
+        assert_eq!(private_names(&path, "example.internal").unwrap().len(), 4);
+        for extra in [
+            "foreign.example.org",
+            "nested.ops.example.internal",
+            "apeiron.example.internal",
+            "bad;command.example.internal",
+        ] {
+            let mut names = valid.clone();
+            names.as_array_mut().unwrap().push(json!(extra));
+            temp.write("names.json", names.to_string());
+            assert!(private_names(&path, "example.internal").is_err(), "{extra}");
+        }
+        temp.write(
+            "names.json",
+            json!(["apeiron.example.internal", "iam.example.internal"]).to_string(),
+        );
+        assert!(private_names(&path, "example.internal").is_err());
+    }
+    #[test]
+    fn management_preflight_reports_all_missing_executables_and_accepts_bundled_curl() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = Temp::new();
+        let env = BTreeMap::from([("PATH".into(), temp.0.to_string_lossy().into_owned())]);
+        let error = require_tools(&["curl", "helm"], &env).unwrap_err();
+        assert!(error.message.contains("curl、helm") && error.message.contains("尚未创建集群"));
+        let curl = temp.write("curl", "#!/bin/sh\nexit 0\n");
+        fs::set_permissions(&curl, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            require_tools(&["curl"], &env).is_err(),
+            "a nonexecutable file is not a tool"
+        );
+        fs::set_permissions(curl, fs::Permissions::from_mode(0o700)).unwrap();
+        require_tools(&["curl"], &env).unwrap();
+        assert!(require_tools(&["curl", "helm"], &env).is_err());
+    }
     #[test]
     fn native_tools_require_complete_verified_set_and_install_offline_with_failures_propagated() {
         use std::os::unix::fs::PermissionsExt;
@@ -857,7 +1060,14 @@ chmod 700 "$PWD/operator/venv/bin/ansible-playbook"
         for name in ["python3", "ansible-playbook"] {
             temp.tool(
                 name,
-                "#!/bin/sh\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> \"$CAPTURE\"\n[ ! -f \"$PWD/fail\" ] || exit 17\n",
+                r#"#!/bin/sh
+printf '%s %s\n' "${0##*/}" "$*" >> "$CAPTURE"
+[ ! -f "$PWD/fail" ] || exit 17
+if [ "${2:-}" = plan ]; then
+    for argument do output="$argument"; done
+    printf '%s' '["apeiron.example.internal","iam.example.internal","nexus.example.internal","registry.example.internal"]' > "$output"
+fi
+"#,
             );
         }
         let i = json!({"topology":"multi-k3s","domain":"example.internal","entryIp":"192.0.2.10","sshPort":22,"sshKey":"","sshUser":""});
@@ -879,10 +1089,15 @@ chmod 700 "$PWD/operator/venv/bin/ansible-playbook"
         bootstrap(&mut target, &c, &p).unwrap();
         let calls = fs::read_to_string(temp.0.join("capture")).unwrap();
         let lines = calls.lines().collect::<Vec<_>>();
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 4);
         assert!(lines[0].starts_with("python3 ") && lines[0].ends_with("/deploy/helmfile/scripts/check.py"));
-        assert!(lines[1].starts_with("ansible-playbook ") && lines[1].ends_with("/prepare-hosts.yaml"));
-        assert!(lines[2].ends_with("/bootstrap/hosts.yaml"));
+        assert!(lines[1].contains("private_dns.py plan --domain example.internal --address 192.0.2.10 --output"));
+        assert!(lines[2].starts_with("ansible-playbook ") && lines[2].ends_with("/prepare-hosts.yaml"));
+        assert!(lines[3].ends_with("/bootstrap/hosts.yaml"));
+        assert!(
+            !calls.contains("private_dns.py cluster"),
+            "cluster DNS belongs after the durable identity checkpoint"
+        );
         let inventory = resources::yaml(&temp.0.join("inventory.yaml")).unwrap();
         assert!(inventory["all"]["children"]["server"]["hosts"]["node-0"].is_object());
         assert!(inventory["all"]["children"]["agent"]["hosts"]["node-1"].is_object());
@@ -892,15 +1107,26 @@ chmod 700 "$PWD/operator/venv/bin/ansible-playbook"
             .unwrap()
             .contains("StrictHostKeyChecking=yes"));
         let playbook = resources::yaml(&temp.0.join("prepare-hosts.yaml")).unwrap();
+        assert_eq!(playbook[0]["hosts"], "localhost");
+        assert_eq!(playbook[0]["connection"], "local");
+        assert_eq!(playbook[0]["become"], true);
+        assert_eq!(playbook[0]["become_flags"], "-n");
+        assert_eq!(playbook[1]["hosts"], "server:agent");
+        let task = &playbook[1]["tasks"][0];
+        assert_eq!(task["ansible.builtin.script"]["executable"], "python3");
+        assert!(task["ansible.builtin.script"]["cmd"]
+            .as_str()
+            .unwrap()
+            .contains("hosts --domain 'example.internal' --address '192.0.2.10' --names"));
         assert_eq!(
-            playbook[0]["tasks"]
+            playbook[1]["tasks"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .map(|t| t["name"].as_str().unwrap())
                 .collect::<Vec<_>>(),
             [
-                "Verify platform DNS on each node",
+                "Establish and verify managed private resolution",
                 "Check peer SSH reachability",
                 "Create resource directories",
                 "Copy verified resources",
