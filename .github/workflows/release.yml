@@ -121,6 +121,10 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    env:
+      # Selects the publication channel: oss (public internet, default), forgejo
+      # or directory for intranets. See docs/releases.md.
+      APEIRON_PUBLISH_TARGET: ${{ vars.APEIRON_PUBLISH_TARGET || 'oss' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -131,11 +135,13 @@ jobs:
           name: release
           path: ${{ runner.temp }}/release
       - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6 # v1
+        if: env.APEIRON_PUBLISH_TARGET == 'oss'
         with:
           oidc-provider-arn: ${{ vars.OSS_OIDC_PROVIDER_ARN }}
           role-to-assume: ${{ vars.OSS_ROLE_ARN }}
           role-session-name: apeiron-cli-release
       - uses: aliyun/setup-aliyun-cli-action@09a5f86915bb556e27bf050e9a5e339aeb073df5 # v1
+        if: env.APEIRON_PUBLISH_TARGET == 'oss'
         with:
           version: 3.3.23
       - run: bun scripts/publish-release.js "$RUNNER_TEMP/release"
@@ -143,3 +149,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ALIBABA_CLOUD_REGION_ID: cn-beijing
           ALIBABA_CLOUD_IGNORE_PROFILE: 'TRUE'
+          FORGEJO_BASE: ${{ secrets.FORGEJO_BASE }}
+          FORGEJO_REPOSITORY: ${{ vars.FORGEJO_REPOSITORY }}
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
