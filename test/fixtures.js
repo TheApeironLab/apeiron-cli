@@ -57,10 +57,10 @@ export async function freshInstallFixture(dir, setup, exit = 0, resumeDomain) {
         const cluster = 'apeiron-' + hash(work);
         await mkdir(work, { recursive: true });
         await writeFile(join(work, 'installation.json'), JSON.stringify({ cluster, domain: resumeDomain }));
-        const secret = JSON.stringify({ metadata: { name: 'keycloak-bootstrap', namespace: 'keycloak' }, data: {
+        const secret = JSON.stringify({ metadata: { name: 'keycloak-operator', namespace: 'keycloak' }, data: {
                 username: Buffer.from('fixture-admin').toString('base64'), password: Buffer.from('fixture-only-admin-password').toString('base64'),
             } });
-        await writeFile(join(setup.bin, 'docker'), `#!/bin/sh\nif [ "$1" = inspect ]; then echo '{"cluster":"${cluster}","running":true,"bindings":{"54320/tcp":[{"HostIp":"127.0.0.1","HostPort":"54320"}],"443/tcp":[{"HostIp":"127.0.0.1","HostPort":"54321"}]}}'; exit 0; fi\nif [ "$1" = inspect ]; then printf '%s\\n' '${cluster}'; fi\ncase "$*" in *' list --pending '*) echo '[]';; *' get secret keycloak-bootstrap '*) printf '%s\\n' '${secret}';; esac\nexit 0\n`, { mode: 0o755 });
+        await writeFile(join(setup.bin, 'docker'), `#!/bin/sh\nif [ "$1" = inspect ]; then echo '{"cluster":"${cluster}","running":true,"bindings":{"54320/tcp":[{"HostIp":"127.0.0.1","HostPort":"54320"}],"443/tcp":[{"HostIp":"127.0.0.1","HostPort":"54321"}]}}'; exit 0; fi\nif [ "$1" = inspect ]; then printf '%s\\n' '${cluster}'; fi\ncase "$*" in *' list --pending '*) echo '[]';; *' get secret keycloak-operator '*) printf '%s\\n' '${secret}';; esac\nexit 0\n`, { mode: 0o755 });
     }
     const bytes = 'fixture-only resource';
     const ca = join(dir, 'fixture-ca.crt');

@@ -134,7 +134,7 @@ pub fn credentials(target: &Value, cancel: &Cancellation) -> Result<Value> {
         let raw = process::capture(&mut cmd, b"", Duration::from_secs(20), 65536, cancel)?;
         decode_credentials(&raw)
     })();
-    result.map_err(|_| fail("暂时无法读取初始管理员凭据，请确认集群可连接后重试。", 400))
+    result.map_err(|_| fail("暂时无法读取工作空间登录凭据，请确认集群可连接后重试。", 400))
 }
 fn credential_command(target: &Value) -> Result<Command> {
     let args = [
@@ -143,13 +143,13 @@ fn credential_command(target: &Value) -> Result<Command> {
         "keycloak",
         "get",
         "secret",
-        "keycloak-bootstrap",
+        "keycloak-operator",
         "-o",
         "json",
     ];
     let mut cmd;
     if target["runner"] == "native" {
-        cmd = Command::new("kubectl");
+        cmd = Command::new(target["kubectlPath"].as_str().unwrap_or("kubectl"));
         cmd.args(["--kubeconfig", target["kubeconfig"].as_str().unwrap()]);
     } else {
         let work = Path::new(target["workDir"].as_str().unwrap());
@@ -183,7 +183,7 @@ fn credential_command(target: &Value) -> Result<Command> {
 }
 fn decode_credentials(raw: &[u8]) -> Result<Value> {
     let value: Value = serde_json::from_slice(raw).map_err(|_| fail("凭据响应无效。", 400))?;
-    if value["metadata"]["name"] != "keycloak-bootstrap" || value["metadata"]["namespace"] != "keycloak" {
+    if value["metadata"]["name"] != "keycloak-operator" || value["metadata"]["namespace"] != "keycloak" {
         return Err(fail("凭据响应无效。", 400));
     }
     let mut output = json!({});
@@ -523,8 +523,11 @@ pub(super) mod contracts {
     fn credential_decoder_projects_only_expected_secret_and_rejects_malformed_output() {
         let encode = |s: &str| base64::engine::general_purpose::STANDARD.encode(s);
         let credentials = json!({"username":"fixture-admin","password":"not-a-real-password<&\""});
-        let secret = json!({"metadata":{"name":"keycloak-bootstrap","namespace":"keycloak"},"data":{"username":encode("fixture-admin"),"password":encode("not-a-real-password<&\""),"extra":encode("must-not-return")}});
+        let secret = json!({"metadata":{"name":"keycloak-operator","namespace":"keycloak"},"data":{"username":encode("fixture-admin"),"password":encode("not-a-real-password<&\""),"extra":encode("must-not-return")}});
         assert_eq!(decode_credentials(secret.to_string().as_bytes()).unwrap(), credentials);
+        let mut bootstrap = secret.clone();
+        bootstrap["metadata"]["name"] = json!("keycloak-bootstrap");
+        assert!(decode_credentials(bootstrap.to_string().as_bytes()).is_err());
         let mut wrong_namespace = secret.clone();
         wrong_namespace["metadata"]["namespace"] = json!("elsewhere");
         let mut invalid_base64 = secret.clone();
@@ -562,7 +565,7 @@ pub(super) mod contracts {
         }
         assert_eq!(
             &args[args.len() - 7..],
-            ["-n", "keycloak", "get", "secret", "keycloak-bootstrap", "-o", "json"]
+            ["-n", "keycloak", "get", "secret", "keycloak-operator", "-o", "json"]
         );
         assert!(!args.join(" ").contains("docker.sock"));
         assert!(!args.join(" ").contains("password"));
@@ -571,8 +574,8 @@ pub(super) mod contracts {
             json!({"cluster":"apeiron-fixture","domain":"wrong.internal"}).to_string(),
         );
         assert!(credential_command(&target).is_err());
-        let cmd = credential_command(&json!({"runner":"native","kubeconfig":"/generated/kubeconfig"})).unwrap();
-        assert_eq!(cmd.get_program(), "kubectl");
+        let cmd = credential_command(&json!({"runner":"native","kubeconfig":"/generated/kubeconfig","kubectlPath":"/owned/operator/venv/bin/kubectl"})).unwrap();
+        assert_eq!(cmd.get_program(), "/owned/operator/venv/bin/kubectl");
         assert_eq!(
             cmd.get_args().take(2).collect::<Vec<_>>(),
             ["--kubeconfig", "/generated/kubeconfig"]

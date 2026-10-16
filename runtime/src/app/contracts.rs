@@ -702,3 +702,50 @@ fn offline_installation_uses_only_explicit_bundle_and_ports_preserve_topology_co
         assert!(config::validate(&input(i, false), &Value::Null).is_err());
     }
 }
+
+#[test]
+fn native_tool_commands_pin_bundled_executable_and_owned_kubeconfig() {
+    let env = BTreeMap::from([
+        ("CHENTU_KUBECTL".into(), "/owned/operator/venv/bin/kubectl".into()),
+        ("CHENTU_HELM".into(), "/owned/bundle/bin/helm".into()),
+        ("KUBECONFIG".into(), "/unrelated/inherited-config".into()),
+        ("PATH".into(), "/unrelated/wrappers".into()),
+    ]);
+    let target = json!({"runner":"native","kubeconfig":"/owned/state/kubeconfig"});
+    for (name, path) in [
+        ("kubectl", "/owned/operator/venv/bin/kubectl"),
+        ("helm", "/owned/bundle/bin/helm"),
+    ] {
+        let command = cluster::toolbox_command(&target, &env, name);
+        assert_eq!(command.get_program(), path);
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["--kubeconfig", "/owned/state/kubeconfig"]
+        );
+    }
+}
+
+#[test]
+fn fresh_files_selection_declares_only_operator_bucket_and_preserves_user_mappings() {
+    let users = json!([{"username":"explicit-user","buckets":["private"]}]);
+    let values = json!({"releases":{"files":{"values":{"users":users}}}});
+    let config = json!({"slug":"example","apps":["files"],"deployment":{"installation":{}}});
+    let rendered = deploy::environment_for(&config, values.clone()).unwrap();
+    assert_eq!(rendered["releases"]["files"]["values"]["operatorBucket"], "files-owner");
+    assert_eq!(rendered["releases"]["files"]["values"]["users"], users);
+    let mut explicit = values.clone();
+    explicit["releases"]["files"]["values"]["operatorBucket"] = json!("chosen-bucket");
+    assert_eq!(
+        deploy::environment_for(&config, explicit).unwrap()["releases"]["files"]["values"]["operatorBucket"],
+        "chosen-bucket"
+    );
+    for config in [
+        json!({"slug":"example","apps":["files"],"deployment":{}}),
+        json!({"slug":"example","apps":[],"deployment":{"installation":{}}}),
+    ] {
+        assert!(
+            deploy::environment_for(&config, values.clone()).unwrap()["releases"]["files"]["values"]["operatorBucket"]
+                .is_null()
+        );
+    }
+}

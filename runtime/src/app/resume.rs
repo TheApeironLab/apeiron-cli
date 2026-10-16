@@ -286,6 +286,25 @@ pub fn cluster_uid(target: &Value, env: &BTreeMap<String, String>, cancel: &Canc
     }
     Ok(uid.trim().to_owned())
 }
+fn native_binding(target: &Value, env: &BTreeMap<String, String>) -> Result<()> {
+    if target["runner"] != "native" || (target["kubectlPath"].is_null() && !env.contains_key("CHENTU_KUBECTL")) {
+        return Ok(());
+    }
+    let work = Path::new(target["workDir"].as_str().ok_or_else(error)?);
+    let tool = work.join("operator/venv/bin/kubectl");
+    if !work.is_absolute()
+        || target["kubectlPath"] != json!(tool)
+        || env.get("CHENTU_KUBECTL") != Some(&tool.to_string_lossy().into_owned())
+        || env.get("CHENTU_HELM") != Some(&work.join("bundle/bin/helm").to_string_lossy().into_owned())
+        || target["kubeconfig"] != json!(work.join("state/kubeconfig"))
+        || env.get("KUBECONFIG") != target["kubeconfig"].as_str().map(|s| s.to_owned()).as_ref()
+        || fs::read_link(tool).map_err(|_| error())? != work.join("bundle/k3s/k3s")
+    {
+        return Err(error());
+    }
+    Ok(())
+}
+
 pub fn checkpoint(
     config_path: &Path,
     config: &Value,
@@ -295,6 +314,7 @@ pub fn checkpoint(
     resources: (&Value, &Path),
     cancel: &Cancellation,
 ) -> Result<Value> {
+    native_binding(target, env)?;
     let (plan, bundle) = resources;
     let root = Path::new(target["root"].as_str().ok_or_else(error)?);
     let package = resources::json_file(&root.join("chentu-package.json"), 4 * 1024 * 1024)?;
@@ -397,6 +417,7 @@ pub fn validate(record: &Value, config: &Value, cancel: &Cancellation) -> Result
             ));
         }
     }
+    native_binding(&record["target"], &env)?;
     if record["clusterUid"] != cluster_uid(&record["target"], &env, cancel)? {
         return Err(error());
     }
@@ -407,6 +428,37 @@ pub fn validate(record: &Value, config: &Value, cancel: &Cancellation) -> Result
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn native_recovery_rejects_retargeted_tool_or_foreign_kubeconfig_before_query() {
+        let temp = contracts::Temp::new();
+        let tool = temp.0.join("operator/venv/bin/kubectl");
+        fs::create_dir_all(tool.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(temp.0.join("bundle/k3s/k3s"), &tool).unwrap();
+        let target = json!({"runner":"native","workDir":temp.0,"kubectlPath":tool,
+                            "kubeconfig":temp.0.join("state/kubeconfig")});
+        let mut env = BTreeMap::from([
+            ("CHENTU_KUBECTL".into(), tool.to_string_lossy().into_owned()),
+            (
+                "CHENTU_HELM".into(),
+                temp.0.join("bundle/bin/helm").to_string_lossy().into_owned(),
+            ),
+            (
+                "KUBECONFIG".into(),
+                temp.0.join("state/kubeconfig").to_string_lossy().into_owned(),
+            ),
+        ]);
+        native_binding(&target, &env).unwrap();
+        env.insert("KUBECONFIG".into(), "/unrelated/kubeconfig".into());
+        assert!(native_binding(&target, &env).is_err());
+        env.insert(
+            "KUBECONFIG".into(),
+            temp.0.join("state/kubeconfig").to_string_lossy().into_owned(),
+        );
+        fs::remove_file(&tool).unwrap();
+        std::os::unix::fs::symlink("/unrelated/kubectl-wrapper", &tool).unwrap();
+        assert!(native_binding(&target, &env).is_err());
+    }
 
     fn fixture() -> (contracts::Temp, Value, Value) {
         let temp = contracts::Temp::new();

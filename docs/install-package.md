@@ -102,3 +102,16 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 恢复记录损坏、结构无效或文件权限不安全时，向导仍可打开并显示阻塞原因，但继续和新部署都不会覆盖检查点。
 检查点 `<config>.installation-resume.json` 与恢复锁 `<config>.installation-owner` 必须是当前用户独占、无硬链接的私有普通文件。
 只有人工确认旧进程组和工具箱都已停止后，才可备份移走损坏记录并明确开始新安装；向导不会自动清除或忽略旧记录。
+
+
+原生随包工具通过本安装私有路径显式导出 `CHENTU_KUBECTL`、`CHENTU_HELM`。
+向导的 Helm 状态/集群身份检查和模型写入使用这些绝对路径，并通过命令参数
+绑定本次 kubeconfig；不会选用管理机 PATH 中遗留的 kubectl 包装器。Nexus-first
+节点等待亦须由宸途将工具和 kubeconfig 显式传入 delegated localhost。恢复记录
+保留原工具环境并继续核对包、文件和集群身份，不以扫描“最新 run”接管安装。
+
+访问页读取 `keycloak/keycloak-operator` 的持久工作空间账号（默认 `platform-owner`），
+不把初次 IAM 管理引导账号作为应用登录账号。已修改 IAM 密码时使用新密码；
+应用角色与成员权限继续生效。首次安装明确选择 Files 时，向导默认声明
+`releases.files.values.operatorBucket: files-owner`，由宸途绑定到实际持久操作员，提供私人桶与
+已有共享桶 `files-team`；保留已有 `users` 和显式桶配置，不自动开通其他 IAM 用户。

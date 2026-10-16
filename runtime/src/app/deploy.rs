@@ -498,6 +498,19 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
         }
         values["releases"]["cluster-access"]["enabled"] = json!(true);
     }
+    if config["deployment"]["installation"].is_object() && config["apps"].as_array().unwrap().contains(&json!("files"))
+    {
+        if values["releases"]["files"]["values"].is_null() {
+            values["releases"]["files"]["values"] = json!({});
+        }
+        let v = &mut values["releases"]["files"]["values"];
+        if !v.is_object() {
+            return Err(fail("应用 values 必须是对象。", 400));
+        }
+        if v["operatorBucket"].is_null() || v["operatorBucket"] == "" {
+            v["operatorBucket"] = json!("files-owner");
+        }
+    }
     for name in ["nexus", "apeiron"] {
         if values["releases"][name]["values"].is_null() {
             values["releases"][name]["values"] = json!({});

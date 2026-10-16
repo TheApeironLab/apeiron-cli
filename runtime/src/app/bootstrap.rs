@@ -310,6 +310,9 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     } else {
         BTreeMap::new()
     };
+    if let Some(kubectl) = tool_env.get("CHENTU_KUBECTL") {
+        target["kubectlPath"] = json!(kubectl);
+    }
     if !docker {
         require_tools(&["curl"], &tool_env)?;
         process::text(
@@ -435,6 +438,14 @@ fn native_tools(plan: &Value, target: &Value, bundle: &Path, c: &Context) -> Res
     let runtime = path(target, "workDir").join("operator");
     process::private_directory(&runtime)?;
     let mut env = BTreeMap::from([
+        (
+            "CHENTU_KUBECTL".into(),
+            runtime.join("venv/bin/kubectl").to_string_lossy().into_owned(),
+        ),
+        (
+            "CHENTU_HELM".into(),
+            bundle.join("bin/helm").to_string_lossy().into_owned(),
+        ),
         ("UV_OFFLINE".into(), "1".into()),
         ("UV_PYTHON_DOWNLOADS".into(), "never".into()),
         (

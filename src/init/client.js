@@ -993,7 +993,7 @@ export function initWizard(supportsK3sHost) {
         clearCredentials();
         const serial = credentialSerial;
         credentialRequest = new AbortController();
-        get('credentials-status').textContent = '正在读取本次部署的初始管理员凭据…';
+        get('credentials-status').textContent = '正在读取本次部署的工作空间登录凭据…';
         get('reload-credentials').disabled = true;
         try {
             const response = await fetch(endpoint('credentials'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', signal: credentialRequest.signal });

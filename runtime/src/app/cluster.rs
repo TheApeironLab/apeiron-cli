@@ -92,7 +92,12 @@ fn validate_owned(work: &Path, cluster: &str, i: &Value, c: &Value) -> Result<St
 pub fn toolbox_command(target: &Value, env: &BTreeMap<String, String>, tool: &str) -> Command {
     let mut cmd;
     if target["runner"] == "native" {
-        cmd = Command::new(tool);
+        let binding = match tool {
+            "kubectl" => env.get("CHENTU_KUBECTL"),
+            "helm" => env.get("CHENTU_HELM"),
+            _ => None,
+        };
+        cmd = Command::new(binding.map(String::as_str).unwrap_or(tool));
         cmd.args(["--kubeconfig", target["kubeconfig"].as_str().unwrap()]);
     } else {
         cmd = Command::new("docker");
@@ -120,6 +125,9 @@ pub fn toolbox_command(target: &Value, env: &BTreeMap<String, String>, tool: &st
         cmd.args(["--kubeconfig", "/kubeconfig"]);
     }
     cmd.envs(env);
+    if target["runner"] == "native" {
+        cmd.env("KUBECONFIG", target["kubeconfig"].as_str().unwrap());
+    }
     cmd
 }
 pub fn helm_state(target: &Value, env: &BTreeMap<String, String>, cancel: &Cancellation) -> Result<()> {
