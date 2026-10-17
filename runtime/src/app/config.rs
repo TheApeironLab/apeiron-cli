@@ -34,6 +34,30 @@ pub fn safe_ip(s: &str) -> bool {
 pub fn apps() -> Value {
     serde_json::from_str(include_str!("../../assets/apps.json")).unwrap()
 }
+/// 应用目录 id → 安装包组件名：带 `releases` 的应用（如 browser/ci）映射到其
+/// 组件；其余 id 即组件名，原样透传。未知 id 不在这里拦截（由
+/// resources::plan 的“安装包缺少组件”给出带包上下文的错误）。
+pub fn components(selected: &Value) -> Value {
+    let catalog = apps();
+    let entries = catalog.as_array();
+    let mut out = Vec::new();
+    if let Some(list) = selected.as_array() {
+        for app in list {
+            let name = app.as_str().unwrap_or_default();
+            let mapped = entries.and_then(|rows| {
+                rows.iter()
+                    .find(|row| row["id"] == name)
+                    .and_then(|row| row["releases"].as_array())
+                    .and_then(|releases| releases.first())
+                    .and_then(|first| first.as_str())
+            });
+            out.push(json!(mapped.unwrap_or(name)));
+        }
+    } else {
+        return selected.clone();
+    }
+    json!(out)
+}
 pub fn defaults() -> Value {
     let mac = cfg!(target_os = "macos");
     json!({"installation":{"topology":if mac{"single-k3d"}else{"single-k3s"},"httpPort":if mac{54320}else{80},"httpsPort":if mac{54321}else{443},"domain":"","entryIp":if mac{"127.0.0.1"}else{""},"ha":false,"sshUser":"","sshKey":"","sshPort":22,"nodes":[]},"runner":if mac{"docker"}else{"native"},"root":"","environment":std::env::var("CHENTU_ENV").or_else(|_|std::env::var("LAB_ENV")).unwrap_or_default(),"kubeconfig":std::env::var("KUBECONFIG").unwrap_or_default(),"workDir":std::env::var("LAB_WORK_DIR").unwrap_or_default(),"image":std::env::var("LAB_IMAGE").unwrap_or_else(|_|"chentu-lab".into()),"offline":false,"bundleDir":""})
@@ -385,4 +409,28 @@ pub fn save(path: &Path, input: &Value) -> Result<Value> {
     let _ = fs::remove_file(temp);
     let _ = fs::remove_file(lock);
     result
+}
+
+#[cfg(test)]
+mod component_tests {
+    use super::*;
+
+    #[test]
+    fn app_ids_with_releases_map_to_components_and_others_pass_through() {
+        let selected = json!(["browser", "ci", "nexus", "git"]);
+        assert_eq!(
+            components(&selected),
+            json!(["chrome-headless", "woodpecker", "nexus", "git"])
+        );
+    }
+
+    #[test]
+    fn non_array_input_is_passed_through_unchanged() {
+        assert_eq!(components(&json!("nexus")), json!("nexus"));
+    }
+
+    #[test]
+    fn unknown_ids_pass_through_for_plan_to_reject() {
+        assert_eq!(components(&json!(["missing"])), json!(["missing"]));
+    }
 }
