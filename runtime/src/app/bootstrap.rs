@@ -602,6 +602,12 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         };
         target["image"] = json!(image);
         c.event(&cluster::check(&path(target, "workDir"), &p.cluster, &i, &c.cancel)?);
+        for warning in cluster::coexistence("single-k3d", cluster::native_k3s_present(), &instances::Host)?["warnings"]
+            .as_array()
+            .unwrap()
+        {
+            c.event(warning.as_str().unwrap_or(""));
+        }
         write_managed(
             &path(target, "workDir").join("installation.json"),
             json!({"cluster":p.cluster,"domain":i["domain"]}).to_string().as_bytes(),

@@ -8,6 +8,7 @@ mod contracts;
 pub(crate) mod deploy;
 mod discovery;
 pub(crate) mod distribution;
+mod instances;
 mod models;
 mod pairing;
 mod process;

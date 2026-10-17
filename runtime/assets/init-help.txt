@@ -1,11 +1,19 @@
 schema=apeiron.init.v1
-usage: apeiron init [--port <0..65535>] [--config <path>] [--no-open]
+usage: apeiron init [--port <0..65535>] [--config <path> | --instance <name>] [--advertise-host <host[:port]>] [--no-open]
 
 Open a local browser wizard: environment, organization, models, apps, deploy, access, test.
 --port       Loopback port; 0 selects a free port (default).
 --config     Local config file; default ~/.apeiron/config.json.
              Keep it outside Git repositories.
+--instance   Named instance: ~/.apeiron/instances/<name>/config.json. One config
+             path is one instance; several K3d instances share a host with
+             distinct entry ports recorded in ~/.apeiron/instances.json.
+--advertise-host  Also accept this Host header (default: 127.0.0.1 / localhost
+             on any port, which covers `ssh -L <port>:127.0.0.1:<port>`).
 --no-open    Print the local URL without opening the system browser.
+
+The wizard still binds 127.0.0.1 only; use SSH port forwarding for remote access.
+Native K3s on the host only warns for single K3d; native topologies refuse it.
 
 Step 5 verifies release resources, creates a new cluster, then runs Helmfile.
 Choose online/offline and single K3s, local K3d or multi-node K3s in the browser.

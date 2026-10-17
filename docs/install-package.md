@@ -110,6 +110,32 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 节点等待亦须由宸途将工具和 kubeconfig 显式传入 delegated localhost。恢复记录
 保留原工具环境并继续核对包、文件和集群身份，不以扫描“最新 run”接管安装。
 
+## 安装实例与共存
+
+一个配置路径就是一个安装实例：集群工作目录、集群名（`cluster::identity`）、检查点 `<config>.installation-resume.json` 与实例锁 `<config>.installation-owner` 均由该路径派生，实例化不改变这些规则。实例 ID 是配置路径 SHA-256 的前 12 位十六进制，仅作注册表键；`installation.instanceId` 可选透传，不参与校验。
+
+- **实例目录**：安装包 `start.sh` 使用 `~/.apeiron/installers/<candidate>/instances/<instance>/config.json`，`APEIRON_INSTANCE`（默认 `default`，小写 DNS 标签）选择实例，`APEIRON_WIZARD_PORT`（默认 3210）选择向导端口；随包 Python 运行时共享于 `installers/<candidate>/bootstrap`，缓存、配置与数据按实例隔离。`apeiron init --instance <name>` 使用 `~/.apeiron/instances/<name>/config.json`，与 `--config` 互斥。
+- **注册表**：`~/.apeiron/instances.json`（`schemaVersion: 1`，0600，临时文件 + rename 原子写）记录 `id`、`name`、`topology`、`config`、`httpPort`、`httpsPort`、`createdAt`。格式损坏、ID 与路径不符、名称或端口重复时拒绝读写，不自动修复。向导打开时若当前配置位于 `instances/<name>/` 布局下而未登记，会按配置中的端口自动登记一次。
+- **端口分配**：新建 K3d 实例时从 54320 起、步长 2 选择 HTTP/HTTPS 一对端口：排除注册表已保留端口，对两个端口各做一次 `127.0.0.1` 的 `bind` 探测，并解析 `docker ps -a --format '{{.Ports}}'` 排除已停止的 k3d 负载均衡容器仍持有的绑定。Docker 不可用时不创建 K3d 实例。K3s 实例固定 80/443。
+- **调度锁**：`~/.apeiron/scheduler.lock`（flock，当前用户私有普通文件）覆盖“分配端口 → 写入配置 → 登记”和部署的 `cluster` 阶段（端口复查与 `k3d` 创建）。部署等待锁时写入事件并最多等待 30 分钟；实例创建与删除最多等待 30 秒后报错。每实例锁继续沿用 `installation-owner`，检查点路径不变。
+- **SSH 转发**：向导仍只监听 `127.0.0.1`。Host 白名单为 `127.0.0.1:<任意端口>`、`localhost:<任意端口>` 及显式 `--advertise-host <host[:port]>`；POST 的 Origin 必须等于 `http://<请求 Host>`，跨源与 `Sec-Fetch-Site: cross-site` 仍拒绝。远程使用 `ssh -L 3210:127.0.0.1:3210 <user>@<host>` 后通过 `http://127.0.0.1:3210/<打印的路径>` 访问；启动输出的 `forward` 行给出该命令。
+- **实例接口**（同源 JSON，与其他 API 相同的 Host/Origin 规则；活动部署、访问配置或测试进行中时拒绝变更）：
+  - `GET api/instances` → `{registry, path, current, instances:[{id,name,topology,config,httpPort,httpsPort,createdAt,exists,phase,locked,cluster,k3d}]}`；`phase` 取自恢复记录（`new`/`idle`/`interrupted`/`succeeded`/`blocked`），`k3d` 由 `docker inspect k3d-<cluster>-serverlb` 得出（`running`/`stopped`/`absent`/`unknown`，K3s 为 `null`）。
+  - `GET api/instances/<id>/status` → 单个实例的同一结构。
+  - `POST api/instances/create {name, topology}` → `{instance}`：分配端口、从当前配置复制应用选择与离线包路径生成 `<name>.apeironlab.internal` 的模板配置（多机 K3s 使用文档占位节点），写入并登记。
+  - `POST api/instances/select {id}` → `{instance, path, config, revision, deployment}`：无活动部署时切换向导当前配置路径并重新读取该实例的恢复状态；网关向导不支持。
+  - `POST api/instances/delete {id}` → `{deleted, clusterDeleted, removedDirectory}`：仅 K3d、非当前实例、集群未运行；集群已停止时执行 `k3d cluster delete <cluster>` 与 `k3d registry delete k3d-<cluster>-reg`，再删除实例目录并注销。运行中、状态未知、被其他进程持有或恢复记录损坏时拒绝；从不执行 `docker prune` 或泛化删除。
+- **共存预检矩阵**（本机目标在点击部署、重试和创建集群前执行；多机节点由节点探测负责）：
+
+| 宿主状态 | 单机 K3d | 单机 K3s | 多机 K3s 节点 |
+| --- | --- | --- | --- |
+| 已有 `/var/lib/rancher/k3s` 或 `/etc/rancher/k3s` | 放行并警告，入口使用分配的高位端口 | 拒绝，不接管或覆盖 | 拒绝（节点探测 `existingCluster`） |
+| 已有 `k3d-*` 容器 | 按归属记录复用或新建，不接管无归属集群 | 警告（节点探测 `existingK3d`） | 警告 |
+| `ip route` 的 10.42/10.43 与 Docker 网络子网重叠 | 警告 `routeOverlap: overlap` | — | — |
+| `iptables -S DOCKER-USER` / `FORWARD` | 最佳努力读取；失败记 `unknown`，`FORWARD` 默认 DROP 时警告 | — | — |
+
+预检只读取状态，不修改路由、防火墙或 Docker 资源；警告随部署事件写入安装日志并在 `api/deploy` 响应的 `preflight` 字段返回。多实例、共存与 SSH 转发尚未在真实多实例宿主上完成验收。
+
 访问页读取 `keycloak/keycloak-operator` 的持久工作空间账号（默认 `platform-owner`），
 不把初次 IAM 管理引导账号作为应用登录账号。已修改 IAM 密码时使用新密码；
 应用角色与成员权限继续生效。首次安装明确选择 Files 时，向导默认声明

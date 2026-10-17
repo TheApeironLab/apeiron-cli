@@ -62,7 +62,7 @@ def check(plan, package):
     assert sha(package / 'provenance/default-config.json') == bindings['defaultConfigSha256']
     info = json.loads(run([str(package / 'bin/apeiron'), '--build-info']))
     assert info['revision'] == plan['cliProvenance']['source']['revision']
-    state = Path.home() / '.apeiron/installers' / plan['candidate']
+    state = Path.home() / '.apeiron/installers' / plan['candidate'] / 'instances/default'
     with tempfile.TemporaryFile(mode='w+') as log:
         process = subprocess.Popen(['bash', str(package / 'start.sh'), '--no-open'],
                                    stdout=log, stderr=subprocess.STDOUT)

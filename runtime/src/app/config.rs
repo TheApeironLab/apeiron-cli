@@ -129,6 +129,13 @@ pub fn installation(v: &Value) -> Result<Value> {
     }
     let mut out = connection(v)?;
     for (k,value) in json!({"topology":topology,"domain":domain,"entryIp":ip,"httpPort":http,"httpsPort":https,"ha":ha,"nodes":nodes}).as_object().unwrap(){out[k]=value.clone();}
+    if let Some(id) = v.get("instanceId").filter(|id| !id.is_null()) {
+        // Opaque registry identity; the config path remains the instance key.
+        if !matches(r"^[a-f0-9]{12}$", id.as_str().unwrap_or("")) {
+            return Err(fail("实例 ID 格式不正确。", 400));
+        }
+        out["instanceId"] = id.clone();
+    }
     if let Some(p) = v.get("publicAccess") {
         let mode = p["mode"].as_str().unwrap_or("");
         let public_ip = p["publicIp"].as_str().unwrap_or("");

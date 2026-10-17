@@ -118,12 +118,17 @@ BUNDLE="$HERE/bundle"
 [[ "$ID" = ubuntu && "$VERSION_ID" = 22.04 ]] || { echo 'Requires Ubuntu 22.04 AMD64' >&2; exit 2; }
 for tool in ssh tar gpg; do command -v "$tool" >/dev/null || { echo "Missing host prerequisite: $tool" >&2; exit 2; }; done
 umask 077
-STATE="$HOME/.apeiron/installers/${candidate}"
-mkdir -p "$STATE/bootstrap" "$STATE/cache" "$STATE/config" "$STATE/data"
-if [[ ! -x "$STATE/bootstrap/python/bin/python3.12" ]]; then
-  tar -xzf "$BUNDLE/${pythonArchive}" -C "$STATE/bootstrap"
+INSTANCE="\${APEIRON_INSTANCE:-default}"
+[[ "$INSTANCE" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || { echo 'APEIRON_INSTANCE must be a lowercase DNS label' >&2; exit 2; }
+WIZARD_PORT="\${APEIRON_WIZARD_PORT:-3210}"
+[[ "$WIZARD_PORT" =~ ^[1-9][0-9]{0,4}$ && "$WIZARD_PORT" -le 65535 ]] || { echo 'APEIRON_WIZARD_PORT must be 1-65535' >&2; exit 2; }
+ROOT="$HOME/.apeiron/installers/${candidate}"
+STATE="$ROOT/instances/$INSTANCE"
+mkdir -p "$ROOT/bootstrap" "$STATE/cache" "$STATE/config" "$STATE/data"
+if [[ ! -x "$ROOT/bootstrap/python/bin/python3.12" ]]; then
+  tar -xzf "$BUNDLE/${pythonArchive}" -C "$ROOT/bootstrap"
 fi
-export PATH="$STATE/bootstrap/python/bin:$BUNDLE/bin:$PATH"
+export PATH="$ROOT/bootstrap/python/bin:$BUNDLE/bin:$PATH"
 export PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$STATE/cache/python"
 export XDG_CACHE_HOME="$STATE/cache" XDG_CONFIG_HOME="$STATE/config" XDG_DATA_HOME="$STATE/data"
 export K3S_DATA_DIR="$STATE/cache/k3s" UV_CACHE_DIR="$STATE/cache/uv"
@@ -138,7 +143,9 @@ p.write_text(json.dumps(value, indent=2) + '\\n')
 p.chmod(0o600)
 PY
 ${notice}printf 'Configure the placeholder nodes and organization in the browser. Deployment requires an explicit action.\\n'
-exec "$HERE/bin/apeiron" init --config "$STATE/config.json" --port 3210 "$@"
+printf 'Instance %s: state in %s (APEIRON_INSTANCE selects another instance; APEIRON_WIZARD_PORT changes the wizard port).\\n' "$INSTANCE" "$STATE"
+printf 'Remote access: run  ssh -L %s:127.0.0.1:%s <user>@<this-host>  on your workstation, then open the printed url as http://127.0.0.1:%s/...\\n' "$WIZARD_PORT" "$WIZARD_PORT" "$WIZARD_PORT"
+exec "$HERE/bin/apeiron" init --config "$STATE/config.json" --port "$WIZARD_PORT" "$@"
 `;
 }
 export async function planAssembly(options) {
@@ -224,7 +231,7 @@ export async function assemble(options, plan) {
   if (JSON.stringify(await inventory(options.bundle)) !== JSON.stringify(plan.files) || JSON.stringify(await inventory(options.cli)) !== JSON.stringify(plan.cliFiles) || await hashFile(options.profile) !== plan.bindings.profileSha256) throw new Error('Input changed during assembly');
   const validation = { schemaVersion: 1, assembly: { status: 'passed' }, resources: { status: 'passed', count: plan.contract.files.length }, startupSyntax: { status: 'passed' }, runtimeTools: { status: 'passed', scope: 'static required-file closure' }, runtimeToolExecution: plan.wizard.runtimeToolExecution || { status: 'not-run' }, pythonDependencyInstallation: plan.wizard.pythonDependencyInstallation || { status: 'not-run' }, credentials: { status: 'passed', scope: 'file-name and private-key/token signatures; not a general secret audit' }, wizard: plan.wizard, actualDeployment: { status: 'not-run' }, disconnectedDeployment: { status: 'not-run' }, login: { status: 'not-run' }, business: { status: 'not-run' }, archive: { status: 'verified-by-external-receipt', receipt: '../archive-validation.json' } };
   await writeFile(join(root, 'validation.json'), json(validation));
-  await writeFile(join(root, 'README.md'), `# ${options.candidate}\n\nLocal candidate, not a published release. Contract: ${plan.contract.contract}.\n\nRun ./start.sh on Ubuntu 22.04 AMD64. Host prerequisites: bash, ssh, tar, gpg. The bundled Python runtime is prepared in your home directory. For headless access use SSH forwarding for localhost port 3210 and --no-open. Configure the placeholder addresses before explicitly starting deployment.\n\nOffline mode is the default. Candidate state is isolated under ~/.apeiron/installers/${options.candidate}. Moving the package updates its resource path when start.sh runs.\n\nComponent closure: ${(plan.contract.componentClosure || []).join(', ')}. Hosted base: ${(plan.contract.baseComponents || []).join(', ')}.\n\nSee provenance/assembly.json and validation.json. Native deployment, disconnected deployment, login and business acceptance have not been executed by this assembly. Existing hosted image-pin deployment failures are not repaired by packaging.\n`);
+  await writeFile(join(root, 'README.md'), `# ${options.candidate}\n\nLocal candidate, not a published release. Contract: ${plan.contract.contract}.\n\nRun ./start.sh on Ubuntu 22.04 AMD64. Host prerequisites: bash, ssh, tar, gpg. The bundled Python runtime is prepared in your home directory. For headless access run \`ssh -L 3210:127.0.0.1:3210 <user>@<host>\` from your workstation, start with --no-open, and open the printed URL via http://127.0.0.1:3210/. Configure the placeholder addresses before explicitly starting deployment.\n\nOffline mode is the default. Candidate state is isolated under ~/.apeiron/installers/${options.candidate}; each installation instance keeps its own config under instances/<name>/ (APEIRON_INSTANCE, default \`default\`; APEIRON_WIZARD_PORT changes the wizard port). Moving the package updates its resource path when start.sh runs.\n\nComponent closure: ${(plan.contract.componentClosure || []).join(', ')}. Hosted base: ${(plan.contract.baseComponents || []).join(', ')}.\n\nSee provenance/assembly.json and validation.json. Native deployment, disconnected deployment, login and business acceptance have not been executed by this assembly. Existing hosted image-pin deployment failures are not repaired by packaging.\n`);
   const finalFiles = await inventory(root);
   await writeFile(join(root, 'SHA256SUMS'), finalFiles.map(f => `${f.sha256}  ${f.path}\n`).join(''));
   const archive = join(output, options.candidate + '.tar');

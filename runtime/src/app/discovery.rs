@@ -486,6 +486,10 @@ pub fn node(host: &str, connection: &Value, local: bool, cancel: &Cancellation) 
             };
             if let Some(error) = error {
                 facts["error"] = json!(error);
+            } else if facts["existingK3d"] == true {
+                // K3d containers on a node only share Docker; native K3s coexists.
+                facts["warning"] =
+                    json!("检测到已有 K3d 容器，原生 K3s 将与其共存；请确认 80/443 与 10.42/10.43 网段未被占用。");
             }
             return Ok(facts);
         }

@@ -1,7 +1,7 @@
 use super::process::{self, Cancellation};
 use super::*;
 use std::{
-    net::{SocketAddr, TcpStream},
+    net::{Ipv4Addr, SocketAddr, TcpStream},
     path::PathBuf,
     process::Command,
 };
@@ -15,12 +15,124 @@ pub fn identity(config: &Path, domain: &str) -> (PathBuf, String) {
     let hash = config::hash(work.to_string_lossy().as_bytes());
     (work, format!("apeiron-{}", &hash[..12]))
 }
+pub const K3S_DATA: [&str; 2] = ["/var/lib/rancher/k3s", "/etc/rancher/k3s"];
+pub fn native_k3s_present() -> bool {
+    K3S_DATA.iter().any(|p| Path::new(p).exists())
+}
+/// Deploy-time preflight for topologies that target this host. Multi-node K3s
+/// nodes are remote and are checked by the node probe instead.
 pub fn preflight(config: &Path, installation: &Value, cancel: &Cancellation) -> Result<String> {
-    if installation["topology"] != "single-k3d" {
+    let topology = installation["topology"].as_str().unwrap_or("");
+    if topology == "multi-k3s" {
         return Ok(String::new());
     }
+    let co = coexistence(topology, native_k3s_present(), &instances::Host)?;
+    let warnings = co["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if topology != "single-k3d" {
+        return Ok(warnings);
+    }
     let (work, cluster) = identity(config, installation["domain"].as_str().unwrap_or(""));
-    check(&work, &cluster, installation, cancel)
+    let message = check(&work, &cluster, installation, cancel)?;
+    Ok(if warnings.is_empty() {
+        message
+    } else {
+        format!("{message} {warnings}")
+    })
+}
+fn cidr(s: &str) -> Option<(u32, u8)> {
+    let (ip, prefix) = s.trim().split_once('/')?;
+    let prefix = prefix.parse::<u8>().ok().filter(|p| *p <= 32)?;
+    Some((u32::from(ip.parse::<Ipv4Addr>().ok()?), prefix))
+}
+fn overlaps(a: (u32, u8), b: (u32, u8)) -> bool {
+    let prefix = a.1.min(b.1);
+    let mask = if prefix == 0 { 0 } else { u32::MAX << (32 - prefix) };
+    a.0 & mask == b.0 & mask
+}
+const K3S_NETWORKS: [(u32, u8); 2] = [(0x0a2a_0000, 16), (0x0a2b_0000, 16)]; // 10.42.0.0/16, 10.43.0.0/16
+/// Same-host coexistence matrix. K3d beside native K3s is allowed with
+/// warnings; native K3s topologies never adopt or overwrite an existing K3s.
+/// Route and firewall inspection is best effort and reports `unknown`.
+pub fn coexistence(topology: &str, k3s_present: bool, runner: &dyn instances::Runner) -> Result<Value> {
+    if topology != "single-k3d" {
+        if k3s_present {
+            return Err(fail(
+                "检测到已有 K3s 数据（/var/lib/rancher/k3s），原生安装不接管或覆盖已有集群；请使用未安装集群的主机，或改用单机 K3d 共存。",
+                409,
+            ));
+        }
+        return Ok(
+            json!({"nativeK3s":false,"routeOverlap":"skipped","iptables":{"dockerUser":"skipped","forward":"skipped"},"warnings":[]}),
+        );
+    }
+    let mut warnings = Vec::new();
+    if k3s_present {
+        warnings.push(
+            "宿主已有原生 K3s 数据，K3d 集群将与其共存：入口端口使用本机分配的高位端口，不接管 80/443 与已有集群。"
+                .to_owned(),
+        );
+    }
+    let routes = runner.run("ip", &["route"]).ok().map(|out| {
+        out.lines()
+            .filter_map(|l| cidr(l.split_whitespace().next().unwrap_or("")))
+            .filter(|r| K3S_NETWORKS.iter().any(|n| overlaps(*r, *n)))
+            .collect::<Vec<_>>()
+    });
+    let subnets = runner
+        .run("docker", &["network", "ls", "--format", "{{.Name}}"])
+        .ok()
+        .and_then(|names| {
+            let names = names.split_whitespace().collect::<Vec<_>>();
+            if names.is_empty() {
+                return Some(Vec::new());
+            }
+            let mut args = vec![
+                "network",
+                "inspect",
+                "--format",
+                "{{range .IPAM.Config}}{{.Subnet}} {{end}}",
+            ];
+            args.extend(names);
+            runner
+                .run("docker", &args)
+                .ok()
+                .map(|out| out.split_whitespace().filter_map(cidr).collect::<Vec<_>>())
+        });
+    let route_overlap = match (routes, subnets) {
+        (Some(routes), Some(subnets)) => {
+            if routes.iter().any(|r| subnets.iter().any(|s| overlaps(*r, *s))) {
+                warnings.push("宿主路由中的 K3s 网段（10.42/10.43）与 Docker 网络子网重叠，K3d 节点可能无法访问原生集群；请为 Docker 网络指定其他子网。".to_owned());
+                "overlap"
+            } else {
+                "none"
+            }
+        }
+        _ => "unknown",
+    };
+    let docker_user = match runner.run("iptables", &["-S", "DOCKER-USER"]) {
+        Ok(_) => "present",
+        Err(_) => "unknown",
+    };
+    let forward = match runner.run("iptables", &["-S", "FORWARD"]) {
+        Ok(rules) if rules.lines().any(|l| l.trim() == "-P FORWARD DROP") => "drop",
+        Ok(_) => "accept",
+        Err(_) => "unknown",
+    };
+    if forward == "drop" {
+        warnings.push(
+            "宿主 FORWARD 链默认 DROP（常见于已安装 K3s 的主机），请确认 DOCKER-USER 链未拦截 K3d 容器流量。"
+                .to_owned(),
+        );
+    }
+    Ok(
+        json!({"nativeK3s":k3s_present,"routeOverlap":route_overlap,"iptables":{"dockerUser":docker_user,"forward":forward},"warnings":warnings}),
+    )
 }
 pub fn check(work: &Path, cluster: &str, i: &Value, cancel: &Cancellation) -> Result<String> {
     let name = format!("k3d-{cluster}-serverlb");
@@ -257,5 +369,50 @@ mod contracts {
         observed["bindings"]["54320/tcp"][0]["HostPort"] = json!("54321");
         observed["bindings"]["443/tcp"][0]["HostPort"] = json!("54320");
         assert!(check(&i, &observed).unwrap_err().message.contains("端口与当前配置不同"));
+    }
+
+    #[test]
+    fn coexistence_allows_k3d_beside_native_k3s_with_warnings_and_rejects_native_reinstall() {
+        let quiet = instances::Fake::new(|program, args| match (program, args.first().copied()) {
+            ("ip", _) => Ok(
+                "default via 192.0.2.1 dev eth0\n10.42.0.0/24 dev cni0 proto kernel scope link src 10.42.0.1\n".into(),
+            ),
+            ("docker", Some("network")) if args[1] == "ls" => Ok("bridge\nk3d-apeiron\n".into()),
+            ("docker", Some("network")) => Ok("172.17.0.0/16 172.19.0.0/16 \n".into()),
+            ("iptables", _) => Err(fail("permission denied", 502)),
+            _ => Err(fail("unexpected", 502)),
+        });
+        let result = coexistence("single-k3d", true, &quiet).unwrap();
+        assert_eq!(result["nativeK3s"], true);
+        assert_eq!(result["routeOverlap"], "none");
+        assert_eq!(result["iptables"]["dockerUser"], "unknown");
+        let warnings = result["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].as_str().unwrap().contains("共存"));
+        assert!(!quiet.calls().iter().any(|c| c.contains("prune") || c.contains(" rm")));
+        for topology in ["single-k3s", "multi-k3s"] {
+            let error = coexistence(topology, true, &quiet).unwrap_err();
+            assert_eq!(error.code, 409);
+            assert!(error.message.contains("不接管"));
+            assert_eq!(coexistence(topology, false, &quiet).unwrap()["warnings"], json!([]));
+        }
+        let overlapping = instances::Fake::new(|program, args| match (program, args.first().copied()) {
+            ("ip", _) => Ok("10.43.0.0/16 dev flannel.1\n".into()),
+            ("docker", Some("network")) if args[1] == "ls" => Ok("bridge\n".into()),
+            ("docker", Some("network")) => Ok("10.43.128.0/20 \n".into()),
+            ("iptables", Some("-S")) if args[1] == "FORWARD" => {
+                Ok("-P FORWARD DROP\n-A FORWARD -j DOCKER-USER\n".into())
+            }
+            ("iptables", _) => Ok("-N DOCKER-USER\n".into()),
+            _ => Err(fail("unexpected", 502)),
+        });
+        let result = coexistence("single-k3d", false, &overlapping).unwrap();
+        assert_eq!(result["routeOverlap"], "overlap");
+        assert_eq!(result["iptables"], json!({"dockerUser":"present","forward":"drop"}));
+        assert_eq!(result["warnings"].as_array().unwrap().len(), 2);
+        let unavailable = instances::Fake::new(|_, _| Err(fail("missing", 502)));
+        let result = coexistence("single-k3d", false, &unavailable).unwrap();
+        assert_eq!(result["routeOverlap"], "unknown");
+        assert_eq!(result["warnings"], json!([]));
     }
 }

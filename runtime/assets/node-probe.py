@@ -19,4 +19,6 @@ memory=0
 try: memory=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')/1024**3
 except (ValueError,OSError): pass
 r=run(['sudo','-n','true']) if os.geteuid()!=0 else None
-print(json.dumps(dict(name=socket.gethostname().split('.')[0].lower(),os=release.get('ID',platform.system().lower()),version=release.get('VERSION_ID',platform.release()),architecture=platform.machine(),cores=os.cpu_count() or 0,memoryGiB=round(memory,1),diskGiB=round(shutil.disk_usage('/').free/1024**3,1),addresses=addresses,sudo=os.geteuid()==0 or bool(r and r.returncode==0),existingCluster=os.path.exists('/etc/rancher/k3s') or os.path.exists('/var/lib/rancher/k3s'))))
+d=run(['docker','ps','-a','--format','{{.Names}}']) if shutil.which('docker') else None
+k3d=bool(d and d.returncode==0 and any(n.startswith('k3d-') for n in d.stdout.split()))
+print(json.dumps(dict(name=socket.gethostname().split('.')[0].lower(),os=release.get('ID',platform.system().lower()),version=release.get('VERSION_ID',platform.release()),architecture=platform.machine(),cores=os.cpu_count() or 0,memoryGiB=round(memory,1),diskGiB=round(shutil.disk_usage('/').free/1024**3,1),addresses=addresses,sudo=os.geteuid()==0 or bool(r and r.returncode==0),existingCluster=os.path.exists('/etc/rancher/k3s') or os.path.exists('/var/lib/rancher/k3s'),existingK3d=k3d)))

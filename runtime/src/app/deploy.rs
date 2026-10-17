@@ -565,6 +565,21 @@ impl Deployment {
         }
         Ok(owner)
     }
+    /// Points an idle deployment at another instance's config path.
+    pub fn reload(&self, path: &Path) -> Result<()> {
+        if self.active() {
+            return Err(fail("部署正在进行。", 409));
+        }
+        let restored = Self::restore(path)?;
+        if let Some(task) = self.0.task.lock().unwrap().take() {
+            let _ = task.join();
+        }
+        *self.0.status.lock().unwrap() = restored.snapshot();
+        *self.0.completed.lock().unwrap() = None;
+        *self.0.checkpoint.lock().unwrap() = None;
+        *self.0.container.lock().unwrap() = None;
+        Ok(())
+    }
     pub fn resume(&self, path: &Path, config: Value) -> Result<()> {
         if self.active() {
             return Err(fail("部署正在进行。", 409));
@@ -728,7 +743,23 @@ impl Deployment {
                     &environment_for(&config, prepared.values.clone())?,
                 )?;
                 context.stage(1, "正在准备集群网络、存储和部署入口。");
+                // Port probing and cluster creation on this host are serialized
+                // across instances; the per-installation checkpoint is unchanged.
+                let scheduler = if target["installation"]["topology"] == "single-k3d" {
+                    let base = instances::base()?;
+                    let lock = match instances::scheduler(&base, Duration::ZERO, &cancel) {
+                        Ok(lock) => lock,
+                        Err(_) => {
+                            context.event("其他安装实例正在创建集群，等待宿主调度锁。");
+                            instances::scheduler(&base, Duration::from_secs(1800), &cancel)?
+                        }
+                    };
+                    Some(lock)
+                } else {
+                    None
+                };
                 let env = super::bootstrap::bootstrap(&mut target, &context, &prepared)?;
+                drop(scheduler);
                 prepared_identity = (prepared.plan.clone(), prepared.bundle.clone());
                 env
             } else {
