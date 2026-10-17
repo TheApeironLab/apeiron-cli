@@ -15,6 +15,30 @@ pub struct Prepared {
     generated: Vec<String>,
     tool_env: BTreeMap<String, String>,
 }
+/// Node rules for the hosted (Nexus-first) native contract, checked after the
+/// management machine has been appended as the single-k3s node. `config.rs`
+/// already enforces the general shape (empty nodes for single-*, HA odd servers).
+pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
+    let servers = nodes.iter().filter(|n| n["role"] == "server").count();
+    let ok = match topology {
+        "multi-k3s" => nodes.len() >= 3 && servers == nodes.len() && servers % 2 == 1,
+        "single-k3s" => nodes.len() == 1 && nodes[0]["host"] == "localhost" && servers == 1,
+        _ => false,
+    };
+    if !ok {
+        return Err(fail(
+            match topology {
+                "multi-k3s" => {
+                    "原生 Nexus-first 多机部署需要至少 3 个、奇数个 server 节点且没有 agent 节点；尚未修改集群。"
+                }
+                "single-k3s" => "原生 Nexus-first 单机部署以管理机为唯一节点，不接受远程节点；尚未修改集群。",
+                _ => "原生 Nexus-first 不支持该拓扑；尚未修改集群。",
+            },
+            400,
+        ));
+    }
+    Ok(())
+}
 fn path(v: &Value, key: &str) -> PathBuf {
     PathBuf::from(v[key].as_str().unwrap_or(""))
 }
@@ -181,11 +205,8 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
             progress: &|m| c.event(m),
         },
     )?;
-    if !docker
-        && plan.get("releaseManifest").is_some()
-        && (nodes.len() != 3 || nodes.iter().any(|n| n["role"] != "server"))
-    {
-        return Err(fail("原生 Nexus-first 当前需要三个 server 节点；尚未修改集群。", 400));
+    if !docker && plan.get("releaseManifest").is_some() {
+        hosted_nodes(i["topology"].as_str().unwrap_or(""), &nodes)?;
     }
     if !docker {
         discovery::validate_platform(&plan["target"], &facts)?;
@@ -1157,5 +1178,46 @@ fi
             .message
             .contains("退出码 17"));
         assert_eq!(fs::read_to_string(temp.0.join("capture")).unwrap().lines().count(), 1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn node(host: &str, role: &str) -> Value {
+        json!({"host":host,"name":host,"address":"192.0.2.1","role":role})
+    }
+    #[test]
+    fn hosted_native_node_rules_cover_both_native_topologies() {
+        // 1. multi-k3s: odd server count >= 3, no agents.
+        let three = [node("a", "server"), node("b", "server"), node("c", "server")];
+        hosted_nodes("multi-k3s", &three).unwrap();
+        let five = [&three[..], &[node("d", "server"), node("e", "server")]].concat();
+        hosted_nodes("multi-k3s", &five).unwrap();
+        for nodes in [
+            vec![node("a", "server")],
+            vec![node("a", "server"), node("b", "agent"), node("c", "agent")],
+            vec![
+                node("a", "server"),
+                node("b", "server"),
+                node("c", "server"),
+                node("d", "server"),
+            ],
+            vec![
+                node("a", "server"),
+                node("b", "server"),
+                node("c", "server"),
+                node("d", "agent"),
+            ],
+        ] {
+            assert!(hosted_nodes("multi-k3s", &nodes).is_err());
+        }
+        // 2. single-k3s: the management machine appended as localhost is the only node.
+        hosted_nodes("single-k3s", &[node("localhost", "server")]).unwrap();
+        assert!(hosted_nodes("single-k3s", &three).is_err());
+        assert!(hosted_nodes("single-k3s", &[node("localhost", "server"), node("b", "agent")]).is_err());
+        assert!(hosted_nodes("single-k3s", &[node("remote", "server")]).is_err());
+        // 3. K3d never reaches the native rule; any other topology is refused.
+        assert!(hosted_nodes("single-k3d", &[]).is_err());
     }
 }

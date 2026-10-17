@@ -83,8 +83,21 @@ APT 与 PyPI 发布制品使用原生 hosted 坐标。CLI 分别验证 Deb 包�
 正式清单可声明 `k3d-amd64` / `single-k3d`。管理机必须为 Linux，
 硬件和 CLI 进程架构均为 AMD64；Mac ARM64 对应 `k3d-arm64`。
 目标、清单、资源镜像和工具箱均须匹配架构，不能通过修改目标名复用 ARM64 归档。
-原生 `k3s-amd64` 仍仅接受 Ubuntu 22.04 AMD64 管理机及三节点拓扑。
+原生 `k3s-amd64` 仍仅接受 Ubuntu 22.04 AMD64 管理机。
 K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这些结果单独记录。
+
+### 统一三拓扑支持矩阵
+
+正式清单中每个 profile 的 `supportedTopologies`（由 chentu 发布器写出，与安装目录 `nexusFirst.supportedTopologies` 必须一致）决定该目标可部署的拓扑；CLI 只固定“家族”：`k3d-*` 目标只能部署 `single-k3d`，`k3s-*` 目标只能部署 `single-k3s` / `multi-k3s`。拒绝文案按列表拼出，例如“此包不支持所选部署拓扑；k3s-amd64 支持：multi-k3s、single-k3s”。
+
+| 安装目标 | 拓扑 | 管理机契约 | 节点规则（hosted-first） |
+| --- | --- | --- | --- |
+| `k3d-arm64` | `single-k3d` | macOS ARM64 | `nodes: []`，`entryIp: 127.0.0.1`，runner `docker`，端口由实例注册表分配 |
+| `k3d-amd64` | `single-k3d` | Linux AMD64 | 同上 |
+| `k3s-amd64` | `single-k3s` | Ubuntu 22.04 AMD64（管理机即目标机） | 配置 `nodes: []`，向导探测本机后以 `localhost` 作为唯一 server，Ansible 本地连接；固定 80/443 |
+| `k3s-amd64` | `multi-k3s` | Ubuntu 22.04 AMD64 | ≥3 个、奇数个 server，0 个 agent（`ha: true`）；每个节点独立通过系统/架构检测 |
+
+`config.rs` 的通用校验保持不变（单机拓扑不接受远程节点；多机 HA 需奇数且 ≥3 个 server）；hosted-first 原生规则在资源准备后、创建集群前由 `bootstrap::hosted_nodes` 追加检查。发布器 `installer-support` 验证器与 `assemble-installer.js` 的默认配置契约同样放开三拓扑：multi-k3s 用 `192.0.2.x` 占位的 3 个 server，single-k3s 为 `nodes: []`，single-k3d 为 `nodes: []` / `127.0.0.1` / `54320`、`54321` / runner `docker`。
 
 ### 安装进程重启后继续
 
@@ -114,7 +127,8 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 
 一个配置路径就是一个安装实例：集群工作目录、集群名（`cluster::identity`）、检查点 `<config>.installation-resume.json` 与实例锁 `<config>.installation-owner` 均由该路径派生，实例化不改变这些规则。实例 ID 是配置路径 SHA-256 的前 12 位十六进制，仅作注册表键；`installation.instanceId` 可选透传，不参与校验。
 
-- **实例目录**：安装包 `start.sh` 使用 `~/.apeiron/installers/<candidate>/instances/<instance>/config.json`，`APEIRON_INSTANCE`（默认 `default`，小写 DNS 标签）选择实例，`APEIRON_WIZARD_PORT`（默认 3210）选择向导端口；随包 Python 运行时共享于 `installers/<candidate>/bootstrap`，缓存、配置与数据按实例隔离。`apeiron init --instance <name>` 使用 `~/.apeiron/instances/<name>/config.json`，与 `--config` 互斥。
+- **实例目录**：安装包 `start.sh` 使用 `~/.apeiron/installers/<candidate>/instances/<instance>/config.json`，`APEIRON_INSTANCE`（默认 `default`，小写 DNS 标签）选择实例，`APEIRON_WIZARD_PORT`（默认 3210）选择向导端口；随包 Python 运行时共享于 `installers/<candidate>/bootstrap`，缓存、配置与数据按实例隔离。`apeiron init --instance <name>` 使用 `~/.apeiron/instances/<name>/config.json`，与 `--config` 互斥。向导内“创建新安装实例”在当前配置所在的 `instances/` 根（或 `~/.apeiron/instances/`）下建目录。
+- **向导首屏**：两个入口“创建新安装实例”（名称 + 拓扑，服务端分配端口后进入配置流程）与“管理已有安装实例”（列表：ID、名称、拓扑、域名、端口、状态 `phase`/`k3d`；操作：选择/继续、诊断采集（下载 `api/log/download`）、卸载（仅 K3d 且集群未运行、非当前实例））。页眉实例标签与第 3 步始终显示当前正在操作的实例与配置路径。创建流程顺序：拓扑 → 应用与场景组合 → 共存配置与资源预算（显示 `api/preflight` 结果）→ 域名 / 访问方式 / 既有模型服务 → 预检与部署摘要 → 开始安装；入口端口只读展示。
 - **注册表**：`~/.apeiron/instances.json`（`schemaVersion: 1`，0600，临时文件 + rename 原子写）记录 `id`、`name`、`topology`、`config`、`httpPort`、`httpsPort`、`createdAt`。格式损坏、ID 与路径不符、名称或端口重复时拒绝读写，不自动修复。向导打开时若当前配置位于 `instances/<name>/` 布局下而未登记，会按配置中的端口自动登记一次。
 - **端口分配**：新建 K3d 实例时从 54320 起、步长 2 选择 HTTP/HTTPS 一对端口：排除注册表已保留端口，对两个端口各做一次 `127.0.0.1` 的 `bind` 探测，并解析 `docker ps -a --format '{{.Ports}}'` 排除已停止的 k3d 负载均衡容器仍持有的绑定。Docker 不可用时不创建 K3d 实例。K3s 实例固定 80/443。
 - **调度锁**：`~/.apeiron/scheduler.lock`（flock，当前用户私有普通文件）覆盖“分配端口 → 写入配置 → 登记”和部署的 `cluster` 阶段（端口复查与 `k3d` 创建）。部署等待锁时写入事件并最多等待 30 分钟；实例创建与删除最多等待 30 秒后报错。每实例锁继续沿用 `installation-owner`，检查点路径不变。
@@ -122,9 +136,11 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 - **实例接口**（同源 JSON，与其他 API 相同的 Host/Origin 规则；活动部署、访问配置或测试进行中时拒绝变更）：
   - `GET api/instances` → `{registry, path, current, instances:[{id,name,topology,config,httpPort,httpsPort,createdAt,exists,phase,locked,cluster,k3d}]}`；`phase` 取自恢复记录（`new`/`idle`/`interrupted`/`succeeded`/`blocked`），`k3d` 由 `docker inspect k3d-<cluster>-serverlb` 得出（`running`/`stopped`/`absent`/`unknown`，K3s 为 `null`）。
   - `GET api/instances/<id>/status` → 单个实例的同一结构。
-  - `POST api/instances/create {name, topology}` → `{instance}`：分配端口、从当前配置复制应用选择与离线包路径生成 `<name>.apeironlab.internal` 的模板配置（多机 K3s 使用文档占位节点），写入并登记。
-  - `POST api/instances/select {id}` → `{instance, path, config, revision, deployment}`：无活动部署时切换向导当前配置路径并重新读取该实例的恢复状态；网关向导不支持。
-  - `POST api/instances/delete {id}` → `{deleted, clusterDeleted, removedDirectory}`：仅 K3d、非当前实例、集群未运行；集群已停止时执行 `k3d cluster delete <cluster>` 与 `k3d registry delete k3d-<cluster>-reg`，再删除实例目录并注销。运行中、状态未知、被其他进程持有或恢复记录损坏时拒绝；从不执行 `docker prune` 或泛化删除。
+  - `POST api/instances/create {name, topology[, select]}` → `{instance, existing, selected}`：分配端口、从当前配置复制应用选择与离线包路径生成 `<name>.apeironlab.internal` 的模板配置（多机 K3s 使用文档占位节点），写入并登记。`select: true` 时同时切换并附带 `select` 的返回字段。若 `name` 就是向导当前所在、已登记的实例（`start.sh` 用 `APEIRON_INSTANCE` 打开时的情形）且拓扑一致，则幂等返回 `existing: true`；拓扑不一致 409；其他重名 409。每个实例状态额外含 `domain`（取自其配置，仅展示）。
+  - `POST api/instances/select {id}` 或 `{name}` → `{instance, path, config, revision, deployment}`：无活动部署时切换向导当前配置路径并重新读取该实例的恢复状态；网关向导不支持。
+  - `POST api/instances/delete {id}` 或 `{name}` → `{deleted, clusterDeleted, removedDirectory}`：仅 K3d、非当前实例、集群未运行；集群已停止时执行 `k3d cluster delete <cluster>` 与 `k3d registry delete k3d-<cluster>-reg`，再删除实例目录并注销。运行中、状态未知、被其他进程持有或恢复记录损坏时拒绝；名称不存在 404；从不执行 `docker prune` 或泛化删除。
+  - `GET api/config` 额外返回 `instance`（当前配置对应的注册表记录状态，未登记为 `null`）与 `path`。
+  - `POST api/preflight`（请求体同 `api/deploy`）→ `{preflight, blocked, installation}`：按 `api/deploy` 规则校验但不保存，执行同一共存/端口预检；可修正的拒绝原因（4xx）以 `blocked` 字符串返回而非错误状态。
 - **共存预检矩阵**（本机目标在点击部署、重试和创建集群前执行；多机节点由节点探测负责）：
 
 | 宿主状态 | 单机 K3d | 单机 K3s | 多机 K3s 节点 |
@@ -135,6 +151,14 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 | `iptables -S DOCKER-USER` / `FORWARD` | 最佳努力读取；失败记 `unknown`，`FORWARD` 默认 DROP 时警告 | — | — |
 
 预检只读取状态，不修改路由、防火墙或 Docker 资源；警告随部署事件写入安装日志并在 `api/deploy` 响应的 `preflight` 字段返回。多实例、共存与 SSH 转发尚未在真实多实例宿主上完成验收。
+
+### 验收 harness 契约（WP5 对齐）
+
+- `start.sh`：读取 `APEIRON_WIZARD_PORT`（默认 3210）与 `APEIRON_INSTANCE`（默认 `default`），以 `--config "$STATE/config.json" --port "$WIZARD_PORT"` 启动，并透传其余参数（如 `--no-open`）；CLI 标准输出保持 `schema=apeiron.init.v1` 表格：`url\thttp://127.0.0.1:<port>/setup/<hex>/`、`config\t<path>`、`forward\tssh -L <port>:127.0.0.1:<port> <user>@<this-host>`。
+- 远程使用：工作站执行 `ssh -L 3210:127.0.0.1:3210 <user>@<host>`，然后打开 `http://127.0.0.1:3210/<url 行中的路径>`；POST 的 `Host` 与 `Origin` 均为 `http://127.0.0.1:3210`。
+- 部署请求体 = `GET api/config` 的 `config` 叠加 `deployment.installation{topology,domain,entryIp,httpPort,httpsPort,ha,nodes,sshUser,sshKey,sshPort}`、`apps` 与 `revision`；K3d 的端口须与注册表登记一致（创建实例时由服务端分配）。
+- `GET api/deployment.stages[]` 元素为 `{id, state, detail}`，`id ∈ check/cluster/nexus/import/applications/access`，`state ∈ pending/active/done/skipped/failed/cancelled`；中断用 `POST api/deployment/stop {}`，续跑 `POST api/deployment/resume {revision}`，重跑 `POST api/deployment/retry {revision}`。
+- 应用 ID 见 `runtime/assets/apps.json`：`matrix`=Chat；`browser`（Helm release `chrome-headless`）与 `ci`（`woodpecker`，要求同时启用 `git`）为可选、默认不选；不在目录中的 ID（如 `keycloak`）被 `应用目录不包含：<id>。` 明确拒绝；资源目录缺少对应组件时在 `check` 阶段以“安装包缺少组件：<id>”拒绝。
 
 访问页读取 `keycloak/keycloak-operator` 的持久工作空间账号（默认 `platform-owner`），
 不把初次 IAM 管理引导账号作为应用登录账号。已修改 IAM 密码时使用新密码；

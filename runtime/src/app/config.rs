@@ -216,13 +216,33 @@ pub fn validate(v: &Value, current: &Value) -> Result<Value> {
     let apps = apps();
     let catalog = apps.as_array().unwrap();
     let mut seen = std::collections::HashSet::new();
-    if list.is_empty()
-        || list.len() > catalog.len()
-        || list
-            .iter()
-            .any(|x| !seen.insert(x.as_str().unwrap_or("")) || !catalog.iter().any(|a| a["id"] == *x))
-    {
+    if list.is_empty() || list.len() > catalog.len() || list.iter().any(|x| !seen.insert(x.as_str().unwrap_or(""))) {
         return Err(fail("应用列表不正确或重复。", 400));
+    }
+    // Applications outside the catalog are refused by name, never dropped silently.
+    if let Some(unknown) = list.iter().find(|x| !catalog.iter().any(|a| a["id"] == **x)) {
+        return Err(fail(
+            format!("应用目录不包含：{}。", unknown.as_str().unwrap_or("(非字符串)")),
+            400,
+        ));
+    }
+    for app in catalog.iter().filter(|a| list.contains(&a["id"])) {
+        for requirement in app["requires"].as_array().into_iter().flatten() {
+            if !list.contains(requirement) {
+                return Err(fail(
+                    format!(
+                        "{} 需要同时启用 {}。",
+                        app["name"].as_str().unwrap_or(""),
+                        catalog
+                            .iter()
+                            .find(|a| a["id"] == *requirement)
+                            .and_then(|a| a["name"].as_str())
+                            .unwrap_or(requirement.as_str().unwrap_or(""))
+                    ),
+                    400,
+                ));
+            }
+        }
     }
     let mut out = json!({"schemaVersion":2,"slug":slug,"apps":catalog.iter().filter(|a|list.contains(&a["id"])).map(|a|a["id"].clone()).collect::<Vec<_>>()});
     if let Some(m) = v.get("models") {

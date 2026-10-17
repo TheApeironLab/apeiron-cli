@@ -186,6 +186,27 @@ pub fn write_registry(base: &Path, value: &Value) -> Result<()> {
     }
     result
 }
+/// Resolves `{id}` or `{name}` to a registry ID; names are unique in the registry.
+pub fn resolve_id(registry: &Value, input: &Value) -> Result<String> {
+    if let Some(id) = input.get("id") {
+        return id
+            .as_str()
+            .filter(|id| config::matches(r"^[a-f0-9]{12}$", id))
+            .map(str::to_owned)
+            .ok_or_else(|| fail("实例 ID 格式不正确。", 400));
+    }
+    let name = input["name"].as_str().unwrap_or("");
+    if !config::safe_name(name) {
+        return Err(fail("实例名称格式不正确。", 400));
+    }
+    registry["instances"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|i| i["name"] == name)
+        .and_then(|i| i["id"].as_str().map(str::to_owned))
+        .ok_or_else(|| fail("实例不存在。", 404))
+}
 pub fn entry<'a>(registry: &'a Value, id: &str) -> Result<&'a Value> {
     registry["instances"]
         .as_array()
@@ -415,6 +436,15 @@ pub fn status(entry: &Value, runner: &dyn Runner) -> Value {
         Err(_) => "blocked",
     });
     out["locked"] = json!(locked(config));
+    // Display only: the saved domain, never trusted for identity.
+    out["domain"] = config::read(config)
+        .ok()
+        .and_then(|saved| {
+            saved["config"]["deployment"]["installation"]["domain"]
+                .as_str()
+                .map(str::to_owned)
+        })
+        .map_or(Value::Null, Value::String);
     let cluster = cluster_name(entry);
     out["k3d"] = json!(cluster.as_deref().map(|c| k3d_state(c, runner)));
     out["cluster"] = json!(cluster);

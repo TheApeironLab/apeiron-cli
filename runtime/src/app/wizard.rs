@@ -137,62 +137,98 @@ impl State {
             return Err(fail("网关部署向导绑定单一组织，不支持切换实例。", 409));
         }
         self.busy()?;
-        let id = || {
-            input["id"]
-                .as_str()
-                .filter(|id| config::matches(r"^[a-f0-9]{12}$", id))
-                .ok_or_else(|| fail("实例 ID 格式不正确。", 400))
-        };
         let data = match route {
             "api/instances/create" => {
-                if input.as_object().is_none_or(|o| o.len() != 2) {
-                    return Err(fail("创建实例需要 name 和 topology。", 400));
+                let select = input.get("select").map(Value::as_bool).unwrap_or(Some(false));
+                if input
+                    .as_object()
+                    .is_none_or(|o| o.len() != 2 + usize::from(input.get("select").is_some()))
+                    || select.is_none()
+                {
+                    return Err(fail("创建实例需要 name 和 topology（可选 select）。", 400));
                 }
-                let source = config::read(&path).map(|c| c["config"].clone()).unwrap_or(Value::Null);
-                let root = instances::root(&path, &base);
-                let creation = instances::Creation {
-                    base: &base,
-                    root: &root,
-                    source: &source,
-                    bind: &instances::bindable,
-                    runner: &runner,
-                    cancel: &self.cancel,
-                };
-                let entry = instances::create(
-                    &creation,
-                    input["name"].as_str().unwrap_or(""),
-                    input["topology"].as_str().unwrap_or(""),
-                )?;
-                json!({"instance":instances::status(&entry, &runner)})
+                let name = input["name"].as_str().unwrap_or("");
+                let topology = input["topology"].as_str().unwrap_or("");
+                // Idempotent for the instance the wizard already runs in (start.sh
+                // with APEIRON_INSTANCE registers it on open): same name and topology
+                // return the existing record instead of a duplicate-name conflict.
+                let _ = instances::adopt(&base, &path, &self.cancel);
+                let existing = instances::read_registry(&base)
+                    .ok()
+                    .and_then(|r| instances::entry(&r, &instances::id_for(&path)).ok().cloned())
+                    .filter(|e| e["name"] == name);
+                if let Some(entry) = existing {
+                    if entry["topology"] != topology {
+                        return Err(fail("当前实例已按其他拓扑登记，请使用新的实例名称。", 409));
+                    }
+                    json!({"instance":instances::status(&entry, &runner),"existing":true,"selected":true})
+                } else {
+                    let source = config::read(&path).map(|c| c["config"].clone()).unwrap_or(Value::Null);
+                    let root = instances::root(&path, &base);
+                    let creation = instances::Creation {
+                        base: &base,
+                        root: &root,
+                        source: &source,
+                        bind: &instances::bindable,
+                        runner: &runner,
+                        cancel: &self.cancel,
+                    };
+                    let entry = instances::create(&creation, name, topology)?;
+                    let mut data =
+                        json!({"instance":instances::status(&entry, &runner),"existing":false,"selected":false});
+                    if select == Some(true) {
+                        data = self.select(&entry, &runner)?;
+                        data["existing"] = json!(false);
+                        data["selected"] = json!(true);
+                    }
+                    data
+                }
             }
             "api/instances/select" => {
                 if input.as_object().is_none_or(|o| o.len() != 1) {
-                    return Err(fail("切换实例只接受 id。", 400));
+                    return Err(fail("切换实例只接受 id 或 name。", 400));
                 }
                 let registry = instances::read_registry(&base)?;
-                let entry = instances::entry(&registry, id()?)?.clone();
-                let target = PathBuf::from(entry["config"].as_str().unwrap());
-                config::location(&target)?;
-                config::read(&target)?;
-                self.deployment.reload(&target)?;
-                *self.path.lock().unwrap() = target.clone();
-                self.access.reset();
-                *self.verification.lock().unwrap() = Value::Null;
-                *self.deployed_revision.lock().unwrap() = Value::Null;
-                println!("status\tselected\nconfig\t{}", target.display());
-                let mut public = config::public(&config::read(&target)?);
-                public["deployment"] = self.deployment.snapshot();
-                json!({"instance":instances::status(&entry, &runner),"path":target,"config":public["config"],"revision":public["revision"],"deployment":public["deployment"]})
+                let entry = instances::entry(&registry, &instances::resolve_id(&registry, input)?)?.clone();
+                self.select(&entry, &runner)?
             }
             "api/instances/delete" => {
                 if input.as_object().is_none_or(|o| o.len() != 1) {
-                    return Err(fail("删除实例只接受 id。", 400));
+                    return Err(fail("删除实例只接受 id 或 name。", 400));
                 }
-                instances::delete(&base, id()?, &path, &runner, &self.cancel)?
+                let id = instances::resolve_id(&instances::read_registry(&base)?, input)?;
+                instances::delete(&base, &id, &path, &runner, &self.cancel)?
             }
             _ => return Err(fail("页面不存在。", 404)),
         };
         Ok(Reply::json(data, 200))
+    }
+    fn select(&self, entry: &Value, runner: &dyn instances::Runner) -> Result<Value> {
+        let target = PathBuf::from(entry["config"].as_str().unwrap());
+        config::location(&target)?;
+        config::read(&target)?;
+        self.deployment.reload(&target)?;
+        *self.path.lock().unwrap() = target.clone();
+        self.access.reset();
+        *self.verification.lock().unwrap() = Value::Null;
+        *self.deployed_revision.lock().unwrap() = Value::Null;
+        println!("status\tselected\nconfig\t{}", target.display());
+        let mut public = config::public(&config::read(&target)?);
+        public["deployment"] = self.deployment.snapshot();
+        Ok(
+            json!({"instance":instances::status(entry, runner),"path":target,"config":public["config"],"revision":public["revision"],"deployment":public["deployment"]}),
+        )
+    }
+    /// The registry record for the configuration the wizard currently edits, if any.
+    fn current_instance(&self, path: &Path) -> Value {
+        let Ok(base) = instances::base() else {
+            return Value::Null;
+        };
+        let _ = instances::adopt(&base, path, &self.cancel);
+        instances::read_registry(&base)
+            .ok()
+            .and_then(|r| instances::entry(&r, &instances::id_for(path)).ok().cloned())
+            .map_or(Value::Null, |e| instances::status(&e, &instances::Host))
     }
     fn route(&self, r: &mut Request) -> Result<Reply> {
         let host = header(r, "host").map(str::to_owned);
@@ -232,6 +268,7 @@ impl State {
                     data["host"] = discovery::host();
                     data["defaults"] = config::defaults();
                     data["deployment"] = self.deployment.snapshot();
+                    data["instance"] = self.current_instance(&path);
                     Ok(Reply::json(data, 200))
                 }
                 "api/deployment" => Ok(Reply::json(self.deployment.snapshot(), 200)),
@@ -412,6 +449,23 @@ impl State {
                     return Ok(Reply::json(public, 202));
                 }
                 public
+            }
+            "api/preflight" => {
+                // Read-only coexistence/port preflight for the summary step; nothing is saved.
+                self.busy()?;
+                let current = config::read(&path)?;
+                let candidate = config::validate(&input, &current["config"])?;
+                let installation = candidate["deployment"]["installation"].clone();
+                if installation.is_null() {
+                    return Err(fail("请填写部署环境。", 400));
+                }
+                match cluster::preflight(&path, &installation, &self.cancel) {
+                    Ok(preflight) => json!({"preflight":preflight,"blocked":Value::Null,"installation":installation}),
+                    Err(e) if (400..500).contains(&e.code) => {
+                        json!({"preflight":"","blocked":e.message,"installation":installation})
+                    }
+                    Err(e) => return Err(e),
+                }
             }
             "api/deployment/resume" => {
                 self.busy()?;

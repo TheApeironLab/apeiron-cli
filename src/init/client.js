@@ -33,8 +33,21 @@ export function initWizard(supportsK3sHost) {
     const error = get('error');
     form.addEventListener('input', () => { error.hidden = true; });
     form.addEventListener('change', () => { error.hidden = true; });
-    const titles = ['设置部署环境', '设置组织', '配置模型', '选择要启用的应用'];
-    const subtitles = ['检测当前主机，选择安装方式。', '设置团队标识与访问域名。', '选择快速与深度思考模型，测试后即可用于 Apeiron。', '准备所选应用的资源，然后创建集群并部署。'];
+    const titles = ['选择拓扑', '选择应用与场景', '共存配置与资源预算', '域名、访问方式与模型', '预检与部署摘要'];
+    const subtitles = ['检测当前主机，选择安装方式。', '按场景组合选择要启用的应用。', '确认服务端分配的入口端口、宿主共存预检与资源估算。', '设置团队标识、访问入口与既有模型服务。', '核对配置与预检结果，然后开始安装。'];
+    const TOTAL_STEPS = 8;
+    let currentInstance = null;
+    let configPath = '';
+    let savedInstallation = null;
+    let instancesAvailable = false;
+    let instanceList = [];
+    let lastPreflight = null;
+    let preflightSerial = 0;
+    let preflightRequest;
+    let preflightPending = Promise.resolve();
+    // Rough per-application memory estimate (GiB) for the budget step; the base platform is counted once.
+    const MEMORY_ESTIMATE = { base: 6, task: 0.5, corpus: 1, matrix: 1, files: 0.5, stalwart: 0.5, gateway: 0.5, filer: 0.5, git: 1, gpustack: 2, langfuse: 1.5, kps: 2, browser: 1, ci: 1 };
+    const SCENARIOS = { required: [], core: ['task', 'corpus', 'matrix', 'files', 'stalwart'], full: null };
     const modelProvider = get('model-provider');
     const modelUrl = get('model-url'), modelKey = get('model-key');
     const modelFast = get('model-fast'), modelDeep = get('model-deep');
@@ -580,6 +593,13 @@ export function initWizard(supportsK3sHost) {
             button.disabled = false;
         }
     });
+    // Entry ports are allocated by the server when an instance is created; the
+    // page only displays them. Native K3s is fixed to 80/443.
+    function localPorts() {
+        if (currentInstance?.topology === 'single-k3d' && currentInstance.httpPort) return [currentInstance.httpPort, currentInstance.httpsPort];
+        if (savedInstallation?.topology === 'single-k3d' && savedInstallation.httpPort) return [savedInstallation.httpPort, savedInstallation.httpsPort];
+        return [54320, 54321];
+    }
     function target() {
         const mode = topology();
         const paired = accessMode() === 'relay' ? selectedConnection() : undefined;
@@ -588,7 +608,7 @@ export function initWizard(supportsK3sHost) {
             address: row.querySelector('[data-field=address]')?.value ?? '',
             role: row.querySelector('[data-field=role]')?.value,
         })) : [];
-        return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? Number(fields.httpPort.value) : 80, httpsPort: mode === 'single-k3d' ? Number(fields.httpsPort.value) : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField('public-ip'), tunnelPort: paired?.tunnelPort ?? Number(publicField('tunnel-port')), ...(paired ? { pairingId: paired.id } : accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
+        return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? localPorts()[0] : 80, httpsPort: mode === 'single-k3d' ? localPorts()[1] : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField('public-ip'), tunnelPort: paired?.tunnelPort ?? Number(publicField('tunnel-port')), ...(paired ? { pairingId: paired.id } : accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
             runner: mode === 'single-k3d' ? 'docker' : 'native',
             root: '', offline: offline.checked, bundleDir: offline.checked ? fields.bundleDir.value.trim() : '',
             environment: '', kubeconfig: '', workDir: '', image: 'chentu-lab' };
@@ -613,8 +633,9 @@ export function initWizard(supportsK3sHost) {
         entryIp.value = install?.entryIp ?? '';
         entryEdited = Boolean(entryIp.value);
         entryTopology = topology();
-        fields.httpPort.value = String(install?.httpPort ?? 54320);
-        fields.httpsPort.value = String(install?.httpsPort ?? 54321);
+        savedInstallation = install ?? null;
+        fields.httpPort.value = String(localPorts()[0]);
+        fields.httpsPort.value = String(localPorts()[1]);
         fields.sshUser.value = install?.sshUser ?? '';
         fields.sshKey.value = install?.sshKey ?? '';
         fields.sshPort.value = String(install?.sshPort ?? 22);
@@ -629,13 +650,118 @@ export function initWizard(supportsK3sHost) {
         error.hidden = true;
         document.querySelectorAll('[data-panel]').forEach((panel, index) => { panel.hidden = index !== step; });
         renderProgress(step);
-        get('step-label').textContent = `第 ${step + 1} 步 / 共 7 步`;
+        get('step-label').textContent = `第 ${step + 1} 步 / 共 ${TOTAL_STEPS} 步`;
         get('step-title').textContent = titles[step];
         get('step-subtitle').textContent = subtitles[step];
         back.hidden = step === 0;
-        next.textContent = step === titles.length - 1 ? '开始部署' : '下一步';
+        next.textContent = step === titles.length - 1 ? '开始安装' : '下一步';
+        if (step === 2) {
+            renderCoexistence();
+            renderBudget();
+            void runPreflight();
+        }
+        if (step === 4) {
+            renderSummary();
+            void runPreflight();
+        }
         if (focus)
-            (step === 0 ? get('online') : step === 1 ? slug : step === 2 ? get('model-url') : document.querySelector('[name="app"]:not(:disabled)'))?.focus();
+            (step === 0 ? get('online') : step === 1 ? document.querySelector('[name="app"]:not(:disabled)') : step === 2 ? get('coexist-refresh') : step === 3 ? slug : next)?.focus();
+    }
+    function instanceLabel() {
+        return currentInstance ? `${currentInstance.name} · ${currentInstance.id}` : configPath ? `未登记 · ${configPath.split('/').slice(-2).join('/')}` : '实例未登记';
+    }
+    function renderChip() {
+        get('instance-chip').textContent = instanceLabel();
+        get('instance-chip').title = configPath ? `配置路径：${configPath}` : '当前正在操作的安装实例';
+    }
+    function renderCoexistence() {
+        const mode = topology();
+        get('instance-topology-label').textContent = mode === 'single-k3d' ? '单机 K3d' : mode === 'multi-k3s' ? '多机 K3s' : '单机 K3s';
+        get('coexist-instance').textContent = instanceLabel();
+        get('coexist-config').textContent = configPath || '—';
+        get('coexist-ports').textContent = mode === 'single-k3d' ? `HTTP ${localPorts()[0]} / HTTPS ${localPorts()[1]}（服务端分配）` : 'HTTP 80 / HTTPS 443（原生 K3s 固定）';
+    }
+    function renderBudget() {
+        const selected = selectedApps();
+        const estimate = MEMORY_ESTIMATE.base + selected.reduce((sum, id) => sum + (MEMORY_ESTIMATE[id] ?? 0.5), 0);
+        const memory = machine?.hardware?.memoryGiB;
+        get('budget-host').textContent = machine ? `${machine.hardware.cores} 核 · ${memory} GiB 内存 · ${machine.os.name} ${machine.os.version}` : '尚未检测';
+        get('budget-apps').textContent = `${selected.length} 个应用：${selected.map(id => apps.find(app => app.id === id)?.name ?? id).join('、')}`;
+        get('budget-memory').textContent = `约 ${estimate.toFixed(1)} GiB（基础平台 ${MEMORY_ESTIMATE.base} GiB + 应用）`;
+        const over = typeof memory === 'number' && estimate > memory * 0.8;
+        get('budget-note').textContent = topology() === 'multi-k3s' ? '多机部署按节点总内存分摊；估算仅供参考，节点检测结果为准。' : over ? `估算超过主机内存的 80%，建议减少应用或增加内存；估算不代表实际占用。` : '估算仅供参考，实际占用取决于数据量和并发；主机需为 K3s/K3d 与系统保留余量。';
+        get('budget-note').dataset.state = over ? 'warning' : '';
+    }
+    function renderPreflightResult(result) {
+        for (const [statusId, listId] of [['coexist-status', 'coexist-warnings'], ['summary-preflight', 'summary-warnings']]) {
+            const status = get(statusId);
+            const list = get(listId);
+            list.replaceChildren();
+            if (!result) {
+                status.textContent = '正在预检…';
+                status.dataset.state = '';
+                continue;
+            }
+            if (result.error) {
+                status.textContent = `预检失败：${result.error}`;
+                status.dataset.state = 'blocked';
+                continue;
+            }
+            if (result.blocked) {
+                status.textContent = `预检未通过：${result.blocked}`;
+                status.dataset.state = 'blocked';
+                continue;
+            }
+            const warnings = (result.preflight || '').split(/(?<=[。；])\s*/).map(text => text.trim()).filter(Boolean);
+            status.textContent = (warnings.length ? `预检通过，有 ${warnings.length} 条提示。` : '预检通过，未发现共存冲突。') + (result.provisional ? ' 域名尚未填写，摘要步骤会按最终域名复查集群归属。' : '');
+            status.dataset.state = warnings.length ? 'warning' : 'clear';
+            list.replaceChildren(...warnings.map(text => { const li = document.createElement('li'); li.textContent = text; return li; }));
+        }
+    }
+    function runPreflight() {
+        preflightPending = preflightOnce();
+        return preflightPending;
+    }
+    async function preflightOnce() {
+        const serial = ++preflightSerial;
+        preflightRequest?.abort();
+        preflightRequest = new AbortController();
+        renderPreflightResult(null);
+        try {
+            // Before the domain step the cluster identity is unknown: check host
+            // coexistence under a placeholder domain and recheck in the summary.
+            const deployment = target();
+            const provisional = !validDomain();
+            if (provisional)
+                deployment.installation.domain = 'preflight.apeironlab.internal';
+            const response = await fetch(endpoint('preflight'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ revision, slug: slug.value.trim() || 'preflight', apps: selectedApps(), models: null, deployment }), signal: preflightRequest.signal });
+            const result = await response.json();
+            if (serial !== preflightSerial)
+                return;
+            lastPreflight = response.ok ? { ...result, provisional } : { error: result.error || '预检失败。' };
+        }
+        catch (cause) {
+            if (serial !== preflightSerial)
+                return;
+            lastPreflight = { error: cause instanceof Error && cause.name !== 'AbortError' ? cause.message : '无法完成预检。' };
+        }
+        renderPreflightResult(lastPreflight);
+    }
+    get('coexist-refresh').addEventListener('click', () => { void runPreflight(); });
+    get('summary-refresh').addEventListener('click', () => { void runPreflight(); });
+    function renderSummary() {
+        const value = target();
+        const install = value.installation;
+        get('summary-instance').textContent = instanceLabel();
+        get('summary-topology').textContent = install.topology === 'single-k3d' ? '单机 K3d（本机 Docker）' : install.topology === 'multi-k3s' ? `多机 K3s${install.ha ? ' · 控制平面高可用' : ''}` : '单机 K3s（当前主机）';
+        get('summary-nodes').textContent = install.topology === 'multi-k3s' ? install.nodes.map(node => `${node.host}（${node.role === 'server' ? '控制' : '工作'} · ${node.address}）`).join('、') || '尚未检测' : install.topology === 'single-k3d' ? '本机 Docker 容器' : '当前主机';
+        get('summary-source').textContent = value.offline ? `离线 · ${value.bundleDir}` : '在线下载固定发行版';
+        get('summary-domain').textContent = install.domain || '—';
+        get('summary-entry').textContent = install.publicAccess ? `${install.publicAccess.mode === 'relay' ? 'ECS 转发' : '公网直连'} · ${install.publicAccess.publicIp}` : `内网 · ${install.entryIp || '—'}`;
+        get('summary-ports').textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;
+        get('summary-apps').textContent = selectedApps().map(id => apps.find(app => app.id === id)?.name ?? id).join('、');
+        get('summary-models').textContent = modelSkip.checked ? '稍后配置' : `${modelProvider.value.trim()} · ${modelUrl.value.trim()} · ${modelFast.value} / ${modelDeep.value}`;
     }
     function renderProgress(active) {
         document.querySelectorAll('[data-step]').forEach((item, index) => {
@@ -651,7 +777,25 @@ export function initWizard(supportsK3sHost) {
     }
     function updateSelection() {
         get('selected-count').textContent = `已选择 ${selectedApps().length} 个应用（${apps.filter(app => app.required).length} 个必选）`;
+        const selected = selectedApps();
+        for (const button of document.querySelectorAll('[data-scenario]')) {
+            const wanted = scenarioApps(button.dataset.scenario);
+            button.setAttribute('aria-pressed', String(wanted.length === selected.length && wanted.every(id => selected.includes(id))));
+        }
     }
+    function scenarioApps(name) {
+        const extra = SCENARIOS[name];
+        return apps.filter(app => app.required || (extra === null ? true : extra.includes(app.id))).map(app => app.id);
+    }
+    function applyScenario(name) {
+        const wanted = scenarioApps(name);
+        for (const input of document.querySelectorAll('[name="app"]'))
+            if (!input.disabled)
+                input.checked = wanted.includes(input.value);
+        updateSelection();
+    }
+    for (const button of document.querySelectorAll('[data-scenario]'))
+        button.addEventListener('click', () => applyScenario(button.dataset.scenario));
     function renderApps(selected) {
         const grid = get('app-grid');
         grid.replaceChildren();
@@ -674,7 +818,13 @@ export function initWizard(supportsK3sHost) {
             input.value = app.id;
             input.checked = app.required || selected.includes(app.id);
             input.disabled = app.required;
-            input.addEventListener('change', updateSelection);
+            input.addEventListener('change', () => {
+                // Dependencies are enabled together; the server refuses the combination otherwise.
+                if (input.checked)
+                    for (const id of app.requires ?? [])
+                        document.querySelector(`[name="app"][value="${id}"]`).checked = true;
+                updateSelection();
+            });
             const icon = document.createElement('span');
             icon.className = 'app-icon';
             icon.textContent = app.name.slice(0, 1);
@@ -705,10 +855,6 @@ export function initWizard(supportsK3sHost) {
     }
     function validate() {
         if (step === 0) {
-            if (topology() === 'single-k3d' && (![fields.httpPort.value, fields.httpsPort.value].every(value => /^\d{1,5}$/.test(value) && Number(value) >= 1 && Number(value) <= 65535) || Number(fields.httpPort.value) === Number(fields.httpsPort.value) || Number(fields.httpPort.value) === 443 || Number(fields.httpsPort.value) === 80)) {
-                showError('请填写不同的 HTTP / HTTPS 端口（1–65535）；HTTP 不能使用 443，HTTPS 不能使用 80。');
-                return false;
-            }
             if (offline.checked && !fields.bundleDir.reportValidity())
                 return false;
             if (topology() === 'single-k3s' && (!machine || !supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture))) {
@@ -733,7 +879,7 @@ export function initWizard(supportsK3sHost) {
                     }
             }
         }
-        if (step === 0 && accessMode() !== 'private' && (topology() !== 'single-k3s' || offline.checked)) {
+        if (step === 3 && accessMode() !== 'private' && (topology() !== 'single-k3s' || offline.checked)) {
             showError('公网入口目前支持在线单机 K3s。');
             return false;
         }
@@ -741,19 +887,19 @@ export function initWizard(supportsK3sHost) {
             showError('连接管理正在进行，请稍后重试。');
             return false;
         }
-        if (step === 0 && accessMode() === 'relay' && selectedConnection()?.state === 'revoked') {
+        if (step === 3 && accessMode() === 'relay' && selectedConnection()?.state === 'revoked') {
             showError('当前连接已撤销，请重新配对。');
             return false;
         }
-        if (step === 0 && accessMode() !== 'private' && (!publicField('public-ip') || (accessMode() === 'relay' && !selectedConnection() && !publicField('gateway-host')))) {
+        if (step === 3 && accessMode() !== 'private' && (!publicField('public-ip') || (accessMode() === 'relay' && !selectedConnection() && !publicField('gateway-host')))) {
             showError('请配对公网入口，或填写高级 SSH 配置。');
             return false;
         }
-        if (step === 0 && !validIp()) {
-            showError('请确认部署环境中的入口 IPv4 地址。');
+        if (step === 3 && !validIp()) {
+            showError('请确认入口 IPv4 地址。');
             return false;
         }
-        if (step === 1) {
+        if (step === 3) {
             if (!slug.reportValidity() || !domain.reportValidity())
                 return false;
             if (!validDomain()) {
@@ -761,11 +907,18 @@ export function initWizard(supportsK3sHost) {
                 return false;
             }
         }
-        if (step === 3 && apps.some(app => app.required && !selectedApps().includes(app.id))) {
+        if (step === 1 && apps.some(app => app.required && !selectedApps().includes(app.id))) {
             showError('请保留全部必选应用。');
             return false;
         }
-        if (step === 2 && !modelSkip.checked && modelPassed !== modelFingerprint()) {
+        if (step === 1) {
+            const missing = apps.find(app => selectedApps().includes(app.id) && (app.requires ?? []).some(id => !selectedApps().includes(id)));
+            if (missing) {
+                showError(`${missing.name} 需要同时启用 ${missing.requires.map(id => apps.find(app => app.id === id)?.name ?? id).join('、')}。`);
+                return false;
+            }
+        }
+        if (step === 3 && !modelSkip.checked && modelPassed !== modelFingerprint()) {
             showError('请先测试快速和深度思考模型，或选择稍后配置。');
             return false;
         }
@@ -826,13 +979,15 @@ export function initWizard(supportsK3sHost) {
         currentDeployment = status;
         form.hidden = true;
         get('form-heading').hidden = true;
+        get('home').hidden = true;
+        get('instances').hidden = true;
         get('finish-actions').hidden = false;
         const access = status.phase === 'succeeded' ? status.access : undefined;
         const showTest = Boolean(access && !viewingDeployment && testingPage);
         const showAccess = Boolean(access && !viewingDeployment && !testingPage);
         get('deployment').hidden = showAccess || showTest;
         get('verification').hidden = !showTest;
-        renderProgress(showTest ? 6 : showAccess ? 5 : 4);
+        renderProgress(showTest ? 7 : showAccess ? 6 : 5);
         const active = ['preparing', 'running', 'stopping'].includes(status.phase);
         get('deployment-title').textContent = status.phase === 'stopping' ? (status.stopFailed ? '停止尚未完成。' : '正在停止部署…') : active ? (status.completedRecovery ? '正在恢复访问配置…' : '正在部署…') : status.phase === 'succeeded' ? '部署完成。' : status.phase === 'cancelled' ? '部署已停止。' : status.phase === 'interrupted' ? '部署等待继续。' : '部署失败。';
         get('deployment-message').textContent = status.message;
@@ -1164,6 +1319,263 @@ export function initWizard(supportsK3sHost) {
         step--;
         renderStep();
     } });
+    function showForm() {
+        get('home').hidden = true;
+        get('instances').hidden = true;
+        get('deployment').hidden = true;
+        get('access-complete').hidden = true;
+        get('verification').hidden = true;
+        get('finish-actions').hidden = true;
+        form.hidden = false;
+        get('form-heading').hidden = false;
+        step = 0;
+        renderStep();
+        void probeEnvironment();
+    }
+    function showHome() {
+        clearTimeout(timer);
+        preflightRequest?.abort();
+        form.hidden = true;
+        get('form-heading').hidden = true;
+        get('instances').hidden = true;
+        get('deployment').hidden = true;
+        get('access-complete').hidden = true;
+        get('verification').hidden = true;
+        get('finish-actions').hidden = true;
+        get('home').hidden = false;
+        get('manage-instances').disabled = !instancesAvailable;
+        get('create-instance').disabled = !instancesAvailable;
+        get('home-instance-count').textContent = instancesAvailable ? `注册表中有 ${instanceList.length} 个实例。` : '此向导不支持实例管理（网关向导或注册表不可用）。';
+        renderProgress(-1);
+        get('new-instance-name').focus();
+    }
+    async function loadInstances() {
+        try {
+            const response = await fetch(endpoint('instances'));
+            const result = await response.json();
+            if (!response.ok || !Array.isArray(result.instances))
+                throw new Error(result.error || '无法读取实例列表。');
+            instancesAvailable = true;
+            instanceList = result.instances;
+            get('instances-registry').textContent = result.registry;
+            currentInstance = instanceList.find(instance => instance.id === result.current) ?? null;
+            renderChip();
+            return result;
+        }
+        catch (cause) {
+            instancesAvailable = false;
+            instanceList = [];
+            get('instances-status').textContent = cause instanceof Error ? cause.message : '无法读取实例列表。';
+            return null;
+        }
+    }
+    function phaseLabel(instance) {
+        const phases = { new: '未配置', idle: '已配置', interrupted: '安装中断，可继续', succeeded: '已部署', blocked: '恢复记录异常' };
+        const k3d = { running: '集群运行中', stopped: '集群已停止', absent: '尚无集群', unknown: '集群状态未知' };
+        return `${phases[instance.phase] ?? instance.phase}${instance.k3d ? ' · ' + (k3d[instance.k3d] ?? instance.k3d) : ''}${instance.locked ? ' · 被其他进程持有' : ''}`;
+    }
+    let pendingDelete = null;
+    function renderInstances() {
+        const list = get('instance-list');
+        list.replaceChildren(...instanceList.map(instance => {
+            const item = document.createElement('li');
+            item.className = 'instance-card';
+            item.dataset.id = instance.id;
+            item.dataset.current = String(instance.id === currentInstance?.id);
+            const header = document.createElement('header');
+            const name = document.createElement('strong');
+            name.textContent = instance.name;
+            header.append(name);
+            if (instance.id === currentInstance?.id) {
+                const badge = document.createElement('span');
+                badge.className = 'current-badge';
+                badge.textContent = '当前操作的实例';
+                header.append(badge);
+            }
+            const state = document.createElement('span');
+            state.className = 'instance-state';
+            state.dataset.state = instance.k3d === 'running' ? 'running' : instance.phase;
+            state.textContent = phaseLabel(instance);
+            header.append(state);
+            const meta = document.createElement('div');
+            meta.className = 'instance-meta';
+            for (const [label, value] of [['ID', instance.id], ['拓扑', instance.topology], ['域名', instance.domain || '—'], ['端口', `${instance.httpPort} / ${instance.httpsPort}`], ['配置', instance.config]]) {
+                const cell = document.createElement('span');
+                cell.textContent = label;
+                const strong = document.createElement('b');
+                strong.textContent = value;
+                cell.append(strong);
+                meta.append(cell);
+            }
+            const actions = document.createElement('div');
+            actions.className = 'instance-actions';
+            const select = document.createElement('button');
+            select.type = 'button';
+            select.className = 'button primary';
+            select.textContent = instance.id === currentInstance?.id ? '继续配置' : instance.phase === 'interrupted' || instance.phase === 'succeeded' ? '选择并继续' : '选择';
+            select.addEventListener('click', () => { void selectInstance(instance); });
+            const diagnose = document.createElement('button');
+            diagnose.type = 'button';
+            diagnose.className = 'button';
+            diagnose.textContent = '诊断采集';
+            diagnose.title = '下载该实例当前部署的安装日志（api/log）';
+            diagnose.addEventListener('click', () => { void collectDiagnostics(instance); });
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'button';
+            remove.textContent = '卸载';
+            remove.disabled = instance.topology !== 'single-k3d' || instance.k3d === 'running' || instance.id === currentInstance?.id || instance.locked;
+            remove.title = instance.topology !== 'single-k3d' ? '仅支持卸载 K3d 实例' : instance.k3d === 'running' ? '集群运行中，请先停止' : instance.id === currentInstance?.id ? '不能卸载当前实例' : '删除已停止的 K3d 集群与实例目录';
+            remove.addEventListener('click', () => { pendingDelete = instance; get('instance-confirm').hidden = false; get('instances-status').textContent = `将卸载实例 ${instance.name}（${instance.id}）。`; });
+            actions.append(select, diagnose, remove);
+            item.append(header, meta, actions);
+            return item;
+        }));
+        if (!instanceList.length)
+            get('instances-status').textContent = '注册表中还没有实例。返回首页创建新实例。';
+    }
+    async function showInstances() {
+        get('home').hidden = true;
+        get('instances').hidden = false;
+        get('instance-confirm').hidden = true;
+        get('instance-list').replaceChildren();
+        get('instances-status').textContent = '正在读取实例…';
+        await loadInstances();
+        if (instancesAvailable)
+            get('instances-status').textContent = '';
+        renderInstances();
+    }
+    function applySelection(result) {
+        revision = result.revision;
+        configPath = result.path;
+        currentInstance = result.instance;
+        renderChip();
+        const config = result.config;
+        if (config)
+            slug.value = config.slug;
+        applyTarget(config?.deployment ?? defaults);
+        renderApps(config?.apps ?? apps.filter(app => app.selected).map(app => app.id));
+    }
+    async function selectInstance(instance) {
+        get('instances-status').textContent = `正在切换到 ${instance.name}…`;
+        try {
+            if (instance.id !== currentInstance?.id) {
+                const response = await fetch(endpoint('instances/select'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: instance.id }) });
+                const result = await response.json();
+                if (!response.ok)
+                    throw new Error(result.error || '无法切换实例。');
+                applySelection(result);
+                if (result.deployment.phase !== 'idle') {
+                    get('instances').hidden = true;
+                    viewingDeployment = false;
+                    testingPage = false;
+                    renderDeployment(result.deployment);
+                    return;
+                }
+            }
+            else if (currentDeployment && currentDeployment.phase !== 'idle') {
+                get('instances').hidden = true;
+                renderDeployment(currentDeployment);
+                return;
+            }
+            showForm();
+        }
+        catch (cause) {
+            get('instances-status').textContent = cause instanceof Error ? cause.message : '无法切换实例。';
+        }
+    }
+    async function collectDiagnostics(instance) {
+        try {
+            if (instance.id !== currentInstance?.id) {
+                const response = await fetch(endpoint('instances/select'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: instance.id }) });
+                const result = await response.json();
+                if (!response.ok)
+                    throw new Error(result.error || '无法切换实例。');
+                applySelection(result);
+                currentDeployment = result.deployment;
+                renderInstances();
+            }
+            const response = await fetch(endpoint('log/download'));
+            if (!response.ok)
+                throw new Error('该实例尚未生成安装日志。');
+            const url = URL.createObjectURL(await response.blob());
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `install-${instance.name}.log`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            get('instances-status').textContent = `已开始下载 ${instance.name} 的安装日志。`;
+        }
+        catch (cause) {
+            get('instances-status').textContent = cause instanceof Error ? cause.message : '无法采集诊断。';
+        }
+    }
+    get('instance-cancel-delete').addEventListener('click', () => { pendingDelete = null; get('instance-confirm').hidden = true; get('instances-status').textContent = ''; });
+    get('instance-confirm-delete').addEventListener('click', async () => {
+        const instance = pendingDelete;
+        if (!instance)
+            return;
+        get('instance-confirm-delete').disabled = true;
+        try {
+            const response = await fetch(endpoint('instances/delete'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: instance.id }) });
+            const result = await response.json();
+            if (!response.ok)
+                throw new Error(result.error || '无法卸载实例。');
+            pendingDelete = null;
+            get('instance-confirm').hidden = true;
+            await loadInstances();
+            renderInstances();
+            get('instances-status').textContent = `已卸载 ${instance.name}${result.clusterDeleted ? '，并删除其 K3d 集群' : ''}。`;
+        }
+        catch (cause) {
+            get('instances-status').textContent = cause instanceof Error ? cause.message : '无法卸载实例。';
+        }
+        finally {
+            get('instance-confirm-delete').disabled = false;
+        }
+    });
+    get('manage-instances').addEventListener('click', () => { void showInstances(); });
+    get('instances-refresh').addEventListener('click', () => { void showInstances(); });
+    get('instances-back').addEventListener('click', showHome);
+    get('form-home').addEventListener('click', showHome);
+    get('configure-current').addEventListener('click', showForm);
+    get('create-instance').addEventListener('click', async () => {
+        const name = get('new-instance-name').value.trim();
+        const status = get('create-instance-status');
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) {
+            status.textContent = '请填写有效的实例名称。';
+            return;
+        }
+        get('create-instance').disabled = true;
+        status.textContent = '正在创建实例并分配端口…';
+        try {
+            const response = await fetch(endpoint('instances/create'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, topology: get('new-instance-topology').value, select: true }) });
+            const result = await response.json();
+            if (!response.ok)
+                throw new Error(result.error || '无法创建实例。');
+            if (result.path)
+                applySelection(result);
+            else {
+                currentInstance = result.instance;
+                renderChip();
+            }
+            status.textContent = result.existing ? `实例 ${name} 已登记，继续配置。` : `已创建实例 ${name}（${result.instance.id}），入口端口 ${result.instance.httpPort} / ${result.instance.httpsPort}。`;
+            await loadInstances();
+            if (result.deployment && result.deployment.phase !== 'idle') {
+                get('home').hidden = true;
+                renderDeployment(result.deployment);
+            }
+            else
+                showForm();
+        }
+        catch (cause) {
+            status.textContent = cause instanceof Error ? cause.message : '无法创建实例。';
+        }
+        finally {
+            get('create-instance').disabled = false;
+        }
+    });
     get('edit').addEventListener('click', () => {
         clearCredentials();
         verificationRequest?.abort();
@@ -1175,15 +1587,7 @@ export function initWizard(supportsK3sHost) {
         clearTimeout(timer);
         clearTimeout(accessTimer);
         viewingDeployment = false;
-        get('deployment').hidden = true;
-        get('access-complete').hidden = true;
-        get('verification').hidden = true;
-        get('finish-actions').hidden = true;
-        form.hidden = false;
-        get('form-heading').hidden = false;
-        step = 0;
-        renderStep();
-        void probeEnvironment();
+        showForm();
     });
     get('finish').addEventListener('click', async () => {
         const button = get('finish');
@@ -1219,6 +1623,8 @@ export function initWizard(supportsK3sHost) {
         }
         setBusy(true);
         next.textContent = topology() === 'single-k3d' ? '正在检查端口…' : '正在启动…';
+        // The server serialises preflight and deploy; wait for an in-flight preflight instead of racing it.
+        await preflightPending.catch(() => { });
         error.hidden = true;
         try {
             const response = await fetch(endpoint('deploy'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1236,9 +1642,10 @@ export function initWizard(supportsK3sHost) {
         }
         finally {
             setBusy(false);
-            next.textContent = '开始部署';
+            next.textContent = '开始安装';
         }
     });
+    let defaults;
     async function load() {
         setBusy(true);
         try {
@@ -1250,6 +1657,10 @@ export function initWizard(supportsK3sHost) {
             apps = result.apps;
             revision = result.revision;
             cliHost = result.host;
+            defaults = result.defaults;
+            configPath = result.path ?? '';
+            currentInstance = result.instance ?? null;
+            renderChip();
             if (result.config)
                 slug.value = result.config.slug;
             if (result.gateway) {
@@ -1270,11 +1681,17 @@ export function initWizard(supportsK3sHost) {
             renderApps(result.config?.apps ?? apps.filter(app => app.selected).map(app => app.id));
             get('loading').hidden = true;
             setBusy(false);
-            renderStep();
-            if (result.deployment.phase !== 'idle')
+            if (result.deployment.phase !== 'idle') {
+                renderStep(false);
                 renderDeployment(result.deployment);
-            else
-                void probeEnvironment();
+                return;
+            }
+            if (result.gateway) {
+                showForm();
+                return;
+            }
+            await loadInstances();
+            showHome();
         }
         catch (cause) {
             get('loading').hidden = true;

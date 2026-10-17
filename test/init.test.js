@@ -35,14 +35,16 @@ async function until(get, done) {
     }
     throw new Error('Timed out waiting for deployment');
 }
-test('wizard serves seven steps including model configuration without writing config', async () => {
+test('wizard serves the eight-step setup including model configuration without writing config', async () => {
     const { path, server } = await fixture();
     expect(await Bun.file(path).exists()).toBe(false);
     const page = await fetch(server.url);
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     expect(page.headers.get('cache-control')).toBe('no-store');
     const html = await page.text();
-    expect(html).toContain('共 7 步');
+    expect(html).toContain('共 8 步');
+    expect(html).toContain('id="home"');
+    expect(html).toContain('id="instance-list"');
     expect(html).toContain('id="model-fast"');
     expect(html).toContain('id="model-deep"');
     expect(html).not.toContain('id="base-url"');
@@ -52,7 +54,7 @@ test('wizard serves seven steps including model configuration without writing co
     expect(snapshot.config).toBeNull();
     expect(snapshot.apps.map((a) => a.id)).toEqual([
         'nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart',
-        'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps',
+        'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci',
     ]);
     expect(snapshot.apps.filter((a) => a.required).map((a) => a.id)).toEqual(requiredApps);
     expect(snapshot.apps.filter((a) => a.selected).map((a) => a.id)).toEqual([...requiredApps, 'task', 'corpus', 'matrix', 'files', 'stalwart']);

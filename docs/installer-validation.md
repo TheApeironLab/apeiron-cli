@@ -13,9 +13,12 @@ target/debug/examples/installer-support --bundle /absolute/payload --config /abs
 
 The payload directory contains `chentu/setup/install.json` and its resource files.
 The configuration is the same JSON accepted by the browser wizard. The adapter
-requires Ubuntu 22.04 AMD64 and offline multi-K3s: legacy uses one server and two
-agents with the seven standard applications; hosted uses three servers and retains
-all base components resolved by the catalog, even if the wizard selects fewer apps.
+requires Ubuntu 22.04 AMD64 and an offline configuration: legacy uses multi-K3s with
+one server and two agents and the seven standard applications; hosted accepts
+multi-K3s with three servers, single-K3s without nodes, or single-K3d (docker runner,
+127.0.0.1, 54320/54321) and retains all base components resolved by the catalog,
+even if the wizard selects fewer apps. Single-K3d validates against the `k3d-amd64`
+catalog and does not require native operator tools or wheels.
 
 JSON output distinguishes requested applications, mandatory base components, and
 the resolved component closure. `expectedCli` comes from the hosted manifest; legacy

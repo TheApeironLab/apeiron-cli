@@ -58,12 +58,22 @@ export function checkProfile(profile) {
   if (!['legacy-native', 'hosted-first'].includes(profile.contract)) throw new Error('Unknown installation contract');
   const config = profile.config;
   const d = config?.deployment;
-  if (d?.offline !== true || d.runner !== 'native' || d.installation?.topology !== 'multi-k3s') throw new Error('Profile must use offline native multi-k3s');
-  const nodes = d.installation.nodes;
-  const roles = profile.contract === 'legacy-native' ? ['agent', 'agent', 'server'] : ['server', 'server', 'server'];
-  if (!Array.isArray(nodes) || nodes.length !== 3 || JSON.stringify(nodes.map(n => n.role).sort()) !== JSON.stringify(roles)) throw new Error('Wrong node roles for installation contract');
-  if (nodes.some(n => !/^192\.0\.2\.\d+$/.test(n.host || '') || n.address !== n.host)) throw new Error('Default nodes must use documentation placeholders');
-  if (d.installation.sshKey || d.installation.sshUser || d.installation.entryIp) throw new Error('Default configuration must not include access credentials or live addresses');
+  const i = d?.installation;
+  const topology = i?.topology;
+  // Legacy packages only ship multi-k3s; hosted-first packages ship all three topologies.
+  const topologies = profile.contract === 'legacy-native' ? ['multi-k3s'] : ['multi-k3s', 'single-k3s', 'single-k3d'];
+  if (d?.offline !== true || !topologies.includes(topology)) throw new Error('Profile must use an offline ' + topologies.join('/') + ' configuration');
+  if (d.runner !== (topology === 'single-k3d' ? 'docker' : 'native')) throw new Error('Runner must match the topology (docker for single-k3d, native otherwise)');
+  const nodes = i.nodes;
+  if (!Array.isArray(nodes)) throw new Error('Missing nodes');
+  if (topology === 'multi-k3s') {
+    const roles = profile.contract === 'legacy-native' ? ['agent', 'agent', 'server'] : ['server', 'server', 'server'];
+    if (nodes.length !== 3 || JSON.stringify(nodes.map(n => n.role).sort()) !== JSON.stringify(roles)) throw new Error('Wrong node roles for installation contract');
+    if (nodes.some(n => !/^192\.0\.2\.\d+$/.test(n.host || '') || n.address !== n.host)) throw new Error('Default nodes must use documentation placeholders');
+  } else if (nodes.length) throw new Error('Single-host topologies take no nodes');
+  if (topology === 'single-k3d') {
+    if (i.entryIp !== '127.0.0.1' || i.httpPort !== 54320 || i.httpsPort !== 54321) throw new Error('single-k3d defaults must use 127.0.0.1 with ports 54320/54321');
+  } else if (i.sshKey || i.sshUser || i.entryIp) throw new Error('Default configuration must not include access credentials or live addresses');
   if (config.models?.apiKey || config.llm?.apiKey) throw new Error('Default configuration must not include model API credentials');
   if (!Array.isArray(config.apps) || !config.apps.length) throw new Error('Profile applications required');
   return profile;

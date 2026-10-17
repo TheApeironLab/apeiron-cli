@@ -18,6 +18,26 @@ test('contracts fail closed for unknown roles, live addresses and online configu
   const r = profile(); r.config.deployment.installation.sshKey = '/private/key';
   expect(() => checkProfile(r)).toThrow('credentials');
 });
+test('hosted-first profiles accept the three publisher topologies with their exact default shapes', () => {
+  const base = { contract: 'hosted-first', config: { schemaVersion: 2, slug: 'example-team', apps: ['nexus', 'vasi', 'ontology', 'apeiron', 'browser', 'ci'], models: { provider: 'external', baseUrl: 'https://models.example.internal/v1', apiKey: '' } } };
+  const single = (topology, runner, extra) => ({ ...base, config: { ...base.config, deployment: { runner, root: '', offline: true, bundleDir: '', installation: { topology, ha: false, domain: 'example.internal', sshKey: '', sshUser: '', sshPort: 22, nodes: [], ...extra } } } });
+  const k3d = single('single-k3d', 'docker', { entryIp: '127.0.0.1', httpPort: 54320, httpsPort: 54321 });
+  const k3s = single('single-k3s', 'native', { entryIp: '', httpPort: 80, httpsPort: 443 });
+  expect(checkProfile(k3d).contract).toBe('hosted-first');
+  expect(checkProfile(k3s).contract).toBe('hosted-first');
+  expect(checkProfile(profile('hosted-first')).contract).toBe('hosted-first');
+  // Legacy packages stay multi-k3s only.
+  expect(() => checkProfile({ ...k3s, contract: 'legacy-native' })).toThrow('multi-k3s');
+  // Runner, nodes, ports and addresses are pinned per topology.
+  expect(() => checkProfile(single('single-k3d', 'native', { entryIp: '127.0.0.1', httpPort: 54320, httpsPort: 54321 }))).toThrow('Runner');
+  expect(() => checkProfile(single('single-k3d', 'docker', { entryIp: '127.0.0.1', httpPort: 80, httpsPort: 443 }))).toThrow('54320');
+  expect(() => checkProfile(single('single-k3s', 'native', { entryIp: '10.0.0.5', httpPort: 80, httpsPort: 443 }))).toThrow('live addresses');
+  const withNode = single('single-k3s', 'native', { entryIp: '', httpPort: 80, httpsPort: 443 });
+  withNode.config.deployment.installation.nodes = [{ host: '192.0.2.1', address: '192.0.2.1', role: 'server' }];
+  expect(() => checkProfile(withNode)).toThrow('no nodes');
+  const hostedMulti = profile('hosted-first'); hostedMulti.config.deployment.installation.nodes.pop();
+  expect(() => checkProfile(hostedMulti)).toThrow('roles');
+});
 test('default profiles reject model API credentials before they can enter provenance', () => {
   for (const key of ['models', 'llm']) {
     const value = profile(); value.config[key] = { apiKey: 'sk-private-profile-key' };
