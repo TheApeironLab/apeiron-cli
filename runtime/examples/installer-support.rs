@@ -103,7 +103,7 @@ fn validate(bundle: &Path, config_path: &Path) -> app::Result<Value> {
     };
     let native = profile == "k3s-amd64";
     let catalog = app::resources::catalog(&root, profile)?;
-    let mut plan = app::resources::plan(&catalog, profile, &config["apps"])?;
+    let mut plan = app::resources::plan(&catalog, profile, &app::config::components(&config["apps"]))?;
     let hosted = plan["target"].get("nexusFirst").is_some();
     policy(&config, hosted)?;
     if native && plan["target"]["hostPlatform"] != json!({"os":"ubuntu","version":"22.04","architecture":"amd64"}) {
