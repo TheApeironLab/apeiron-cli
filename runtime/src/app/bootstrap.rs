@@ -540,6 +540,12 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
     let environment = path(target, "environment");
     let i = target["installation"].clone();
     let mut env = p.tool_env.clone();
+    if target["runner"] != "docker" {
+        // start.sh exports K3S_DATA_DIR for the wizard's own cache; the native
+        // deployment must use the standard paths that prepare-server.sh and
+        // hosts.yaml pin (token fetch, airgap staging, kubeconfig symlink).
+        env.insert("K3S_DATA_DIR".into(), "/var/lib/rancher/k3s".into());
+    }
     for (k, v) in [
         ("CHENTU_ROOT", root.to_string_lossy().into_owned()),
         ("CHENTU_ENV", environment.to_string_lossy().into_owned()),
