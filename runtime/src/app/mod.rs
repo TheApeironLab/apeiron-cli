@@ -220,7 +220,7 @@ pub fn run() -> Option<i32> {
             Ok(())
         }
         "--help" | "-h" | "describe" => {
-            println!("schema=apeiron.v1\ncommand\tusage\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
+            println!("schema=apeiron.v1\ncommand\tusage\nsso\tapeiron sso login --server <URL> — platform SSO\ntask\tapeiron task --help — tasks, projects and workspaces\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
             Ok(())
         }
         _ => forward(module, &args[1..]),

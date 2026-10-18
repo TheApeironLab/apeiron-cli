@@ -90,6 +90,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "clap",
+ "filetime",
  "flate2",
  "futures-util",
  "hickory-resolver",
@@ -106,6 +107,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "tokio-tungstenite",
+ "url",
  "x509-parser",
 ]
 

@@ -32,6 +32,29 @@ cargo install --path runtime --locked
 apeiron --help
 ```
 
+## 统一 SSO 与 Task
+
+```sh
+apeiron sso login --server https://apeiron.example.internal
+apeiron sso status --json
+apeiron task workspace list --json
+apeiron task project list --workspace <ID> --json
+apeiron sso logout
+```
+
+`login` 显示设备授权链接并打开浏览器；浏览器复用已有 Keycloak SSO 会话，用户确认后 CLI
+保存自己的平台登录。无桌面环境加 `--no-open`。后续 Task 命令从平台发现 API 地址，使用 SSO
+凭据请求后端交换 Task 专用短期 token，不需要 Task 单独登录或逐 App 配置环境变量。
+
+SSO refresh grant 只保存在当前用户的私有缓存，和网页的 refresh grant 分开；CLI 自动续期，
+并发命令共用凭据锁。后端保管机密客户端密钥，只返回 App access token。刷新结果不确定时要求
+重新登录，不反复提交可能已被消费的 refresh token。`logout` 只撤销当前 CLI 登录并清除派生缓存。
+
+平台需要部署支持 `/sso/config`、`/sso/session`、`/sso/token` 的 Apeiron Backend 和 Chentu 的
+public `apeiron-cli` 设备客户端。显式 SSO 登录后优先使用该会话；尚未登录的 agent 继续读取平台提供的外部凭据文件，不改写它。
+旧的 `apeiron task auth login` 仅用于独立 Task 实例的兼容登录，不是平台 SSO 的前置步骤。
+Task 是内置 Rust 模块，使用时不依赖 Node/Bun 或外部 Task 可执行文件。
+
 ## 浏览器部署向导
 
 ```sh

@@ -12,6 +12,7 @@
 //! binary does not need shipping again when a rule changes.
 
 mod agent;
+mod apps;
 mod cloud;
 mod fsops;
 mod local;
@@ -176,6 +177,12 @@ macro_rules! log {
 mod app;
 
 fn main() -> Result<()> {
+    let application_args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    match application_args.first().and_then(|s| s.to_str()) {
+        Some("sso") => std::process::exit(apps::run_sso(&application_args[1..])),
+        Some("task") => std::process::exit(apps::run_task(&application_args[1..])),
+        _ => {}
+    }
     if let Some(code) = app::run() {
         std::process::exit(code);
     }
