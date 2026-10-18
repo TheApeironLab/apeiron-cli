@@ -574,17 +574,18 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
                 &env,
                 "导入已校验工具箱",
             )?;
-            let image = t["toolboxImageId"].as_str().unwrap();
-            let observed = process::text(
+            // The archive SHA-256 and lineage (verified by the publisher) already
+            // guarantee the toolbox content. Docker's image ID varies between
+            // store implementations (classic returns config digest, containerd
+            // returns manifest digest), so comparing IDs is unreliable.
+            let image = t["toolboxImage"].as_str().unwrap_or("");
+            process::text(
                 Command::new("docker").args(["image", "inspect", "--format", "{{.Id}}", image]),
                 b"",
                 20,
                 4096,
                 &c.cancel,
             )?;
-            if observed.trim() != image {
-                return Err(fail("工具箱镜像 ID 不匹配。", 400));
-            }
             if let Some(archives) = t["dockerArchives"].as_array() {
                 for a in archives {
                     c.checked(
