@@ -159,7 +159,25 @@ impl State {
                     .filter(|e| e["name"] == name);
                 if let Some(entry) = existing {
                     if entry["topology"] != topology {
-                        return Err(fail("当前实例已按其他拓扑登记，请使用新的实例名称。", 409));
+                        // A fresh instance was auto-registered at wizard open with
+                        // the package's default topology and carries no cluster or
+                        // deployment: re-register it with the requested topology
+                        // instead of blocking every single-topology install of a
+                        // multi-topology package.
+                        let status = instances::status(&entry, &runner);
+                        let untouched = ["new", "idle"].contains(&status["phase"].as_str().unwrap_or(""))
+                            && status["k3d"].as_str() != Some("running");
+                        if !untouched {
+                            return Err(fail("当前实例已按其他拓扑登记，请使用新的实例名称。", 409));
+                        }
+                        let mut updated = entry.clone();
+                        updated["topology"] = json!(topology);
+                        let mut registry = instances::read_registry(&base)?;
+                        if let Ok(slot) = instances::entry_mut(&mut registry, &instances::id_for(&path)) {
+                            *slot = updated.clone();
+                        }
+                        instances::write_registry(&base, &registry)?;
+                        return Ok(Reply::json(instances::status(&updated, &runner), 200));
                     }
                     json!({"instance":instances::status(&entry, &runner),"existing":true,"selected":true})
                 } else {
