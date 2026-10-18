@@ -143,6 +143,18 @@ pub fn positive(value: Option<&str>, fallback: u64, max: u64) -> Result<u64> {
         .filter(|v| *v > 0 && *v <= max && value.bytes().all(|b| b.is_ascii_digit()))
         .ok_or_else(|| Error::invalid(format!("Expected an integer from 1 to {max}")))
 }
+pub fn due_date(value: &str) -> Result<String> {
+    if value.len() == 10 {
+        if let Ok(day) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+            if day.format("%Y-%m-%d").to_string() == value {
+                return Ok(format!("{value}T00:00:00Z"));
+            }
+        }
+    }
+    date(Some(value))
+        .map_err(|_| Error::invalid("Due date must be YYYY-MM-DD or ISO 8601 with an explicit timezone"))?;
+    Ok(value.to_owned())
+}
 pub fn date(value: Option<&str>) -> Result<Option<&str>> {
     if let Some(value) = value {
         // Match z.iso.datetime({offset:true}): uppercase T/Z, minute precision

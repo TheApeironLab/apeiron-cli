@@ -64,6 +64,11 @@ fn option(name: &'static str) -> Arg {
         "task" => arg.value_name("ID").help("Task id returned by task list or search"),
         "status" => arg.value_name("SLUG").help(config::STATUS_SLUG_HELP),
         "priority" => arg.help("no-priority, low, medium, high, urgent"),
+        "due" => arg
+            .long("due-date")
+            .visible_alias("due")
+            .value_name("DATE")
+            .help("Due date: YYYY-MM-DD (midnight UTC) or ISO 8601 with timezone"),
         "type" => arg.help(format!("Search category: {} (default: all)", SEARCH_TYPES.join(", "))),
         _ => arg,
     }
@@ -689,7 +694,9 @@ async fn task_create(args: &ArgMatches, api: &mut Api) -> Result<Value> {
         }
     }
     config::date(body["startDate"].as_str())?;
-    config::date(body["dueDate"].as_str())?;
+    if let Some(value) = body["dueDate"].as_str() {
+        body["dueDate"] = json!(config::due_date(value)?);
+    }
     if text(args, "file").is_none() {
         if let Some(value) = assignee(api, body["userId"].as_str()).await? {
             body["userId"] = json!(value);
@@ -739,7 +746,7 @@ async fn task_update(args: &ArgMatches, api: &mut Api) -> Result<Value> {
         "unassign" => ("assignee", json!({"userId":null})),
         "due" => (
             "due-date",
-            json!({"dueDate":config::date(Some(api.config.required(args,"due")?))?}),
+            json!({"dueDate":config::due_date(text(args,"due").unwrap_or(""))?}),
         ),
         _ => ("due-date", json!({})),
     };
