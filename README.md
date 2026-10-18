@@ -78,8 +78,8 @@ Task 是内置 Rust 模块，使用时不依赖 Node/Bun 或外部 Task 可执�
 apeiron task project columns <项目ID> --json
 apeiron task project fields <项目ID> --json
 apeiron task create --project <项目ID> --title "任务" --status <列的slug> --json
-apeiron task create --project <项目ID> --title "发布范围确定" --status <列的slug> --due-date 2026-10-26 --json
-apeiron task update <任务ID> --due-date 2026-11-12T12:00:00+08:00 --json
+apeiron task create --project <项目ID> --title "发布范围确定" --status <列的slug> --due 2026-10-26 --json
+apeiron task update <任务ID> --due 2026-11-12T12:00:00+08:00 --json
 apeiron task update <任务ID> --clear-due --json
 apeiron task fields <任务ID> --json
 apeiron task relation create --source <父任务ID> --target <子任务ID> --relation-type subtask --json
@@ -92,7 +92,7 @@ apeiron task project delete <项目ID> --confirm --json
 `task columns --project <项目ID>` 也可查询列。`project fields` 返回字段定义，`task fields` 返回任务字段值；
 创建任务时通过 `--field <字段ID>=<值>` 提交自定义字段。状态使用列的 `slug`，优先级使用
 `no-priority/low/medium/high/urgent`。项目删除会永久删除项目内容，须显式传 `--confirm`。
-创建和更新均支持 `--due-date`（兼容别名 `--due`），写入原生 `dueDate` 字段。
+创建和更新均支持 `--due`，写入原生 `dueDate` 字段。
 `YYYY-MM-DD` 按当天 UTC 零点保存；精确时间必须带时区，例如 `2026-11-12T12:00:00+08:00`。
 创建用 `--file` 时也可填写 `dueDate`。更新每次只改一个字段，`--clear-due` 清除截止日期。
 子任务通过已有任务之间的 `subtask` 关系表达，父任务是 source，子任务是 target；创建任务与建关系是两个独立操作。

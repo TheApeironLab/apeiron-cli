@@ -65,8 +65,6 @@ fn option(name: &'static str) -> Arg {
         "status" => arg.value_name("SLUG").help(config::STATUS_SLUG_HELP),
         "priority" => arg.help("no-priority, low, medium, high, urgent"),
         "due" => arg
-            .long("due-date")
-            .visible_alias("due")
             .value_name("DATE")
             .help("Due date: YYYY-MM-DD (midnight UTC) or ISO 8601 with timezone"),
         "type" => arg.help(format!("Search category: {} (default: all)", SEARCH_TYPES.join(", "))),

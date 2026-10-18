@@ -43,7 +43,10 @@ test('Task commands preserve project, column, field and relation HTTP contracts'
     }
     expect(seen.find(r=>r.path==='/api/task-relation'&&r.method==='POST').body).toEqual({sourceTaskId:'parent',targetTaskId:'child',relationType:'subtask'});
     expect(seen.at(-1).body).toEqual({title:'Test',status:'to-do',priority:'no-priority',description:'',customFields:[]});
-    for(const flag of ['--due-date','--due']) {
+    expect((await run('create','--project','p','--title','Test','--status','to-do','--start','2026-10-19T09:00:00+08:00','--due','2026-10-26')).code).toBe(0);
+    expect(seen.at(-1).body.startDate).toBe('2026-10-19T09:00:00+08:00');
+    expect(seen.at(-1).body.dueDate).toBe('2026-10-26T00:00:00Z');
+    for(const flag of ['--due']) {
       for(const [date,expected] of [['2026-10-26','2026-10-26T00:00:00Z'],['2028-02-29','2028-02-29T00:00:00Z'],['2026-11-12T12:00:00+08:00','2026-11-12T12:00:00+08:00']]) {
         for(const [args,method,path] of [
           [['create','--project','p','--title','Milestone','--status','to-do',flag,date],'POST','/api/task/p'],
@@ -61,12 +64,13 @@ test('Task commands preserve project, column, field and relation HTTP contracts'
     expect((await run('update','t','--clear-due')).code).toBe(0);
     expect(seen.at(-1)).toEqual({method:'PUT',path:'/api/task/due-date/t',body:{}});
     const count=seen.length;
+    expect((await run('update','t','--due-date','2026-10-26')).code).toBe(2);
     for(const date of ['2026-02-29','2026-13-01','10/26','2026-11-12T12:00:00','']) {
       for(const args of [['create','--project','p','--title','Test','--status','to-do'],['update','t']]) {
-        const result=await run(...args,'--due-date',date);expect(result.code).toBe(2);expect(result.value.error.message).toContain('Due date');
+        const result=await run(...args,'--due',date);expect(result.code).toBe(2);expect(result.value.error.message).toContain('Due date');
       }
     }
-    for(const args of [['update','t','--due-date','2026-10-26','--clear-due'],['create','--project','p','--file',file,'--due-date','2026-10-26']]) expect((await run(...args)).code).toBe(2);
+    for(const args of [['update','t','--due','2026-10-26','--clear-due'],['create','--project','p','--file',file,'--due','2026-10-26']]) expect((await run(...args)).code).toBe(2);
     for(const args of [['project','delete','p'],['relation','create','--source','x','--target','x','--relation-type','subtask'],['relation','create','--source','x','--target','y','--relation-type','milestone']]) expect((await run(...args)).code).toBe(2);
     expect(seen.length).toBe(count);
     for(const [project,hint] of [['missing','actual IDs'],['bad-status','slug'],['required-field','--field']]){
