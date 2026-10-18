@@ -6,12 +6,12 @@ import { binary } from './support';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'apeiron-sso-'));
-  let origin, issuer, refreshes = 0, exchanges = 0, revocations = 0, failRefresh = false, managed = false;
+  let origin, issuer, refreshes = 0, exchanges = 0, revocations = 0, failRefresh = false, managed = false, iamDenied = false, iamWriteFailure = false;
   const seen = [];
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     const authorization = request.headers.get('authorization');
-    seen.push({ path, authorization });
+    seen.push({ path, authorization, method: request.method, key: request.headers.get("idempotency-key") });
     if (path === '/api/sso/config') return Response.json({ issuer, client_id: 'apeiron-cli', audience: 'apeiron-app', apps: { task: origin + '/task/api' } });
     if (path.endsWith('/.well-known/openid-configuration')) return Response.json({ issuer, token_endpoint: issuer + '/token', device_authorization_endpoint: issuer + '/device', revocation_endpoint: issuer + '/revoke' });
     if (path.endsWith('/device')) {
@@ -49,6 +49,18 @@ async function fixture() {
       exchanges++;
       return Response.json({ app: 'task', issuer, subject: 'same-user', tenant: 'same-team', api_url: origin + '/task/api', access_token: 'task-only-access', expires_at: Date.now() + 300000 });
     }
+    if (path.startsWith('/api/organization')) {
+      expect(authorization).toBe('Bearer sso-access-1');
+      if (iamDenied) return Response.json({error:'denied'}, {status:403});
+      if (request.method !== 'GET') {
+        const body = await request.json();
+        if (iamWriteFailure) return Response.json({error:'private server diagnostic'}, {status:503});
+        return Response.json({member:{subject:'member-1',enabled:body.enabled ?? true,apps:{task:body.access ?? 'none'}},credential_written:true});
+      }
+      if (path === '/api/organization') return Response.json({tenant:{tenant_id:'same-team',name:'Team'},platform_admin:false,apps:[{id:'task',name:'Task',admin:true}]});
+      if (path.endsWith('/members')) return Response.json({items:[{subject:'member-1',username:'fixture'}],has_more:false});
+      if (path.endsWith('/operations')) return Response.json({items:[]});
+    }
     if (path === '/task/api/me') {
       if (authorization !== 'Bearer task-only-access') return Response.json({error:'unauthorized'}, {status:401});
       return Response.json({ user: { id: 'task-user', name: 'Alice', email: 'alice@same-team.example.test' },
@@ -69,7 +81,7 @@ async function fixture() {
     }
     return { code, stdout, stderr };
   };
-  return { root, origin, run, seen, async managed() { await writeFile(join(root, 'managed-token'), 'old-managed-token', {mode:0o600}); managed = true; }, counts: () => ({ refreshes, exchanges, revocations }), failRefresh: () => { failRefresh = true; },
+  return { root, origin, run, seen, async managed() { await writeFile(join(root, 'managed-token'), 'old-managed-token', {mode:0o600}); managed = true; }, denyIam: () => { iamDenied = true; }, failIamWrite: () => { iamWriteFailure = true; }, counts: () => ({ refreshes, exchanges, revocations }), failRefresh: () => { failRefresh = true; },
     async close() { server.stop(true); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -113,3 +125,41 @@ test('an ambiguous SSO refresh is never replayed by the next command', async () 
     expect((await f.run('sso', 'logout', '--json')).code).toBe(0);
   } finally { await f.close(); }
 }, 15000);
+
+test('IAM uses the platform SSO audience, preserves mutation idempotency and honors live API denial', async () => {
+  const f = await fixture();
+  const key = 'ec299fc0-7672-496b-88d2-e194994848bb';
+  const file = join(f.root, 'iam.json');
+  try {
+    expect((await f.run('iam', 'member', 'list', '--json')).code).toBe(3);
+    expect((await f.run('sso', 'login', '--server', f.origin, '--no-open', '--json')).code).toBe(0);
+    expect(JSON.parse((await f.run('iam', 'organization', 'get', '--json')).stdout).data.tenant.tenant_id).toBe('same-team');
+    expect(JSON.parse((await f.run('iam', 'app', 'list', '--json')).stdout).data.items[0].id).toBe('task');
+    expect(JSON.parse((await f.run('iam', 'member', 'list', '--offset', '50', '--json')).stdout).data.items[0].subject).toBe('member-1');
+    expect(JSON.parse((await f.run('iam', 'operation', 'list', '--json')).stdout).data.items).toEqual([]);
+    await writeFile(file, JSON.stringify({app_id:'task',access:'member'}), {mode:0o600});
+    const updated = await f.run('iam', 'member', 'update', 'member-1', '--file', file, '--idempotency-key', key, '--json');
+    expect(updated.code).toBe(0);
+    expect(f.seen.find(v=>v.method==='PATCH')).toMatchObject({path:'/api/organization/members/member-1',key});
+    await writeFile(file, JSON.stringify({temporary_password:'Fixture-private-password'}));
+    const reset = await f.run('iam', 'member', 'reset-password', 'member-1', '--file', file, '--idempotency-key', key, '--json');
+    expect(reset.code).toBe(0); expect(reset.stdout).not.toContain('Fixture-private-password');
+    expect(f.seen.find(v=>v.path.endsWith('/password'))).toMatchObject({method:'POST',key});
+    expect(f.counts()).toEqual({refreshes:1,exchanges:0,revocations:0});
+    expect((await f.run('task', 'whoami', '--json')).code).toBe(0);
+    expect(f.counts().exchanges).toBe(1);
+    f.failIamWrite();
+    const unknown = await f.run('iam', 'member', 'create', '--file', file, '--idempotency-key', key, '--json');
+    expect(unknown.code).toBe(9);
+    expect(JSON.parse(unknown.stdout).error).toMatchObject({code:'WRITE_OUTCOME_UNKNOWN',outcome:'unknown',httpStatus:503});
+    expect(unknown.stdout).not.toContain('private server diagnostic');
+    expect(f.seen.filter(v=>v.path==='/api/organization/members'&&v.method==='POST')).toHaveLength(1);
+    const count=f.seen.length;
+    await writeFile(file,'invalid private input');
+    expect((await f.run('iam','member','create','--file',file,'--idempotency-key',key,'--json')).code).toBe(2);
+    expect((await f.run('iam','member','list','--api-url','https://foreign.invalid','--json')).code).toBe(2);
+    expect(f.seen.length).toBe(count);
+    f.denyIam();
+    expect((await f.run('iam','member','list','--json')).code).toBe(4);
+  } finally { await f.close(); }
+}, 30000);

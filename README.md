@@ -312,3 +312,17 @@ The target machine starts the existing loopback wizard and connects outbound ove
 The command prints a connection-file path under `~/.apeiron/gateway/`. Reconnect with `apeiron register --connection <path>`. That file contains a private agent token and has mode 0600; do not share it. Ctrl+C disconnects and stops the wizard, including any active deployment. Automatic systemd installation is not implemented in this initial version.
 
 Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.1` for local development. A localhost gateway URL works only when the CLI runs on the same machine. Production also needs gateway DNS/HTTPS and isolated setup subdomains. Application ingress provisioning remains separate from opening the deployment wizard.
+
+### IAM CLI 与统一 SSO
+
+`apeiron sso login --server <APEIRON_URL>` 后，`apeiron iam` 直接调用该平台的 `/api/organization`。IAM 网页和 CLI 共用同一组织 API 与 `apeiron-app` audience，不创建 IAM 换票 broker，不把 Keycloak Admin API 的服务账号凭据交给 CLI。服务端每次请求读取当前账号状态、组织归属和管理角色；`iam-user` 入口资格不授予成员管理权限。
+
+```bash
+apeiron iam organization get --json
+apeiron iam member list --offset 0 --json
+apeiron iam app list --json
+apeiron iam operation list --json
+apeiron iam member update <SUBJECT> --file access.json --idempotency-key <UUID> --json
+```
+
+`member create`、`member update`、`member reset-password` 的 JSON 文件沿用组织 API 契约，`--file -` 可从 stdin 读取。密码不通过命令参数传递。所有写命令必须指定 UUID 幂等键；未知结果先查询操作记录，再使用原幂等键与原输入重试，不自动生成新操作。开户的邮箱核验声明仍须基于真实组织核验。CLI 不接受任意 API URL 或租户参数，组织由 SSO 身份决定。

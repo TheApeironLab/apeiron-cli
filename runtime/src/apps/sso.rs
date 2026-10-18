@@ -157,6 +157,16 @@ async fn ensure(http: &Client, store: &Store, record: &mut Stored, timeout: Dura
     record.sso.as_mut().ok_or_else(required)?.app_tokens.clear();
     store.save(record)
 }
+/// IAM is served by the same platform API and audience as the source SSO.
+/// Never accept an alternate server URL that could receive its credential.
+pub async fn platform_credential(http: &Client, timeout: Duration) -> Result<(Url, String)> {
+    let store = store().await?;
+    let mut record = store.read()?.ok_or_else(required)?;
+    ensure(http, &store, &mut record, timeout).await?;
+    let url = endpoint(&session(&record)?.server)?;
+    Ok((url, record.tokens.access_token.clone()))
+}
+
 pub async fn app_api_url(app: &str) -> Result<Option<String>> {
     let store = store().await?;
     let Some(record) = store.read()? else { return Ok(None) };

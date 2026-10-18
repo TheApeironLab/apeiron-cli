@@ -180,6 +180,7 @@ fn main() -> Result<()> {
     let application_args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     match application_args.first().and_then(|s| s.to_str()) {
         Some("sso") => std::process::exit(apps::run_sso(&application_args[1..])),
+        Some("iam") => std::process::exit(apps::run_iam(&application_args[1..])),
         Some("task") => std::process::exit(apps::run_task(&application_args[1..])),
         _ => {}
     }

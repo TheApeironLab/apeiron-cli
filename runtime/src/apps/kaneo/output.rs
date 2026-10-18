@@ -1,40 +1,8 @@
 use serde_json::{json, Map, Value};
-use std::io::{self, Write};
 
 pub use super::super::auth::error::{Error, Result};
 
-pub fn success(data: Value, meta: Option<Value>, compact: bool) -> Result<()> {
-    let mut result = if compact {
-        json!({"schemaVersion": 1, "ok": true, "data": data})
-    } else if meta.is_some() {
-        json!({"data":data})
-    } else {
-        data
-    };
-    if let Some(meta) = meta {
-        result["meta"] = meta;
-    }
-    let text = if compact {
-        serde_json::to_string(&result)
-    } else {
-        serde_json::to_string_pretty(&result)
-    }
-    .map_err(|_| Error::internal())?;
-    writeln!(io::stdout().lock(), "{text}").map_err(|_| Error::internal())
-}
-
-pub fn failure(error: Error, compact: bool) -> i32 {
-    let text = if compact {
-        json!({"schemaVersion":1, "ok":false, "error":{
-            "code":error.code, "message":error.message, "httpStatus":error.status, "outcome":error.outcome
-        }})
-        .to_string()
-    } else {
-        format!("{}: {}", error.code, error.message)
-    };
-    let _ = writeln!(io::stdout().lock(), "{text}");
-    error.exit
-}
+pub use super::super::auth::output::{failure, success};
 
 pub fn object(value: &Value) -> Result<&Map<String, Value>> {
     value.as_object().ok_or_else(Error::response)

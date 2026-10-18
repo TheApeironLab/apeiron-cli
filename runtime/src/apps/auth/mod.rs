@@ -14,3 +14,5 @@ pub fn home() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
 }
+
+pub mod output;
