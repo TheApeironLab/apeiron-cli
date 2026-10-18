@@ -327,6 +327,18 @@ impl Store {
         }
         Ok(())
     }
+    pub fn read_pending_login<T: serde::de::DeserializeOwned>(&self) -> Result<Option<T>> {
+        self.read_json(&self.directory.join("pending-login.json"))?
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|_| unreadable())
+    }
+    pub fn save_pending_login<T: Serialize>(&self, value: &T) -> Result<()> {
+        self.atomic(&self.directory.join("pending-login.json"), value)
+    }
+    pub fn clear_pending_login(&self) -> Result<()> {
+        remove(&self.directory.join("pending-login.json"))
+    }
     pub fn clear(&self) -> Result<()> {
         if let Some(binding) = self.binding()? {
             remove(&self.profile(&binding)?)?;

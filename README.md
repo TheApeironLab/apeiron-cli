@@ -46,6 +46,21 @@ apeiron sso logout
 保存自己的平台登录。无桌面环境加 `--no-open`。后续 Task 命令从平台发现 API 地址，使用 SSO
 凭据请求后端交换 Task 专用短期 token，不需要 Task 单独登录或逐 App 配置环境变量。
 
+在 Apeiron agent／有执行超时的容器中使用两步登录，不让命令等待浏览器：
+
+```sh
+apeiron sso login --server https://apeiron.example.internal --no-open --no-wait --json
+# 在自己的浏览器打开 verificationUri 并输入 userCode（链接已带 code 时无需重填），确认授权后：
+apeiron sso login --complete --json
+apeiron task workspace list --json
+```
+
+第一步立即返回 `authorizationPending: true`、授权链接和 `nextCommand`，它不表示登录已完成。
+`--complete` 每次至多轮询一次；未确认或未到轮询间隔时返回 pending 和 `retryAfterMs`，稍后再执行。
+设备授权状态和 PKCE verifier 保存在原容器的 0600 私有文件；不需要后台进程或复制 token。
+网络故障导致换票结果不确定时要求重新发起登录，不重放可能已经消费的设备授权。
+已有登录在新身份验证成功之前保留；`sso logout` 同时清理待完成的授权。
+
 SSO refresh grant 只保存在当前用户的私有缓存，和网页的 refresh grant 分开；CLI 自动续期，
 并发命令共用凭据锁。后端保管机密客户端密钥，只返回 App access token。刷新结果不确定时要求
 重新登录，不反复提交可能已被消费的 refresh token。`logout` 只撤销当前 CLI 登录并清除派生缓存。

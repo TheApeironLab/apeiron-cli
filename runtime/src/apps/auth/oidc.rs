@@ -269,7 +269,17 @@ pub async fn revoke(http: &Client, timeout: Duration, binding: &Binding, token: 
     }
     Ok(())
 }
-pub async fn login(http: &Client, timeout: Duration, binding: &Binding, open: bool) -> Result<TokenResponse> {
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct DeviceAuthorization {
+    device_code: String,
+    code_verifier: String,
+    pub verification_uri: String,
+    pub user_code: String,
+    pub expires_at: i64,
+    interval_ms: i64,
+    pub next_poll_at: i64,
+}
+pub async fn begin_device(http: &Client, timeout: Duration, binding: &Binding) -> Result<DeviceAuthorization> {
     let provider = provider(http, timeout, binding).await?;
     let start_error = || network("Device authorization could not be started");
     let mut entropy = [0u8; 32];
@@ -321,60 +331,94 @@ pub async fn login(http: &Client, timeout: Duration, binding: &Binding, open: bo
     if target_url.origin() != provider.issuer.origin() {
         return Err(Error::config("Device verification URL is outside the issuer origin"));
     }
-    let expiry = number(&code["expires_in"]).ok_or_else(start_error)?;
-    let mut interval = code
+    let expiry = number(&code["expires_in"])
+        .filter(|v| *v > 0.0 && *v <= 86400.0)
+        .ok_or_else(start_error)?;
+    let interval = code
         .get("interval")
         .map(|v| v.as_f64().filter(|n| n.is_finite() && *n > 0.0).ok_or_else(start_error))
         .transpose()?
         .unwrap_or(5.0)
         .max(1.0);
-    eprintln!("Authorize SSO at {target}\nCode: {user}");
-    let deadline = now() as f64 + expiry * 1000.0;
-    if open && open_browser(target).is_err() {
+    let interval_ms = (interval * 1000.0).min(86400000.0) as i64;
+    Ok(DeviceAuthorization {
+        device_code: device.into(),
+        code_verifier: verifier,
+        verification_uri: target.into(),
+        user_code: user.into(),
+        expires_at: now() + (expiry * 1000.0) as i64,
+        interval_ms,
+        next_poll_at: now() + interval_ms,
+    })
+}
+/// A single RFC 8628 poll; never waits for browser interaction.
+pub async fn poll_device(
+    http: &Client,
+    timeout: Duration,
+    binding: &Binding,
+    device: &mut DeviceAuthorization,
+) -> Result<Option<TokenResponse>> {
+    if now() >= device.expires_at {
+        return Err(Error::new(
+            "REAUTH_REQUIRED",
+            "Device authorization expired; start SSO login again",
+            3,
+        ));
+    }
+    if now() < device.next_poll_at {
+        return Ok(None);
+    }
+    let complete = || network("Device authorization could not be completed");
+    let provider = provider(http, timeout, binding).await?;
+    let (status, value) = post(
+        http,
+        timeout,
+        provider.endpoint("token_endpoint")?,
+        &[
+            ("client_id", &binding.client_id),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("device_code", &device.device_code),
+            ("code_verifier", &device.code_verifier),
+        ],
+    )
+    .await
+    .map_err(|_| complete())?;
+    if (400..500).contains(&status) {
+        match value["error"].as_str() {
+            Some("authorization_pending") => {}
+            Some("slow_down") => device.interval_ms = device.interval_ms.saturating_add(5000).min(86400000),
+            Some(_) => {
+                return Err(Error::new(
+                    "REAUTH_REQUIRED",
+                    "Device authorization was denied or expired",
+                    3,
+                ))
+            }
+            None => return Err(complete()),
+        }
+        device.next_poll_at = now() + device.interval_ms;
+        return Ok(None);
+    }
+    if status != 200 {
+        return Err(complete());
+    }
+    tokens(value, &provider, binding).map(Some).map_err(|_| complete())
+}
+pub async fn login(http: &Client, timeout: Duration, binding: &Binding, open: bool) -> Result<TokenResponse> {
+    let mut device = begin_device(http, timeout, binding).await?;
+    eprintln!(
+        "Authorize SSO at {}\nCode: {}",
+        device.verification_uri, device.user_code
+    );
+    if open && open_browser(&device.verification_uri).is_err() {
         eprintln!("Open the authorization URL in your browser.");
     }
-    while (now() as f64) < deadline {
-        let delay = (interval * 1000.0).min((deadline - now() as f64).max(0.0));
-        tokio::time::sleep(std::time::Duration::from_secs_f64(delay / 1000.0)).await;
-        if now() as f64 >= deadline {
-            break;
+    while now() < device.expires_at {
+        let wait = (device.next_poll_at.min(device.expires_at) - now()).max(0) as u64;
+        tokio::time::sleep(Duration::from_millis(wait)).await;
+        if let Some(tokens) = poll_device(http, timeout, binding, &mut device).await? {
+            return Ok(tokens);
         }
-        let complete = || network("Device authorization could not be completed");
-        let url = provider.endpoint("token_endpoint").map_err(|_| complete())?;
-        let (status, value) = post(
-            http,
-            timeout,
-            url,
-            &[
-                ("client_id", &binding.client_id),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ("device_code", device),
-                ("code_verifier", &verifier),
-            ],
-        )
-        .await
-        .map_err(|_| complete())?;
-        if (400..500).contains(&status) {
-            match value["error"].as_str() {
-                Some("authorization_pending") => continue,
-                Some("slow_down") => {
-                    interval += 5.0;
-                    continue;
-                }
-                Some(_) => {
-                    return Err(Error::new(
-                        "REAUTH_REQUIRED",
-                        "Device authorization was denied or expired",
-                        3,
-                    ))
-                }
-                None => return Err(complete()),
-            }
-        }
-        if status != 200 {
-            return Err(complete());
-        }
-        return tokens(value, &provider, binding).map_err(|_| complete());
     }
     Err(Error::new("REAUTH_REQUIRED", "Device authorization expired", 3))
 }

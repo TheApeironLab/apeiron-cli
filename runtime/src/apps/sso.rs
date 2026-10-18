@@ -235,6 +235,121 @@ pub async fn app_credential(http: &Client, app: &str, api_url: &Url, timeout: Du
     store.save(&record)?;
     Ok(Some(access_token))
 }
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PendingLogin {
+    server: String,
+    binding: Binding,
+    endpoints: BTreeMap<String, String>,
+    device: oidc::DeviceAuthorization,
+    tokens: Option<Tokens>,
+    exchange_in_flight: bool,
+}
+fn pending_summary(pending: &PendingLogin) -> Value {
+    json!({"loggedIn":false,"authorizationPending":true,
+        "verificationUri":pending.device.verification_uri,"userCode":pending.device.user_code,
+        "expiresAt":pending.device.expires_at,
+        "retryAfterMs":(pending.device.next_poll_at-now()).max(0),
+        "nextCommand":"apeiron sso login --complete --json"})
+}
+async fn save_login(
+    http: &Client,
+    store: &Store,
+    server: String,
+    binding: Binding,
+    endpoints: BTreeMap<String, String>,
+    mut tokens: Tokens,
+) -> Result<Value> {
+    let identity = request(http, &server, "session", Some(&tokens.access_token), None, TIMEOUT).await?;
+    if text(&identity, "issuer")? != binding.issuer || text(&identity, "client_id")? != binding.client_id {
+        return Err(invalid());
+    }
+    let expiry = identity["expires_at"]
+        .as_i64()
+        .filter(|v| *v > now())
+        .ok_or_else(invalid)?;
+    tokens.expires_at = tokens.expires_at.min(expiry as f64);
+    let record = Stored {
+        version: 1,
+        api_url: PROFILE.into(),
+        binding,
+        tokens,
+        user_id: text(&identity, "subject")?.into(),
+        workspaces: vec![],
+        pending_refresh: None,
+        sso: Some(SsoSession {
+            server,
+            tenant: text(&identity, "tenant")?.into(),
+            endpoints,
+            app_tokens: BTreeMap::new(),
+            refresh_in_flight: false,
+        }),
+    };
+    store.save(&record)?;
+    store.clear_pending_login()?;
+    summary(&record)
+}
+async fn complete_login(http: &Client, store: &Store) -> Result<Value> {
+    let Some(mut pending) = store.read_pending_login::<PendingLogin>()? else {
+        let Some(mut record) = store.read()? else {
+            return Err(Error::new(
+                "SSO_LOGIN_REQUIRED",
+                "Start apeiron sso login --server <APEIRON_URL> --no-open --no-wait",
+                3,
+            ));
+        };
+        ensure(http, store, &mut record, TIMEOUT).await?;
+        validate(http, &record, &record.tokens, TIMEOUT).await?;
+        return summary(&record);
+    };
+    if pending.exchange_in_flight {
+        return Err(Error::new(
+            "SSO_LOGIN_REQUIRED",
+            "Device token exchange outcome is unknown; start a new SSO login with --no-wait",
+            3,
+        ));
+    }
+    if pending.tokens.is_none() {
+        if now() >= pending.device.expires_at {
+            store.clear_pending_login()?;
+            return Err(Error::new(
+                "REAUTH_REQUIRED",
+                "Device authorization expired; start a new SSO login with --no-wait",
+                3,
+            ));
+        }
+        if now() < pending.device.next_poll_at {
+            return Ok(pending_summary(&pending));
+        }
+        // A successful device exchange consumes the grant. Never replay an
+        // ambiguous response; retain returned tokens before session validation.
+        pending.exchange_in_flight = true;
+        store.save_pending_login(&pending)?;
+        let next = match oidc::poll_device(http, TIMEOUT, &pending.binding, &mut pending.device).await {
+            Ok(next) => next,
+            Err(error) => {
+                if error.code == "REAUTH_REQUIRED" {
+                    store.clear_pending_login()?;
+                }
+                return Err(error);
+            }
+        };
+        pending.exchange_in_flight = false;
+        pending.tokens = next.map(token_set).transpose()?;
+        store.save_pending_login(&pending)?;
+        if pending.tokens.is_none() {
+            return Ok(pending_summary(&pending));
+        }
+    }
+    save_login(
+        http,
+        store,
+        pending.server,
+        pending.binding,
+        pending.endpoints,
+        pending.tokens.ok_or_else(invalid)?,
+    )
+    .await
+}
 fn parser() -> Command {
     Command::new("sso")
         .bin_name("apeiron sso")
@@ -248,7 +363,20 @@ fn parser() -> Command {
         .subcommand(
             Command::new("login")
                 .arg(Arg::new("server").long("server").env("APEIRON_SERVER"))
-                .arg(Arg::new("no-open").long("no-open").action(clap::ArgAction::SetTrue)),
+                .arg(Arg::new("no-open").long("no-open").action(clap::ArgAction::SetTrue))
+                .arg(
+                    Arg::new("no-wait")
+                        .long("no-wait")
+                        .help("Return the device URL immediately; finish with login --complete")
+                        .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("complete")
+                        .long("complete")
+                        .help("Complete a pending device login with at most one bounded poll")
+                        .conflicts_with_all(["no-open", "no-wait"])
+                        .action(clap::ArgAction::SetTrue),
+                ),
         )
         .subcommand(Command::new("status"))
         .subcommand(Command::new("logout"))
@@ -262,63 +390,91 @@ async fn execute(args: &clap::ArgMatches) -> Result<Value> {
         .map_err(|_| Error::internal())?;
     let (command, options) = args.subcommand().ok_or_else(required)?;
     if command == "login" {
-        let server = options.get_one::<String>("server").ok_or_else(required)?;
-        let server = endpoint(server)?.to_string();
+        if options.get_flag("complete") {
+            if options.value_source("server") == Some(clap::parser::ValueSource::CommandLine) {
+                return Err(Error::invalid(
+                    "--complete uses the saved authorization server; omit --server",
+                ));
+            }
+            let store = store().await?;
+            return complete_login(&http, &store).await;
+        }
+        let server = endpoint(options.get_one::<String>("server").ok_or_else(required)?)?.to_string();
         let metadata = request(&http, &server, "config", None, None, TIMEOUT).await?;
         let binding = Binding {
             issuer: text(&metadata, "issuer")?.into(),
             client_id: text(&metadata, "client_id")?.into(),
         };
-        let mut tokens = token_set(oidc::login(&http, TIMEOUT, &binding, !options.get_flag("no-open")).await?)?;
-        let identity = request(&http, &server, "session", Some(&tokens.access_token), None, TIMEOUT).await?;
-        if text(&identity, "issuer")? != binding.issuer || text(&identity, "client_id")? != binding.client_id {
-            return Err(invalid());
-        }
-        let expiry = identity["expires_at"]
-            .as_i64()
-            .filter(|v| *v > now())
-            .ok_or_else(invalid)?;
-        tokens.expires_at = tokens.expires_at.min(expiry as f64);
         let endpoints: BTreeMap<String, String> =
             serde_json::from_value(metadata["apps"].clone()).map_err(|_| invalid())?;
         for value in endpoints.values() {
             endpoint(value)?;
         }
-        let record = Stored {
-            version: 1,
-            api_url: PROFILE.into(),
-            binding,
-            tokens,
-            user_id: text(&identity, "subject")?.into(),
-            workspaces: vec![],
-            pending_refresh: None,
-            sso: Some(SsoSession {
+        if options.get_flag("no-wait") {
+            let store = store().await?;
+            if let Some(pending) = store.read_pending_login::<PendingLogin>()? {
+                if pending.server == server && now() < pending.device.expires_at && !pending.exchange_in_flight {
+                    return Ok(pending_summary(&pending));
+                }
+                // Do not discard an obtained refresh grant during a restart.
+                if let Some(tokens) = pending.tokens {
+                    oidc::revoke(&http, TIMEOUT, &pending.binding, &tokens.refresh_token).await?;
+                }
+            }
+            let pending = PendingLogin {
                 server,
-                tenant: text(&identity, "tenant")?.into(),
+                binding: binding.clone(),
                 endpoints,
-                app_tokens: BTreeMap::new(),
-                refresh_in_flight: false,
-            }),
-        };
+                device: oidc::begin_device(&http, TIMEOUT, &binding).await?,
+                tokens: None,
+                exchange_in_flight: false,
+            };
+            store.save_pending_login(&pending)?;
+            return Ok(pending_summary(&pending));
+        }
+        let tokens = token_set(oidc::login(&http, TIMEOUT, &binding, !options.get_flag("no-open")).await?)?;
         let store = store().await?;
-        store.save(&record)?;
-        return summary(&record);
+        return save_login(&http, &store, server, binding, endpoints, tokens).await;
     }
     let store = store().await?;
+    if command == "logout" {
+        let pending = store.read_pending_login::<PendingLogin>()?;
+        let record = store.read()?;
+        store.clear_pending_login()?;
+        store.clear()?;
+        let mut grants = Vec::new();
+        if let Some(pending) = pending {
+            if let Some(tokens) = pending.tokens {
+                grants.push((pending.binding, tokens.refresh_token));
+            }
+        }
+        if let Some(record) = record {
+            if !session(&record)?.refresh_in_flight {
+                let refresh = record
+                    .pending_refresh
+                    .as_ref()
+                    .unwrap_or(&record.tokens)
+                    .refresh_token
+                    .clone();
+                grants.push((record.binding, refresh));
+            }
+        }
+        let revoked = !grants.is_empty();
+        let mut outcome = Ok(());
+        for (binding, refresh) in grants {
+            if let Err(error) = oidc::revoke(&http, TIMEOUT, &binding, &refresh).await {
+                outcome = Err(error);
+            }
+        }
+        outcome?;
+        return Ok(json!({"loggedIn":false,"revoked":revoked}));
+    }
     let Some(mut record) = store.read()? else {
+        if let Some(pending) = store.read_pending_login::<PendingLogin>()? {
+            return Ok(pending_summary(&pending));
+        }
         return Ok(json!({"loggedIn":false}));
     };
-    if command == "logout" {
-        if session(&record)?.refresh_in_flight {
-            store.clear()?;
-            return Ok(json!({"loggedIn":false,"revoked":false}));
-        }
-        let refresh = &record.pending_refresh.as_ref().unwrap_or(&record.tokens).refresh_token;
-        let result = oidc::revoke(&http, TIMEOUT, &record.binding, refresh).await;
-        store.clear()?;
-        result?;
-        return Ok(json!({"loggedIn":false,"revoked":true}));
-    }
     ensure(&http, &store, &mut record, TIMEOUT).await?;
     validate(&http, &record, &record.tokens, TIMEOUT).await?;
     summary(&record)
