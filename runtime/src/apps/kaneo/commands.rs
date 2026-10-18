@@ -48,6 +48,7 @@ const FIELD_VALUE: &[&str] = &[
     "fieldPosition",
 ];
 const INPUT_ERROR: &str = "Input is missing a required field, contains an unknown field or has an invalid value";
+const RELATION: &[&str] = &["id", "sourceTaskId", "targetTaskId", "relationType", "createdAt"];
 const SEARCH_TYPES: &[&str] = &["all", "tasks", "projects", "workspaces", "comments", "activities"];
 
 fn option(name: &'static str) -> Arg {
@@ -62,6 +63,7 @@ fn option(name: &'static str) -> Arg {
         "project" => arg.value_name("ID").help(config::PROJECT_ID_HELP),
         "task" => arg.value_name("ID").help("Task id returned by task list or search"),
         "status" => arg.value_name("SLUG").help(config::STATUS_SLUG_HELP),
+        "priority" => arg.help("no-priority, low, medium, high, urgent"),
         "type" => arg.help(format!("Search category: {} (default: all)", SEARCH_TYPES.join(", "))),
         _ => arg,
     }
@@ -139,7 +141,8 @@ pub fn parser() -> Command {
         .subcommand(id("restore"))
         .subcommand(options(Command::new("trash"), &["page", "limit"]))
         .subcommand(id("activity"))
-        .subcommand(id("fields"))
+        .subcommand(id("fields").about("Get values for a task; project field definitions: project fields <ID>"))
+        .subcommand(required(Command::new("columns"), "project").about("Get project columns and valid --status slugs"))
         .subcommand(group("field").subcommand(required(required(id("set"), "field"), "value")));
     task.bin_name("apeiron task")
         .display_name("apeiron task")
@@ -181,10 +184,18 @@ pub fn parser() -> Command {
                     required(required(Command::new("create"), "name"), "slug"),
                     "icon",
                 ))
+                .subcommand(id("delete").about("Permanently delete a project and its contents; prefer archive").arg(boolean("confirm")))
                 .subcommand(id("archive"))
                 .subcommand(id("unarchive"))
                 .subcommand(id("columns"))
-                .subcommand(id("fields")),
+                .subcommand(id("fields").about("Get custom field definitions for a project")),
+        )
+        .subcommand(
+            group("relation")
+                .about("Link existing tasks; subtask uses --source as parent and --target as child")
+                .subcommand(required(Command::new("list"), "task"))
+                .subcommand(required(required(required(Command::new("create"), "source"), "target"), "relation-type"))
+                .subcommand(id("delete")),
         )
         .subcommand(options(
             Command::new("search").arg(Arg::new("query").required(true).help("Nonempty search text")),
@@ -231,7 +242,7 @@ pub async fn execute(root: &ArgMatches, api: &mut Api) -> Result<(Value, Option<
     }
     // Task operations live at the root; related resources retain their groups.
     let (group, operation, args) = match group {
-        "auth" | "workspace" | "project" | "comment" | "label" => {
+        "auth" | "workspace" | "project" | "comment" | "label" | "relation" => {
             let (operation, args) = args.subcommand().ok_or_else(Error::internal)?;
             (group, operation, args)
         }
@@ -273,6 +284,45 @@ pub async fn execute(root: &ArgMatches, api: &mut Api) -> Result<(Value, Option<
         ("project", "archive" | "unarchive") => output::project(
             &api.request(Method::PUT, &["project", id, operation], &[], None).await?,
             PROJECT,
+        )?,
+        ("project", "delete") => {
+            if !flag(args, "confirm") {
+                return Err(Error::invalid("Project deletion is permanent and deletes its contents; pass --confirm, or use project archive <ID>"));
+            }
+            output::project(
+                &api.request(Method::DELETE, &["project", id], &[], None).await?,
+                PROJECT,
+            )?
+        }
+        ("task", "columns") => {
+            let project = api.config.required(args, "project")?.to_owned();
+            output::list(
+                &api.get(&["column", &project], &[]).await?,
+                &["id", "name", "slug", "isFinal", "position"],
+            )?
+        }
+        ("relation", "list") => {
+            let task = api.config.required(args, "task")?.to_owned();
+            output::list(&api.get(&["task-relation", &task], &[]).await?, RELATION)?
+        }
+        ("relation", "create") => {
+            let source = api.config.required(args, "source")?;
+            let target = api.config.required(args, "target")?;
+            let kind = api.config.required(args, "relation-type")?;
+            if !["subtask", "blocks", "related"].contains(&kind) || source == target {
+                return Err(Error::invalid(
+                    "--relation-type must be subtask, blocks or related; --source and --target must differ",
+                ));
+            }
+            let body = json!({"sourceTaskId":source,"targetTaskId":target,"relationType":kind});
+            output::project(
+                &api.request(Method::POST, &["task-relation"], &[], Some(body)).await?,
+                RELATION,
+            )?
+        }
+        ("relation", "delete") => output::project(
+            &api.request(Method::DELETE, &["task-relation", id], &[], None).await?,
+            RELATION,
         )?,
         ("project", "columns") => output::list(
             &api.get(&["column", id], &[]).await?,
@@ -421,7 +471,9 @@ fn priority(value: &str) -> Result<&str> {
     if ["no-priority", "low", "medium", "high", "urgent"].contains(&value) {
         Ok(value)
     } else {
-        Err(Error::invalid(INPUT_ERROR))
+        Err(Error::invalid(
+            "--priority must be no-priority, low, medium, high or urgent",
+        ))
     }
 }
 

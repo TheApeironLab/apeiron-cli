@@ -151,6 +151,13 @@ pub async fn request(
             .unwrap_or(&text);
         let message = if status == 403 && reason.trim() == "PLATFORM_WORKSPACE_FORBIDDEN" {
             format!("PLATFORM_WORKSPACE_FORBIDDEN: Workspace access was denied. {WORKSPACE_ID_HELP}")
+        } else if status == 400 && reason == "Workspace ID could not be determined" {
+            "Project or task was not found. Use actual IDs from apeiron task project list --workspace <ID> --json; project columns/fields take a project ID, while task fields takes a task ID.".into()
+        } else if status == 400 && reason.starts_with("Invalid status ") {
+            "Invalid task status. Use a slug returned by apeiron task project columns <ID> --json, or planned/archived."
+                .into()
+        } else if status == 400 && reason.starts_with("Custom field ") {
+            "A custom field is missing or invalid. Inspect apeiron task project fields <ID> --json and supply --field <FIELD_ID>=<VALUE>.".into()
         } else {
             format!("Kaneo returned HTTP {status}")
         };

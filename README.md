@@ -55,6 +55,29 @@ public `apeiron-cli` 设备客户端。显式 SSO 登录后优先使用该会话
 旧的 `apeiron task auth login` 仅用于独立 Task 实例的兼容登录，不是平台 SSO 的前置步骤。
 Task 是内置 Rust 模块，使用时不依赖 Node/Bun 或外部 Task 可执行文件。
 
+### Task 项目、状态和子任务
+
+先从 `apeiron task project list --workspace <工作区ID> --json` 获取项目的 `id`，不要传项目名称或 slug。
+
+```sh
+apeiron task project columns <项目ID> --json
+apeiron task project fields <项目ID> --json
+apeiron task create --project <项目ID> --title "任务" --status <列的slug> --json
+apeiron task fields <任务ID> --json
+apeiron task relation create --source <父任务ID> --target <子任务ID> --relation-type subtask --json
+apeiron task relation list --task <任务ID> --json
+apeiron task relation delete <关系ID> --json
+apeiron task project archive <项目ID> --json
+apeiron task project delete <项目ID> --confirm --json
+```
+
+`task columns --project <项目ID>` 也可查询列。`project fields` 返回字段定义，`task fields` 返回任务字段值；
+创建任务时通过 `--field <字段ID>=<值>` 提交自定义字段。状态使用列的 `slug`，优先级使用
+`no-priority/low/medium/high/urgent`。项目删除会永久删除项目内容，须显式传 `--confirm`。
+子任务通过已有任务之间的 `subtask` 关系表达，父任务是 source，子任务是 target；创建任务与建关系是两个独立操作。
+服务端当前没有独立的 milestone 模型，因此 CLI 不提供 `--milestone`，也不会把自定义字段伪装成原生里程碑。
+这些新命令需要同时升级支持关系和项目删除的 Task Bearer 接口白名单；工作区权限仍由服务端检查。
+
 ## 浏览器部署向导
 
 ```sh

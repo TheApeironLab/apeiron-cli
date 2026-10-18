@@ -141,7 +141,14 @@ async fn ensure(http: &Client, store: &Store, record: &mut Stored, timeout: Dura
         // source refresh grant must never be retried by another command.
         record.sso.as_mut().ok_or_else(required)?.refresh_in_flight = true;
         store.save(record)?;
-        let next = oidc::refresh(http, timeout, &record.binding, &record.tokens.refresh_token).await?;
+        let next = oidc::refresh(http, timeout, &record.binding, &record.tokens.refresh_token)
+            .await
+            .map_err(|mut error| {
+                if error.code == "REAUTH_REQUIRED" {
+                    error.message = required().message;
+                }
+                error
+            })?;
         record.pending_refresh = Some(token_set(next)?);
         record.sso.as_mut().ok_or_else(required)?.refresh_in_flight = false;
         store.save(record)?;

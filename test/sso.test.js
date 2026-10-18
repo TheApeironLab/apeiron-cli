@@ -7,7 +7,7 @@ import { binary } from './support';
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'apeiron-sso-'));
-  let origin, issuer, refreshes = 0, exchanges = 0, revocations = 0, failRefresh = false, managed = false, iamDenied = false, iamWriteFailure = false;
+  let origin, issuer, refreshes = 0, exchanges = 0, revocations = 0, failRefresh = false, expireRefresh = false, managed = false, iamDenied = false, iamWriteFailure = false;
   const seen = [];
   let challenge;
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
@@ -31,6 +31,7 @@ async function fixture() {
       expect(form.has('client_secret')).toBe(false);
       if (form.get('grant_type') === 'refresh_token') {
         refreshes++;
+        if (expireRefresh) return Response.json({error:'invalid_grant'}, {status:400});
         if (failRefresh) return Response.json({ error: 'temporarily_unavailable' }, { status: 503 });
         expect(form.get('refresh_token')).toBe('sso-refresh-0');
         return Response.json({ access_token: 'sso-access-1', refresh_token: 'sso-refresh-1', expires_in: 300, token_type: 'Bearer' });
@@ -87,7 +88,7 @@ async function fixture() {
     }
     return { code, stdout, stderr };
   };
-  return { root, origin, run, seen, async managed() { await writeFile(join(root, 'managed-token'), 'old-managed-token', {mode:0o600}); managed = true; }, denyIam: () => { iamDenied = true; }, failIamWrite: () => { iamWriteFailure = true; }, counts: () => ({ refreshes, exchanges, revocations }), failRefresh: () => { failRefresh = true; },
+  return { root, origin, run, seen, async managed() { await writeFile(join(root, 'managed-token'), 'old-managed-token', {mode:0o600}); managed = true; }, denyIam: () => { iamDenied = true; }, failIamWrite: () => { iamWriteFailure = true; }, counts: () => ({ refreshes, exchanges, revocations }), failRefresh: () => { failRefresh = true; }, expireRefresh: () => { expireRefresh = true; },
     async close() { server.stop(true); await rm(root, { recursive: true, force: true }); } };
 }
 
@@ -169,3 +170,19 @@ test('IAM uses the platform SSO audience, preserves mutation idempotency and hon
     expect((await f.run('iam','member','list','--json')).code).toBe(4);
   } finally { await f.close(); }
 }, 30000);
+
+
+test('expired platform grant directs Task callers back to shared SSO login', async () => {
+  const f=await fixture();
+  try {
+    expect((await f.run('sso','login','--server',f.origin,'--no-open','--json')).code).toBe(0);
+    f.expireRefresh();
+    const result=await f.run('task','whoami','--json');
+    expect(result.code).toBe(3);
+    expect(result.stdout).toContain('apeiron sso login');
+    expect(JSON.parse(result.stdout).error.code).toBe('REAUTH_REQUIRED');
+    expect(result.stdout).not.toContain('task auth login');
+    expect((await f.run('task','whoami','--json')).code).toBe(3);
+    expect(f.counts().refreshes).toBe(1);
+  } finally { await f.close(); }
+},15000);
