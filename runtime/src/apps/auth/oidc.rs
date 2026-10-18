@@ -4,8 +4,10 @@ use super::{
     store::Binding,
 };
 use base64::Engine;
+use rand::RngCore;
 use reqwest::Client;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::process::Stdio;
 use std::time::Duration;
 use url::Url;
@@ -270,6 +272,12 @@ pub async fn revoke(http: &Client, timeout: Duration, binding: &Binding, token: 
 pub async fn login(http: &Client, timeout: Duration, binding: &Binding, open: bool) -> Result<TokenResponse> {
     let provider = provider(http, timeout, binding).await?;
     let start_error = || network("Device authorization could not be started");
+    let mut entropy = [0u8; 32];
+    rand::rngs::OsRng
+        .try_fill_bytes(&mut entropy)
+        .map_err(|_| start_error())?;
+    let verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(entropy);
+    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let url = provider.endpoint("device_authorization_endpoint").map_err(|e| {
         if e.code == "INVALID_CONFIG" {
             e
@@ -281,7 +289,12 @@ pub async fn login(http: &Client, timeout: Duration, binding: &Binding, open: bo
         http,
         timeout,
         url,
-        &[("client_id", &binding.client_id), ("scope", "openid profile email")],
+        &[
+            ("client_id", &binding.client_id),
+            ("scope", "openid profile email"),
+            ("code_challenge_method", "S256"),
+            ("code_challenge", &challenge),
+        ],
     )
     .await
     .map_err(|_| start_error())?;
@@ -336,6 +349,7 @@ pub async fn login(http: &Client, timeout: Duration, binding: &Binding, open: bo
                 ("client_id", &binding.client_id),
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("device_code", device),
+                ("code_verifier", &verifier),
             ],
         )
         .await

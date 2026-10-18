@@ -1,4 +1,5 @@
 import { test, expect } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm, readdir, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -8,6 +9,7 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'apeiron-sso-'));
   let origin, issuer, refreshes = 0, exchanges = 0, revocations = 0, failRefresh = false, managed = false, iamDenied = false, iamWriteFailure = false;
   const seen = [];
+  let challenge;
   const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const path = new URL(request.url).pathname;
     const authorization = request.headers.get('authorization');
@@ -18,6 +20,9 @@ async function fixture() {
       const form = new URLSearchParams(await request.text());
       expect(form.get('client_id')).toBe('apeiron-cli');
       expect(form.has('client_secret')).toBe(false);
+      expect(form.get('code_challenge_method')).toBe('S256');
+      challenge = form.get('code_challenge');
+      expect(challenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
       return Response.json({ device_code: 'fixture-device', user_code: 'TEST-CODE', verification_uri: issuer + '/activate', expires_in: 60, interval: 1 });
     }
     if (path === '/realms/team/token') {
@@ -31,6 +36,7 @@ async function fixture() {
         return Response.json({ access_token: 'sso-access-1', refresh_token: 'sso-refresh-1', expires_in: 300, token_type: 'Bearer' });
       }
       expect(form.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:device_code');
+      expect(createHash('sha256').update(form.get('code_verifier')).digest('base64url')).toBe(challenge);
       return Response.json({ access_token: 'sso-access-0', refresh_token: 'sso-refresh-0', expires_in: 1, token_type: 'Bearer' });
     }
     if (path.endsWith('/revoke')) {
