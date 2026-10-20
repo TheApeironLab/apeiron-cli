@@ -720,7 +720,7 @@ mod tests {
     // manifest/provenance/resource bytes. On other hosts it verifies rejection.
     #[test]
     fn actual_prepare_checks_management_machine_and_preserves_integrity() {
-        let native_host = cfg!(target_os = "linux");
+        let native_host = cfg!(all(target_os = "linux", target_arch = "x86_64"));
         let (root, cache, manifest, catalog, mut plan) = preparation_fixture(native_host, false);
         let (key, topology) = if native_host {
             ("k3s-amd64", "multi-k3s")
@@ -766,10 +766,9 @@ mod tests {
                 && version.split('.').take(2).collect::<Vec<_>>() == ["22", "04"]
                 && discovery::supported(os, version, arch)
         } else {
-            cfg!(target_os = "macos")
-                && discovery::architecture(std::env::consts::ARCH) == "arm64"
+            discovery::architecture(std::env::consts::ARCH) == "arm64"
                 && arch == "arm64"
-                && os == "macOS"
+                && ((cfg!(target_os = "macos") && os == "macOS") || (cfg!(target_os = "linux") && !os.is_empty()))
         };
         let cancel = process::Cancellation::default();
         let run = |plan: &mut Value| {
