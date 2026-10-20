@@ -289,3 +289,7 @@ The target machine starts the existing loopback wizard and connects outbound ove
 The command prints a connection-file path under `~/.apeiron/gateway/`. Reconnect with `apeiron register --connection <path>`. That file contains a private agent token and has mode 0600; do not share it. Ctrl+C disconnects and stops the wizard, including any active deployment. Automatic systemd installation is not implemented in this initial version.
 
 Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.1` for local development. A localhost gateway URL works only when the CLI runs on the same machine. Production also needs gateway DNS/HTTPS and isolated setup subdomains. Application ingress provisioning remains separate from opening the deployment wizard.
+
+只读升级、备份及应用恢复规划：`apeiron lifecycle --help`。
+首批仅校验现场快照并生成独立计划，执行操作保持阻断；输入契约及验收边界见
+[生命周期规划 v1](docs/lifecycle-planning-v1.md)。

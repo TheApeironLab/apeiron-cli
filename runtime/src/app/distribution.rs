@@ -88,6 +88,7 @@ fn native_package_path(artifact: &Value, architecture: &str) -> bool {
 }
 
 pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, topology: &str) -> Result<()> {
+    super::lifecycle::validate_release(manifest)?;
     let capability = &plan["target"]["nexusFirst"];
     if capability["schemaVersion"] != 1 || capability["manifest"] != MANIFEST {
         return Err(invalid("安装目标未声明受支持的正式协议"));
