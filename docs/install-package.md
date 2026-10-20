@@ -83,6 +83,10 @@ APT 与 PyPI 发布制品使用原生 hosted 坐标。CLI 分别验证 Deb 包�
 正式清单可声明 `k3d-arm64` 或 `k3d-amd64` / `single-k3d`。Linux 管理机的
 硬件、CLI 进程与所选包必须同为 ARM64 或同为 AMD64；Mac ARM64 对应 `k3d-arm64`。
 DGX Spark 的 Ubuntu 24.04 ARM64 使用 K3d ARM64 契约，不因此获得原生 K3s ARM64 支持。
+Docker 的经典镜像存储和 containerd 存储可能分别返回 config 与 OCI manifest/index 摘要。
+系统镜像导入后若 ID 不直接相同，CLI 只接受能从已校验归档证明对应关系的 config：
+标签必须唯一，config 字节和平台必须匹配，OCI 摘要链和 config 引用必须一致，
+子描述符大小逐项核对。不会因为标签存在而忽略身份不匹配。
 目标、清单、资源镜像和工具箱均须匹配架构，不能通过修改目标名复用 ARM64 归档。
 原生 `k3s-amd64` 仍仅接受 Ubuntu 22.04 AMD64 管理机。
 K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这些结果单独记录。
