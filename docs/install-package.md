@@ -157,6 +157,10 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 
 预检只读取状态，不修改路由、防火墙或 Docker 资源；警告随部署事件写入安装日志并在 `api/deploy` 响应的 `preflight` 字段返回。多实例、共存与 SSH 转发尚未在真实多实例宿主上完成验收。
 
+快速切换共存与摘要步骤时，向导等待正在执行的预检结束，再检查最新配置；过时结果不更新页面。
+浏览器取消请求不会取消服务端 Docker 检查，因此不以中断 fetch 代替完成等待。
+开始安装和返回实例首页也等待该检查结束，避免与服务端的保存/配置互斥锁竞争。
+
 ### 验收 harness 契约（WP5 对齐）
 
 - `start.sh`：读取 `APEIRON_WIZARD_PORT`（默认 3210）与 `APEIRON_INSTANCE`（默认 `default`），以 `--config "$STATE/config.json" --port "$WIZARD_PORT"` 启动，并透传其余参数（如 `--no-open`）；CLI 标准输出保持 `schema=apeiron.init.v1` 表格：`url\thttp://127.0.0.1:<port>/setup/<hex>/`、`config\t<path>`、`forward\tssh -L <port>:127.0.0.1:<port> <user>@<this-host>`。

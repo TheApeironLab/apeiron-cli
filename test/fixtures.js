@@ -85,7 +85,9 @@ export async function freshInstallFixture(dir, setup, exit = 0, resumeDomain) {
     await writeFile(join(setup.root, 'tests/lab/helmfile.sh'), 'REPO=$(cd "$(dirname "$0")/../.." && pwd)\nargs=(\n-e CHENTU_ENV=/environment.yaml -e KUBECONFIG=/work/state/kubeconfig\n)\n' + launcher);
     delete environment.architecture;
     const catalog = { schemaVersion: 1, targets: { 'k3d-arm64': profile, 'k3d-amd64': profile },
-        components: { core: { requires: [], files: ['core.bin'] }, 'cluster-access': { requires: ['core'], files: [] }, ...Object.fromEntries(APPS.map(app => [app.id, { requires: ['core'], files: [] }])) },
+        components: { core: { requires: [], files: ['core.bin'] }, 'cluster-access': { requires: ['core'], files: [] },
+            ...Object.fromEntries(APPS.flatMap(app => [...new Set([app.id, ...(app.releases ?? [])])]
+                .map(id => [id, { requires: ['core'], files: [] }]))) },
         files: [{ path: 'core.bin', size: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') }] };
     await writeFile(join(setup.root, 'setup/install.json'), JSON.stringify(catalog));
 }

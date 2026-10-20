@@ -374,15 +374,23 @@ try {
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     assert.equal(await app('Grafana').isChecked(), true);
     assert.equal(await app('Files').isChecked(), false);
-    for (let n = 0; n < 2; n++)
-        await page.getByRole('button', { name: '下一步', exact: true }).click();
+    const dockerFixture = await readFile(join(setup.bin, 'docker'), 'utf8');
+    const slowPreflight = join(dir, 'preflight-started');
+    // #24: Hold the real Rust request gate while navigating from coexistence to the
+    // summary. Aborting fetch cannot cancel the server's Docker inspection.
+    await writeFile(join(setup.bin, 'docker'), dockerFixture
+        .replace('#!/bin/sh\n', `#!/bin/sh\nif [ "$1" = inspect ] && [ ! -f '${slowPreflight}' ]; then touch '${slowPreflight}'; sleep 2; fi\n`)
+        .replace('"HostPort":"54321"', '"HostPort":"54323"'));
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
+    for (let n = 0; n < 100 && !await Bun.file(slowPreflight).exists(); n++)
+        await Bun.sleep(10);
+    assert.ok(await Bun.file(slowPreflight).exists(), 'Coexistence preflight is running on the server before navigation');
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '域名、访问方式与模型', exact: true }).waitFor();
     assert.equal(await slug.inputValue(), 'example-team');
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
     assert.match(await page.locator('#summary-apps').innerText(), /Grafana、Browser、CI/);
-    const dockerFixture = await readFile(join(setup.bin, 'docker'), 'utf8');
-    await writeFile(join(setup.bin, 'docker'), dockerFixture.replace('"HostPort":"54321"', '"HostPort":"54323"'));
     await page.getByRole('button', { name: '开始安装', exact: true }).click();
     await page.locator('#error').getByText(/已找到本次安装的集群，但入口端口与当前配置不同/).waitFor();
     assert.match(await page.locator('#summary-preflight').innerText(), /预检未通过：已找到本次安装的集群/, 'The summary preflight reports the same blocking reason');
