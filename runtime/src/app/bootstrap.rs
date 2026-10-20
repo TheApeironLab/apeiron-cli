@@ -353,6 +353,11 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     };
     let bundle = work.join("bundle");
     process::private_directory(&bundle)?;
+    if docker {
+        // Even the configuration checker creates /work/state on Linux. Reserve
+        // host-owned state before any toolbox process can mount this directory.
+        reserve_k3d_kubeconfig(&work)?;
+    }
     for f in plan["files"].as_array().unwrap() {
         c.cancel.check()?;
         let rel = f["path"].as_str().unwrap();
@@ -845,7 +850,6 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
                 )
                 .as_bytes(),
         )?;
-        reserve_k3d_kubeconfig(&path(target, "workDir"))?;
         c.checked(
             "bash",
             strings(&[&launcher.to_string_lossy(), "prepare"]),
