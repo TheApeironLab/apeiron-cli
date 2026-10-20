@@ -170,3 +170,7 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 应用角色与成员权限继续生效。首次安装明确选择 Files 时，向导默认声明
 `releases.files.values.operatorBucket: files-owner`，由宸途绑定到实际持久操作员，提供私人桶与
 已有共享桶 `files-team`；保留已有 `users` 和显式桶配置，不自动开通其他 IAM 用户。
+
+K3d 的 kubeconfig 由 CLI 预先创建为当前用户拥有的 `0600` 普通文件，工具箱原位写入；
+这样 Linux Docker 不会留下 CLI 无权读取的 root 专有文件。重试保留已有文件与凭据，
+拒绝符号链接、特殊文件和不可读文件，不扩大读取权限。

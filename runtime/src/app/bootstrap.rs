@@ -534,6 +534,20 @@ fn write_managed(path: &Path, data: &[u8]) -> Result<()> {
     private_write(&tmp, data)?;
     fs::rename(&tmp, path).map_err(|_| fail("无法保存生成文件。", 500))
 }
+fn reserve_k3d_kubeconfig(work: &Path) -> Result<()> {
+    let path = resources::destination(work, "state/kubeconfig")?;
+    process::private_directory(path.parent().unwrap())?;
+    if path.exists() {
+        // A retry must retain the original credentials; reject unreadable or
+        // special files instead of replacing an existing cluster's identity.
+        resources::read(&path, 4 * 1024 * 1024)?;
+    } else {
+        // The toolbox writes into this inode. On native Linux it would otherwise
+        // create a root-owned 0600 file that the unprivileged CLI cannot read.
+        private_write(&path, b"")?;
+    }
+    Ok(())
+}
 fn native_tools(plan: &Value, target: &Value, bundle: &Path, c: &Context) -> Result<BTreeMap<String, String>> {
     let files = plan["files"].as_array().unwrap();
     let paths = files.iter().map(|f| f["path"].as_str().unwrap()).collect::<Vec<_>>();
@@ -831,6 +845,7 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
                 )
                 .as_bytes(),
         )?;
+        reserve_k3d_kubeconfig(&path(target, "workDir"))?;
         c.checked(
             "bash",
             strings(&[&launcher.to_string_lossy(), "prepare"]),
@@ -1086,6 +1101,26 @@ pub fn public_access(phase: &str, target: &Value, c: &Context, env: &BTreeMap<St
 mod tool_contracts {
     use super::*;
     use crate::app::contracts::Temp;
+    #[test]
+    fn k3d_kubeconfig_is_private_host_owned_and_preserves_existing_identity() {
+        use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+        let temp = Temp::new();
+        reserve_k3d_kubeconfig(&temp.0).unwrap();
+        let path = temp.0.join("state/kubeconfig");
+        let metadata = fs::metadata(&path).unwrap();
+        assert_eq!(metadata.uid(), fs::metadata(&temp.0).unwrap().uid());
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        fs::write(&path, b"existing cluster identity").unwrap();
+        reserve_k3d_kubeconfig(&temp.0).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"existing cluster identity");
+        assert_eq!(fs::metadata(&path).unwrap().ino(), metadata.ino());
+        fs::remove_file(&path).unwrap();
+        symlink(temp.0.join("outside"), &path).unwrap();
+        assert!(reserve_k3d_kubeconfig(&temp.0).is_err());
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(reserve_k3d_kubeconfig(&temp.0).is_err());
+    }
     #[test]
     fn system_archives_bind_classic_and_containerd_ids_without_accepting_foreign_or_corrupt_configs() {
         let temp = Temp::new();

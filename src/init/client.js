@@ -1537,7 +1537,10 @@ export function initWizard(supportsK3sHost) {
     get('manage-instances').addEventListener('click', () => { void showInstances(); });
     get('instances-refresh').addEventListener('click', () => { void showInstances(); });
     get('instances-back').addEventListener('click', showHome);
-    get('form-home').addEventListener('click', showHome);
+    get('form-home').addEventListener('click', async () => {
+        await loadInstances();
+        showHome();
+    });
     get('configure-current').addEventListener('click', showForm);
     get('create-instance').addEventListener('click', async () => {
         const name = get('new-instance-name').value.trim();
