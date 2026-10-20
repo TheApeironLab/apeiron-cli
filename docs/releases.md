@@ -77,4 +77,23 @@ GitHub Actions 使用阿里云 OIDC，无长期 AccessKey。仓库变量为 `OSS
 
 RAM 信任策略的 Action 为 `sts:AssumeRole`，Principal 为该 OIDC provider。仓库启用了 immutable subject，`oidc:sub` 前缀应从 `gh api repos/TheApeironLab/apeiron-cli/actions/oidc/customization/sub` 读取，再追加 `:ref:refs/tags/v*`，不要只填写仓库名称。上传 job 显式设置 `ALIBABA_CLOUD_REGION_ID=cn-beijing`，不依赖开发机的阿里云 CLI 配置。
 
+## 内网镜像与发布目标
+
+安装器的下载地址由 `APEIRON_DOWNLOAD_BASE` 决定（默认公开 OSS），期望的目录布局与 OSS 相同：`install.sh`、`latest.txt` 在根部，版本化文件在 `releases/<version>/`。内网自建镜像保持这一布局即可，例如 Nexus raw：
+
+```sh
+APEIRON_DOWNLOAD_BASE=https://nexus.example.internal/repository/raw/apeiron-cli \
+  sh install.sh --version <version>   # 或把 install.sh 下载后在本地以同一变量运行
+```
+
+发布脚本用 `APEIRON_PUBLISH_TARGET` 选择渠道（`oss` | `forgejo` | `directory`；CI 里是同名仓库变量，本地发布直接读环境变量）：
+
+- `oss`（默认）：公开 OSS + GitHub Releases。需要阿里云 OIDC 与 GitHub 令牌，仅外网可用。
+- `forgejo`：上传为 Forgejo Release 资产，需要 `FORGEJO_BASE`、`FORGEJO_REPOSITORY`（owner/name）与 `FORGEJO_TOKEN`；tag 必须已存在于远端，脚本不代建。资产按 tag 定位，适合版本 pin 的下载地址；install.sh 需要的根部布局不在其中，仍需 `directory` 目标补齐。
+- `directory`：把校验过的发行目录复制成根部布局（`APEIRON_PUBLISH_DIR=<绝对目录>`），先整体校验 `release.json` 与 `SHA256SUMS`，`releases/<version>/` 只接受相同摘要的重复写入，`install.sh` 与 `latest.txt` 在全部不可变文件就位后原子前进。产出的目录可直接作为 Nexus raw 仓内容上传。
+
+安装器强制 HTTPS（`--proto =https`、TLS ≥ 1.2）并使用系统 curl 的信任库，没有 `--insecure` 之类的开关：内网自签 CA 要先进入目标机的系统信任库（Linux `update-ca-certificates`，macOS 钥匙串并设为信任），否则下载在 TLS 握手时失败。
+
+内网同时镜像 scode 时（backend 本机连接器安装脚本读 `APEIRON_LOCAL_SCODE_BASE` 与 `APEIRON_LOCAL_SCODE_VERSION`，取 `<base>/<release>/scode-<platform>.tar.gz` 与 `SHA256SUMS.txt`）：上游发行 COS 只有 `latest` 一个目录，版本 pin 要生效，内网镜像必须保留按 tag 的版本目录（如 `…/release/v0.2.25/`），只转发 `latest` 时 pin 会在下载时失败。
+
 回退 CLI 可重新安装指定旧版本；平台数据库、集群或应用不会随 CLI 回退。
