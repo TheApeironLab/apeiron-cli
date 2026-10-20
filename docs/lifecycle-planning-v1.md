@@ -24,7 +24,7 @@ apeiron lifecycle plan --installation /external/installation.json \
 
 chentu 的 publisher 从固定源码和制品构建通用发布清单，不输入安装记录、节点、kubeconfig、已选组件或备份落点。`lifecycle` 只包含组件契约、备份适配器、迁移规则及逐组合验收的来源路径；默认 schema 未知且无允许跨度，不能把缺省值当作支持。冻结验收报告核验器尚未实现，publisher 当前拒绝发布非空允许跨度或 verified 适配器，不能手填摘要绕过。声明契约见配套 chentu 的 `docs/stack/lifecycle-planning.md`。
 
-现场文件是另外四类对象。全部使用 camelCase、schemaVersion=1，拒绝未知字段；字段完整定义见 `runtime/src/app/lifecycle/model.rs`，不会宽松忽略拼写错误。集合字段须显式提供；estimatedBytes、backupAdapter 和 protection 可省略或为 null，相应信息缺失会在规划中阻断。标识为最长 128 字符的字母数字及 `._/-`，摘要为 64 位小写 SHA-256。字段只保存非敏感身份/摘要/引用；Secret 值不能填入这些文档。
+现场文件是另外四类对象。全部使用 camelCase、schemaVersion=1，拒绝未知字段；字段完整定义见 `runtime/src/app/lifecycle/model.rs`，不会宽松忽略拼写错误。集合字段须显式提供；estimatedBytes、backupAdapter 和 protection 可省略或为 null，相应信息缺失会在规划中阻断。集群/安装/节点身份禁止包含斜杠；所有标识拒绝空路径段及 `.`/`..` 段。标识为最长 128 字符的字母数字及 `._/-`，摘要为 64 位小写 SHA-256。字段只保存非敏感身份/摘要/引用；Secret 值不能填入这些文档。
 
 | 对象 | 必需字段 |
 |---|---|

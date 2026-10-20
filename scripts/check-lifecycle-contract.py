@@ -46,6 +46,7 @@ mutations = [
     ("schema-bool", ("schemaVersion",), True),
     ("adapter-without-evidence", ("backupAdapters", "pg", "evidence"), []),
     ("component-type", ("components", "apeiron", "class"), []),
+    ("unsafe-identifier", ("components", "apeiron", "dataRoles"), ["workspace/../data"]),
     ("unknown-class", ("components", "apeiron", "class"), "automatic"),
     ("unknown-target-schema", ("migrationRules", "app", "targetDataSchema"), "unknown"),
     ("wrong-target-schema", ("migrationRules", "app", "targetDataSchema"), "3"),

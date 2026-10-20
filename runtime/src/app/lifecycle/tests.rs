@@ -211,7 +211,7 @@ fn shared_service_restore_cannot_overwrite_other_consumers() {
 }
 #[test]
 fn strict_contracts_reject_site_fields_duplicate_nodes_and_evidenceless_capabilities() {
-    for mutation in 0..4 {
+    for mutation in 0..6 {
         let mut input = fixture(true);
         match mutation {
             0 => input["releaseManifest"]["lifecycle"]["clusterUid"] = json!("inner-cluster"),
@@ -220,7 +220,9 @@ fn strict_contracts_reject_site_fields_duplicate_nodes_and_evidenceless_capabili
                 .unwrap()
                 .push(json!({"id":"server-1","role":"server"})),
             2 => input["releaseManifest"]["lifecycle"]["backupAdapters"]["pg-logical"]["evidence"] = json!([]),
-            _ => input["installation"]["secret"] = json!("do-not-echo"),
+            3 => input["installation"]["secret"] = json!("do-not-echo"),
+            4 => input["installation"]["clusterUid"] = json!("cluster/../../other"),
+            _ => input["intent"]["addAgents"] = json!(["path/agent"]),
         }
         let error = plan(&input).unwrap_err();
         assert!(!error.message.contains("do-not-echo"));

@@ -26,6 +26,10 @@ fn decode<T: DeserializeOwned>(value: &Value) -> Result<T> {
 }
 fn identifier(value: &str) -> bool {
     config::matches(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$", value)
+        && value.split('/').all(|part| !["", ".", ".."].contains(&part))
+}
+fn scoped_id(value: &str) -> bool {
+    identifier(value) && !value.contains('/')
 }
 fn digest(value: &str) -> bool {
     config::matches(r"^[a-f0-9]{64}$", value)
@@ -61,7 +65,7 @@ fn node_set(nodes: &[Node], topology: &str) -> Result<BTreeSet<(String, String)>
         !nodes.is_empty()
             && nodes
                 .iter()
-                .all(|n| identifier(&n.id) && ["server", "agent"].contains(&n.role.as_str())),
+                .all(|n| scoped_id(&n.id) && ["server", "agent"].contains(&n.role.as_str())),
     )?;
     let ids: BTreeSet<_> = nodes.iter().map(|n| &n.id).collect();
     check(ids.len() == nodes.len())?;
@@ -77,8 +81,8 @@ fn validate_record(record: &Installation) -> Result<()> {
     check(
         record.schema_version == 1
             && record.kind == "chentu-installation-record"
-            && identifier(&record.installation_id)
-            && identifier(&record.cluster_uid)
+            && scoped_id(&record.installation_id)
+            && scoped_id(&record.cluster_uid)
             && record.generation > 0
             && identifier(&record.release.version)
             && digest(&record.release.manifest_sha256)
@@ -127,7 +131,7 @@ fn validate_record(record: &Installation) -> Result<()> {
     let mut ids = BTreeSet::new();
     for expansion in &record.accepted_expansions {
         check(
-            identifier(&expansion.id)
+            scoped_id(&expansion.id)
                 && ids.insert(&expansion.id)
                 && expansion.generation > 0
                 && expansion.generation <= record.generation,
@@ -300,6 +304,7 @@ pub(super) fn plan(input: &Value) -> Result<Value> {
     )?;
     names(&intent.selected_components, true)?;
     names(&intent.add_agents, false)?;
+    check(intent.add_agents.iter().all(|id| scoped_id(id)))?;
     names(&observation.drift, false)?;
     let mut blockers = Vec::new();
     let cluster_matches = intent.cluster_uid == record.cluster_uid
@@ -598,7 +603,7 @@ pub(super) fn plan(input: &Value) -> Result<Value> {
             let backup: BackupSet = decode(&input["backupSet"])?;
             check(
                 backup.schema_version == 1
-                    && identifier(&backup.backup_id)
+                    && scoped_id(&backup.backup_id)
                     && digest(&backup.manifest_sha256)
                     && digest(&backup.configuration_sha256)
                     && backup.generation > 0
