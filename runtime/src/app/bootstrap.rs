@@ -42,6 +42,16 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
 fn path(v: &Value, key: &str) -> PathBuf {
     PathBuf::from(v[key].as_str().unwrap_or(""))
 }
+fn archive_toolbox_image(target: &Value) -> Result<&str> {
+    // Published legacy archives (including rc.5) only declare toolboxImageId.
+    // New catalogs may use a tag to avoid Docker store-specific image IDs.
+    target["toolboxImage"]
+        .as_str()
+        .filter(|image| !image.is_empty())
+        .or_else(|| target["toolboxImageId"].as_str())
+        .filter(|image| config::matches(r"^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$", image))
+        .ok_or_else(|| fail("安装包缺少有效的工具箱镜像名称或 ID。", 400))
+}
 fn present(tool: &str, env: &BTreeMap<String, String>) -> bool {
     let paths = env
         .get("PATH")
@@ -251,7 +261,8 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         process::private_directory(dest.parent().unwrap())?;
         fs::copy(resources::destination(&cache, rel)?, dest).map_err(|_| fail("无法暂存已校验资源。", 500))?;
     }
-    resources::prepare_files(&plan, &bundle, true, &c.cancel, &|_| {})?;
+    c.event("正在校验安装工作目录中的资源副本。");
+    resources::prepare_files(&plan, &bundle, true, &c.cancel, &|m| c.event(m))?;
     let mut generated = Vec::new();
     let images = plan["images"].as_array().unwrap();
     if !images.is_empty() {
@@ -567,6 +578,7 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         env.insert("LAB_CONTAINER".into(), container.clone());
         let t = &p.plan["target"];
         let image = if let Some(archive) = t["toolboxArchive"].as_str() {
+            let image = archive_toolbox_image(t)?;
             c.checked(
                 "docker",
                 strings(&["load", "-i", &p.bundle.join(archive).to_string_lossy()]),
@@ -578,14 +590,19 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
             // guarantee the toolbox content. Docker's image ID varies between
             // store implementations (classic returns config digest, containerd
             // returns manifest digest), so comparing IDs is unreliable.
-            let image = t["toolboxImage"].as_str().unwrap_or("");
             process::text(
                 Command::new("docker").args(["image", "inspect", "--format", "{{.Id}}", image]),
                 b"",
                 20,
                 4096,
                 &c.cancel,
-            )?;
+            )
+            .map_err(|_| {
+                fail(
+                    format!("工具箱已导入，但 Docker 无法找到安装包声明的镜像：{image}。"),
+                    400,
+                )
+            })?;
             if let Some(archives) = t["dockerArchives"].as_array() {
                 for a in archives {
                     c.checked(
@@ -959,6 +976,21 @@ pub fn public_access(phase: &str, target: &Value, c: &Context, env: &BTreeMap<St
 mod tool_contracts {
     use super::*;
     use crate::app::contracts::Temp;
+    #[test]
+    fn published_rc5_toolbox_without_tag_retains_legacy_image_reference() {
+        let legacy = json!({
+            "toolboxArchive": "tools/chentu-toolbox-arm64.tar",
+            "toolboxImageId": "sha256:5da6f98d803beae5199eae264650c5b5998e524745a5e5322d05d318662b6028"
+        });
+        assert_eq!(
+            archive_toolbox_image(&legacy).unwrap(),
+            legacy["toolboxImageId"].as_str().unwrap()
+        );
+        let mut named = legacy.clone();
+        named["toolboxImage"] = json!("chentu-lab:spark-534c491");
+        assert_eq!(archive_toolbox_image(&named).unwrap(), "chentu-lab:spark-534c491");
+        assert!(archive_toolbox_image(&json!({"toolboxArchive":"tools/toolbox.tar"})).is_err());
+    }
     #[test]
     fn offline_operator_check_uses_original_bundle_and_never_installs() {
         let temp = Temp::new();

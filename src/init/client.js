@@ -933,7 +933,7 @@ export function initWizard(supportsK3sHost) {
             ['applications', '安装与初始化应用', '按依赖安装基础服务和所选应用，完成初始化。'],
             ['access', '准备访问与验证', '配置集群访问，整理地址和验证入口；随后测试登录。'],
         ];
-        const labels = { pending: '等待', active: '进行中', done: '已完成', skipped: '无需执行', failed: '失败', cancelled: '已停止' };
+        const labels = { pending: '等待', active: '进行中', done: '已完成', skipped: '未单独执行', failed: '失败', cancelled: '已停止' };
         const current = definitions.findIndex(([id]) => id === status.stage);
         const fallback = status.phase === 'preparing' ? 0 : status.phase === 'running' ? 4 : -1;
         const index = current < 0 ? fallback : current;

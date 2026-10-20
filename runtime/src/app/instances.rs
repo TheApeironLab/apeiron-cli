@@ -214,14 +214,6 @@ pub fn entry<'a>(registry: &'a Value, id: &str) -> Result<&'a Value> {
         .ok_or_else(|| fail("实例不存在。", 404))
 }
 
-/// Mutable lookup by id, for in-place registry updates (topology re-register).
-pub fn entry_mut<'a>(registry: &'a mut Value, id: &str) -> Result<&'a mut Value> {
-    registry["instances"]
-        .as_array_mut()
-        .and_then(|l| l.iter_mut().find(|i| i["id"] == id))
-        .ok_or_else(|| fail("实例不存在。", 404))
-}
-
 /// Host ports from `docker ps -a --format '{{.Ports}}'`, including stopped containers.
 pub fn bound_ports(docker_ps: &str) -> BTreeSet<u16> {
     let mut out = BTreeSet::new();
