@@ -53,7 +53,7 @@ recordSha256 是安装记录 JSON 值的 `sorted-json-utf8-v1` 摘要：对象�
 
 有 addAgents 的应用升级计划先列出独立扩容、提交基线、应用阶段；扩容执行器未实现，应用阶段要求扩容后的新观测/基线和新鲜应用备份。内网 3 server 加 5 agent 不改变 server 成员、不自动迁移卷，验收清单包含调度隔离、版本/镜像/CA、DNS/CNI、存储/PVC/RWO/local-path 及工作台业务。已验收扩容写入来源基线后，再重新规划应用升级。
 
-应用恢复只规划应用数据/配置恢复，显式 `restoreControlPlane=false`、`removeNodes=[]`，保留当前节点；扩容前的 generation、foundationSha256 或节点集合不匹配则拒绝备份。跨集群备份、数据资源映射不匹配、来源制品/schema不匹配、共享服务恢复超出所选消费者范围或包含 control-plane 数据均阻断。新集群映射和整集群灾备不在本批范围。
+应用恢复只规划应用数据/配置恢复，显式 `restoreControlPlane=false`、`removeNodes=[]`，保留当前节点；扩容前的 generation、foundationSha256 或节点集合不匹配则拒绝备份。跨集群备份、数据资源映射不匹配、来源制品/schema不匹配、共享服务恢复超出所选消费者范围或包含 control-plane 数据均阻断。同 generation 的备份来源须与安装基线一致；更早 generation 的备份还需要历史谱系核验，本批尚未实现而明确阻断。新集群映射和整集群灾备不在本批范围。
 
 ## 本批验收及后续
 

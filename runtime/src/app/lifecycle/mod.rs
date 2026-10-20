@@ -635,6 +635,12 @@ pub(super) fn plan(input: &Value) -> Result<Value> {
             if backup.cluster_uid != record.cluster_uid || backup.installation_id != record.installation_id {
                 block(&mut blockers, "BACKUP_CLUSTER_MISMATCH", "backup");
             }
+            if backup.generation == record.generation && backup.source_release != record.release {
+                block(&mut blockers, "BACKUP_SOURCE_BASELINE_MISMATCH", "backup");
+            }
+            if backup.generation < record.generation {
+                block(&mut blockers, "HISTORICAL_BACKUP_LINEAGE_UNVERIFIED", "backup");
+            }
             if backup.generation > record.generation
                 || backup.foundation_sha256 != record.foundation_sha256
                 || backup.topology != record.topology

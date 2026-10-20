@@ -13,7 +13,7 @@
 
 ## 已完成验收
 
-- Rust 完整回归：94 单元测试、24 生命周期/进程集成、3 新增 CLI 文件输入验收、1 TLS 集成，共 122 项通过。
+- Rust 完整回归：95 单元测试、24 生命周期/进程集成、3 新增 CLI 文件输入验收、1 TLS 集成，共 123 项通过。
 - Bun 现有 CLI/安装包/向导 HTTP 回归：72 项通过。
 - Clippy 全部 target：零警告；rustfmt、JavaScript 源码检查、git diff --check 通过。
 - Python publisher 与 Rust native CLI：17 组合约语料一致接受/拒绝。

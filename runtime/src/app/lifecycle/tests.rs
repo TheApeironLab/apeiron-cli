@@ -15,6 +15,33 @@ fn codes(plan: &Value) -> Vec<&str> {
         .map(|b| b["code"].as_str().unwrap())
         .collect()
 }
+// Restore inputs must describe the actual source package, not the upgrade target.
+fn source_contract(input: &mut Value) {
+    let record = input["installation"].clone();
+    let manifest = &mut input["releaseManifest"];
+    manifest["release"] = record["release"]["version"].clone();
+    manifest["lifecycle"]["migrationRules"] = json!({});
+    manifest["lifecycle"]["upgradePaths"] = json!([]);
+    for (id, component) in record["components"].as_object().unwrap() {
+        if component["status"] != "installed" {
+            continue;
+        }
+        let state = &component["state"];
+        manifest["lifecycle"]["components"][id]["configurationSchema"] = state["configurationSchema"].clone();
+        manifest["lifecycle"]["components"][id]["dataSchema"] = state["dataSchema"].clone();
+        let hashes = state["artifactDigests"].as_object().unwrap();
+        manifest["components"][id]["artifacts"] = json!(hashes.keys().collect::<Vec<_>>());
+        for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+            if let Some(hash) = hashes.get(artifact["id"].as_str().unwrap()) {
+                artifact["sha256"] = hash.clone();
+            }
+        }
+    }
+    let digest = identity(manifest);
+    input["releaseManifestSha256"] = json!(digest);
+    input["installation"]["release"]["manifestSha256"] = input["releaseManifestSha256"].clone();
+    refresh(input);
+}
 fn backup(input: &Value) -> Value {
     let record = &input["installation"];
     let manifest = &input["releaseManifest"];
@@ -32,7 +59,7 @@ fn backup(input: &Value) -> Value {
         "generation":record["generation"],"foundationSha256":record["foundationSha256"],"topology":record["topology"],"nodes":record["nodes"],
         "componentIds":input["intent"]["selectedComponents"],"resourceIds":["shared-db"],"level":"isolated-restore-verified",
         "manifestSha256":hash('d'),"independentCopyRef":"external/offline-copy","recipientFingerprint":"age-recipient-ref","restoreEvidence":[hash('e')],
-        "sourceRelease":{"version":manifest["release"],"manifestSha256":input["releaseManifestSha256"]},"componentStates":states,"resourceIdentities":{"shared-db":identity(&record["resources"]["shared-db"])},"configurationSha256":record["configurationSha256"]})
+        "sourceRelease":record["release"],"componentStates":states,"resourceIdentities":{"shared-db":identity(&record["resources"]["shared-db"])},"configurationSha256":record["configurationSha256"]})
 }
 
 #[test]
@@ -69,6 +96,7 @@ fn expansion_is_a_separate_blocked_stage_and_requires_new_baseline() {
 #[test]
 fn application_restore_preserves_accepted_agents_and_rejects_pre_expansion_backup() {
     let mut input = fixture(true);
+    source_contract(&mut input);
     let before = backup(&input);
     let record = &mut input["installation"];
     for n in 1..=5 {
@@ -86,6 +114,7 @@ fn application_restore_preserves_accepted_agents_and_rejects_pre_expansion_backu
     input["intent"]["expectedGeneration"] = json!(2);
     input["intent"]["operation"] = json!("application-restore");
     refresh(&mut input);
+    source_contract(&mut input);
     input["backupSet"] = backup(&input);
     let result = plan(&input).unwrap();
     assert_eq!(result["planningStatus"], "ready");
@@ -206,6 +235,7 @@ fn shared_service_restore_cannot_overwrite_other_consumers() {
     input["installation"]["resources"]["shared-db"]["restoreGranularity"] = json!("service");
     input["intent"]["operation"] = json!("application-restore");
     refresh(&mut input);
+    source_contract(&mut input);
     input["backupSet"] = backup(&input);
     assert!(codes(&plan(&input).unwrap()).contains(&"SHARED_RESTORE_SCOPE_EXCEEDS_SELECTION"));
 }
@@ -265,6 +295,7 @@ fn no_plan_contains_locator_refs_or_secret_values() {
 fn restore_requires_isolation_and_exact_resource_mapping() {
     let mut input = fixture(true);
     input["intent"]["operation"] = json!("application-restore");
+    source_contract(&mut input);
     input["backupSet"] = backup(&input);
     input["backupSet"]["level"] = json!("integrity-verified");
     assert!(codes(&plan(&input).unwrap()).contains(&"BACKUP_RESTORE_NOT_VERIFIED"));
@@ -280,4 +311,20 @@ fn irreversible_migration_requires_current_backup_restore_drill() {
         plan(&input).unwrap()["protection"]["requiredVerificationLevel"],
         "isolated-restore-verified"
     );
+}
+
+#[test]
+fn restore_rejects_same_generation_with_another_source_and_unproven_history() {
+    let mut input = fixture(true);
+    input["intent"]["operation"] = json!("application-restore");
+    source_contract(&mut input);
+    input["backupSet"] = backup(&input);
+    input["backupSet"]["sourceRelease"]["version"] = json!("another-release");
+    assert!(codes(&plan(&input).unwrap()).contains(&"BACKUP_SOURCE_BASELINE_MISMATCH"));
+    input["backupSet"] = backup(&input);
+    input["installation"]["generation"] = json!(2);
+    input["observation"]["generation"] = json!(2);
+    input["intent"]["expectedGeneration"] = json!(2);
+    refresh(&mut input);
+    assert!(codes(&plan(&input).unwrap()).contains(&"HISTORICAL_BACKUP_LINEAGE_UNVERIFIED"));
 }
