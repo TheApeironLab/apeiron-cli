@@ -58,6 +58,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../Cargo.lock");
     println!("cargo:rerun-if-changed=../.gitmodules");
     println!("cargo:rerun-if-changed=../third_party/zygos");
+    println!("cargo:rerun-if-changed=../third_party/apeiron");
     println!("cargo:rerun-if-changed=../rust-toolchain.toml");
     for name in ["HEAD", "index"] {
         if let Some(path) = git(&root, &["rev-parse", "--git-path", name]) {

@@ -3,15 +3,15 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Release/backend logic lives in Rust; JS is confined to browser assets and tooling.
 const root = fileURLToPath(new URL('../', import.meta.url));
-const zygosSubmodule = join(root, 'third_party', 'zygos');
+const upstreamSources = new Set(['zygos', 'apeiron'].map(name => join(root, 'third_party', name)));
 const parser = new Bun.Transpiler({ loader: 'js', target: 'bun' });
 let checked = 0;
 async function visit(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (['.git', 'node_modules', 'target', 'dist'].includes(entry.name)) continue;
     const path = join(directory, entry.name);
-    // Zygos owns its monorepo sources; Apeiron compiles only its Rust CLI crate.
-    if (path === zygosSubmodule) continue;
+    // Each pinned upstream owns its monorepo sources; the host compiles its Rust CLI crate.
+    if (upstreamSources.has(path)) continue;
     if (entry.isDirectory()) await visit(path);
     else if (/\.(?:tsx?|mts|cts)$/.test(path)) throw new Error('TypeScript source is not allowed: ' + path);
     else if (path.endsWith('.js')) {
