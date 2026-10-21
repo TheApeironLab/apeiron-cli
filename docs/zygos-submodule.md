@@ -17,6 +17,10 @@ cargo build --locked --release
 经过审核的确切提交；提交 Apeiron 的 gitlink 和必要的 Cargo.lock 更新。
 不要在构建中使用 `git submodule update --remote`，也不要复制 `apps/cli`。
 
+Apeiron 的 JavaScript 源码检查跳过确切的 `third_party/zygos` 路径，Bun 测试发现
+限定为本仓库的 `test/`。Zygos monorepo 内的 TypeScript 与测试由上游独立验证，
+不纳入宿主的语言限制或 Bun 测试；嵌入集成仍由 Apeiron 的 Rust 测试覆盖。
+
 `zygos_cli::run_with_command` 由 Zygos 提供，Apeiron 只负责子命令分发与运行时/取消。
 最终产物仍是单个静态链接的 `apeiron`；运行者不需要 Git、子模块、独立 Zygos CLI、
 Rust 或 Node。Zygos API 服务仍须单独部署。
