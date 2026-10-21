@@ -310,6 +310,37 @@ pub fn remove_toolbox(name: &str) -> bool {
     )
     .is_ok_and(|s| s.trim().is_empty())
 }
+pub fn gateway_model_key(
+    model: &Value,
+    target: &Value,
+    env: &BTreeMap<String, String>,
+    cancel: &Cancellation,
+) -> Result<()> {
+    use base64::Engine;
+    let key = model["apiKey"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("not-required");
+    let body = json!({"apiVersion":"v1","kind":"List","items":[
+        {"apiVersion":"v1","kind":"Namespace","metadata":{"name":"gateway"}},
+        {"apiVersion":"v1","kind":"Secret","metadata":{"name":"gateway-provider-keys","namespace":"gateway"},"type":"Opaque","data":{"PROVIDER_KEY_SETUP":base64::engine::general_purpose::STANDARD.encode(key)}}]});
+    process::capture(
+        toolbox_command(target, env, "kubectl").args([
+            "apply",
+            "--server-side",
+            "--field-manager=apeiron-setup-provider",
+            "-f",
+            "-",
+        ]),
+        body.to_string().as_bytes(),
+        Duration::from_secs(30),
+        65536,
+        cancel,
+    )
+    .map(|_| ())
+    .map_err(|_| fail("无法写入 Gateway 模型 Secret，已停止部署。", 400))
+}
+
 pub fn model_key(model: &Value, target: &Value, env: &BTreeMap<String, String>, cancel: &Cancellation) -> Result<()> {
     use base64::Engine;
     let key = model["apiKey"]

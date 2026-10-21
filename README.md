@@ -110,21 +110,24 @@ apeiron init
 1. **拓扑**：依次展示系统配置、网络测试、部署选项；选择在线／离线、单机 K3s／单机 K3d／多机 K3s（发行包为每个目标声明支持的拓扑）。多机时展开节点连接与 SSH 检测。
 2. **应用**：按“仅必选／核心协作／完整”场景组合快速选择，再按需增减；CI 需同时启用代码仓库。
 3. **共存与预算**：只读展示服务端分配的入口端口，执行宿主共存预检（已有 K3s、k3d 容器、路由与 Docker 子网重叠、iptables），给出资源估算。
-4. **域名与访问**：填写 Slug name，自动生成 `<slug>.apeironlab.internal`；可展开使用自定义域名。选择内网访问、公网直连或 ECS 转发（在线单机 K3s），填写入口 IP；配置既有模型服务或选择稍后配置。
+4. **域名与访问**：填写 Slug name，自动生成 `<slug>.apeironlab.internal`；可展开使用自定义域名。选择内网访问、公网直连或 ECS 转发（在线单机 K3s），填写入口 IP；配置必需的模型服务。
 5. **摘要**：核对实例、拓扑、节点、来源、域名、入口、端口、应用、模型与预检结果，点击“开始安装”。
 6. **部署**：完整准备并校验资源，创建集群，再运行宸途 `Helmfile sync`。显示进度、结果和日志入口。
 7. **配置访问**：部署成功后自动进入。在有桌面会话的 Mac 上可点击“一键配置本机访问”；其他电脑使用折叠的手动指引。可以返回查看部署记录，不会再次部署。
 8. **测试**：从访问配置点击“下一步：测试”。展示初始管理员用户名、默认隐藏的密码，提供显示／复制／下载，以及 Apeiron／Ops 登录入口。可以测试三处核心入口的解析和 HTTPS。
 
-模型配置独立成页：填写 Provider 标识（必填，例如 `bigmodel`）、OpenAI 兼容 API 地址和 Key，获取模型列表，分别选择快速与深度思考模型，固定以 `apeiron-flash`（快速）和 `apeiron-pro`（深度思考）作为内部模型 ID，再发送简短请求测试（可能产生少量费用）。测试从 CLI 主机发起，部署后的集群也必须能访问模型服务；离线部署可使用内网模型端点。修改配置后须重新测试，也可明确选择稍后配置，此时安装后暂时无法对话。密钥仅保存于权限 0600 的本地配置及 Kubernetes Secret，不回传浏览器、不进入 Helm values。
+模型配置独立成页：预填百炼 `bailian` 标识和北京 Base URL `https://dashscope.aliyuncs.com/compatible-mode/v1`，填写同地域、同计费方案的 API Key；可修改为业务空间专属 OpenAI 兼容地址，获取模型列表，分别选择快速与深度思考模型，固定以 `apeiron-flash`（快速）和 `apeiron-pro`（深度思考）作为内部模型 ID，再发送简短请求测试（可能产生少量费用）。测试从 CLI 主机发起，部署后的集群也必须能访问模型服务；离线部署可使用内网模型端点。修改配置后须重新测试，基础安装不能跳过模型配置。Apeiron 通过必装的 Gateway 调用，供应商 Key 只写 Gateway Secret，Apeiron 使用网关签发的虚拟 Key。密钥仅保存于权限 0600 的本地配置及 Kubernetes Secret，不回传浏览器、不进入 Helm values。
+
+基础安装的默认出口允许公开 IPv4 HTTPS 并排除私有网段；发行包已有代理或 CIDR 策略时保留它。内网模型或受限出口需在发行环境中声明实际代理/出口。地址依据 [百炼官方 Base URL 文档](https://help.aliyun.com/zh/model-studio/base-url)。需要包含 Gateway 镜像与依赖的新安装包，旧包不被自动补齐或覆盖。
+
+基础模型向导的确定性浏览器验收：`APEIRON_TEST_BIN=/external/target/debug/apeiron bun scripts/test-base-models-ui.js`。测试拦截模型请求，不访问真实供应商。
 
 | 选择规则 | 应用 |
 | --- | --- |
-| 必选，不可取消 | Nexus、Vasi、Limani、Apeiron（含 Ops） |
-| 默认选中，可取消 | Task、Corpus、Chat（团队聊天）、Files、邮件 |
-| 默认不选 | Zygos、Gateway、Filer、代码仓库、GPUStack、Langfuse、Grafana、Browser（chrome-headless）、CI（woodpecker，需代码仓库） |
+| 必选，不可取消 | Nexus、Vasi、Apeiron（含 Ops）、Gateway |
+| 默认不选 | Zygos、Limani、Task、Corpus、Chat、Files、邮件、Filer、代码仓库、GPUStack、Langfuse、Grafana、Browser（chrome-headless）、CI（woodpecker，需代码仓库） |
 
-默认选中 9 项，其中 4 项必选。页面按上表分三组、按表内顺序展示。重新打开保留可选应用选择；旧配置中缺少的必选应用会自动勾选，提交时才写入。可选应用仍受发行包声明的部署依赖约束。
+默认仅选中 4 项必选。Keycloak、数据库和存储由安装包中 Helmfile 的依赖闭包提供。页面按必选和可选分组。重新打开保留可选应用选择；旧配置中缺少的必选应用会自动勾选，提交时才写入。可选应用仍受发行包声明的部署依赖约束。
 
 ### 自动环境探测
 

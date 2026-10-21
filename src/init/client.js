@@ -50,11 +50,11 @@ export function initWizard(supportsK3sHost) {
     const modelProvider = get('model-provider');
     const modelUrl = get('model-url'), modelKey = get('model-key');
     const modelFast = get('model-fast'), modelDeep = get('model-deep');
-    const modelSkip = get('model-skip'), modelClear = get('model-clear-key');
+    const modelClear = get('model-clear-key');
     let savedModelUrl = '', savedModelKey = false, modelPassed = '', modelSerial = 0;
     let modelAbort;
     let modelChoices = [];
-    let preferredFast = '', preferredDeep = '';
+    let preferredFast = 'qwen-plus', preferredDeep = 'qwen-plus';
     const updateModelTest = () => { get('model-test').disabled = !modelChoices.includes(modelFast.value) || !modelChoices.includes(modelDeep.value); };
     function clearModelChoices() {
         modelChoices = [];
@@ -73,7 +73,6 @@ export function initWizard(supportsK3sHost) {
     for (const select of [modelFast, modelDeep])
         select.addEventListener('change', () => { invalidateModels(); updateModelTest(); });
     modelProvider.addEventListener('input', invalidateModels);
-    modelSkip.addEventListener('change', () => { invalidateModels(); get('model-settings').hidden = modelSkip.checked; });
     async function checkModels(action) {
         invalidateModels();
         const serial = modelSerial;
@@ -763,7 +762,7 @@ export function initWizard(supportsK3sHost) {
         get('summary-entry').textContent = install.publicAccess ? `${install.publicAccess.mode === 'relay' ? 'ECS 转发' : '公网直连'} · ${install.publicAccess.publicIp}` : `内网 · ${install.entryIp || '—'}`;
         get('summary-ports').textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;
         get('summary-apps').textContent = selectedApps().map(id => apps.find(app => app.id === id)?.name ?? id).join('、');
-        get('summary-models').textContent = modelSkip.checked ? '稍后配置' : `${modelProvider.value.trim()} · ${modelUrl.value.trim()} · ${modelFast.value} / ${modelDeep.value}`;
+        get('summary-models').textContent = `${modelProvider.value.trim()} · ${modelUrl.value.trim()} · ${modelFast.value} / ${modelDeep.value}`;
     }
     function renderProgress(active) {
         document.querySelectorAll('[data-step]').forEach((item, index) => {
@@ -802,7 +801,7 @@ export function initWizard(supportsK3sHost) {
         const grid = get('app-grid');
         grid.replaceChildren();
         let previousGroup = '';
-        apps.forEach(app => {
+        [...apps].sort((a, b) => Number(b.required) - Number(a.required) || Number(b.selected) - Number(a.selected)).forEach(app => {
             const group = app.required ? '必选应用' : app.selected ? '可选应用 · 默认选中' : '其他可选应用 · 默认不选';
             if (group !== previousGroup) {
                 const heading = document.createElement('h2');
@@ -920,8 +919,8 @@ export function initWizard(supportsK3sHost) {
                 return false;
             }
         }
-        if (step === 3 && !modelSkip.checked && modelPassed !== modelFingerprint()) {
-            showError('请先测试快速和深度思考模型，或选择稍后配置。');
+        if (step === 3 && modelPassed !== modelFingerprint()) {
+            showError('请先配置并测试快速和深度思考模型。');
             return false;
         }
         return true;
@@ -1635,7 +1634,7 @@ export function initWizard(supportsK3sHost) {
         error.hidden = true;
         try {
             const response = await fetch(endpoint('deploy'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelSkip.checked ? null : modelInput(), deployment: target() }) });
+                body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelInput(), deployment: target() }) });
             const result = await response.json();
             if (!response.ok || !result.config)
                 throw new Error(result.error || '启动失败，请检查配置。');

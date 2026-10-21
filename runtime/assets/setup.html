@@ -133,16 +133,16 @@
 <div id="entry-field" class="field"><label id="entry-label" class="field-label" for="entry-ip">入口 IP</label><input id="entry-ip" type="text" required placeholder="例如 192.168.1.100" inputmode="decimal" list="entry-addresses" autocomplete="off"><datalist id="entry-addresses"></datalist><p id="entry-note" class="hint"></p></div>
 <section class="machine-probe" aria-labelledby="models-title"><div class="probe-heading"><h2 id="models-title">既有模型服务</h2></div>
 <section id="model-settings">
-<div class="field"><label class="field-label" for="model-provider">Provider</label><input id="model-provider" type="text" maxlength="64" placeholder="例如 bigmodel" autocomplete="off"><p class="hint">必填；使用小写字母、数字、点、下划线或短横线，以字母或数字开头。</p></div>
-<div class="field"><label class="field-label" for="model-url">API 地址</label><input id="model-url" type="url" maxlength="2048" placeholder="https://models.example.com/v1" autocomplete="off"><p class="hint">OpenAI 兼容接口，须能从部署后的集群访问。离线部署可填写内网模型服务地址。</p></div>
-<div class="field"><label class="field-label" for="model-key">API Key <span class="optional">无鉴权服务可留空</span></label><input id="model-key" type="password" maxlength="4096" autocomplete="new-password"><label class="clear-key"><input id="model-clear-key" type="checkbox">清除已保存的 Key</label></div>
+<div class="field"><label class="field-label" for="model-provider">Provider</label><input id="model-provider" type="text" maxlength="64" value="bailian" placeholder="例如 bailian" autocomplete="off"><p class="hint">必填；使用小写字母、数字、点、下划线或短横线，以字母或数字开头。</p></div>
+<div class="field"><label class="field-label" for="model-url">Base URL</label><input id="model-url" type="url" maxlength="2048" value="https://dashscope.aliyuncs.com/compatible-mode/v1" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" autocomplete="off"><p class="hint">默认阿里云百炼北京 OpenAI 兼容接口；可改为业务空间专属地址。Base URL 与 API Key 须属于同一地域和计费方案。Gateway 必须能访问该地址；内网服务需配置安装包的出口策略。</p></div>
+<div class="field"><label class="field-label" for="model-key">API Key <span class="optional">百炼必填；无鉴权内网服务可留空</span></label><input id="model-key" type="password" maxlength="4096" autocomplete="new-password"><label class="clear-key"><input id="model-clear-key" type="checkbox">清除已保存的 Key</label></div>
 <button id="model-list" type="button" class="button">获取模型列表</button>
 <div class="field" style="margin-top:24px"><label class="field-label" for="model-fast">快速 · apeiron-flash</label><select id="model-fast" disabled><option value="">请先获取模型列表</option></select></div>
 <div class="field"><label class="field-label" for="model-deep">深度思考 · apeiron-pro</label><select id="model-deep" disabled><option value="">请先获取模型列表</option></select><p class="hint">可与快速使用同一模型；是否具备推理能力由模型本身决定。</p></div>
 <button id="model-test" disabled type="button" class="button primary">测试两种模式</button><p class="hint">从 CLI 主机各发送一次简短请求，可能产生少量模型费用；集群网络仍需能访问此地址。</p>
 <p id="model-status" class="hint" role="status" aria-live="polite"></p>
 </section>
-<label class="clear-key" style="margin-top:24px"><input id="model-skip" type="checkbox">稍后配置（安装后暂时无法对话）</label>
+<p class="hint">基础安装必须配置模型。Apeiron 通过 Gateway 使用模型，供应商 Key 仅写入本机受保护配置与 Gateway Secret。</p>
 </section>
 </div>
 <div data-panel hidden>
@@ -189,8 +189,8 @@
   });
   const titles = ["\u9009\u62E9\u62D3\u6251", "\u9009\u62E9\u5E94\u7528\u4E0E\u573A\u666F", "\u5171\u5B58\u914D\u7F6E\u4E0E\u8D44\u6E90\u9884\u7B97", "\u57DF\u540D\u3001\u8BBF\u95EE\u65B9\u5F0F\u4E0E\u6A21\u578B", "\u9884\u68C0\u4E0E\u90E8\u7F72\u6458\u8981"], subtitles = ["\u68C0\u6D4B\u5F53\u524D\u4E3B\u673A\uFF0C\u9009\u62E9\u5B89\u88C5\u65B9\u5F0F\u3002", "\u6309\u573A\u666F\u7EC4\u5408\u9009\u62E9\u8981\u542F\u7528\u7684\u5E94\u7528\u3002", "\u786E\u8BA4\u670D\u52A1\u7AEF\u5206\u914D\u7684\u5165\u53E3\u7AEF\u53E3\u3001\u5BBF\u4E3B\u5171\u5B58\u9884\u68C0\u4E0E\u8D44\u6E90\u4F30\u7B97\u3002", "\u8BBE\u7F6E\u56E2\u961F\u6807\u8BC6\u3001\u8BBF\u95EE\u5165\u53E3\u4E0E\u65E2\u6709\u6A21\u578B\u670D\u52A1\u3002", "\u6838\u5BF9\u914D\u7F6E\u4E0E\u9884\u68C0\u7ED3\u679C\uFF0C\u7136\u540E\u5F00\u59CB\u5B89\u88C5\u3002"], TOTAL_STEPS = 8;
   let currentInstance = null, configPath = "", savedInstallation = null, instancesAvailable = !1, instanceList = [], lastPreflight = null, preflightSerial = 0, preflightPending = Promise.resolve();
-  const MEMORY_ESTIMATE = { base: 6, task: 0.5, corpus: 1, zygos: 3, matrix: 1, files: 0.5, stalwart: 0.5, gateway: 0.5, filer: 0.5, git: 1, gpustack: 2, langfuse: 1.5, kps: 2, browser: 1, ci: 1 }, SCENARIOS = { required: [], core: ["task", "corpus", "matrix", "files", "stalwart"], full: null }, modelProvider = get("model-provider"), modelUrl = get("model-url"), modelKey = get("model-key"), modelFast = get("model-fast"), modelDeep = get("model-deep"), modelSkip = get("model-skip"), modelClear = get("model-clear-key");
-  let savedModelUrl = "", savedModelKey = !1, modelPassed = "", modelSerial = 0, modelAbort, modelChoices = [], preferredFast = "", preferredDeep = "";
+  const MEMORY_ESTIMATE = { base: 6, task: 0.5, corpus: 1, zygos: 3, matrix: 1, files: 0.5, stalwart: 0.5, gateway: 0.5, filer: 0.5, git: 1, gpustack: 2, langfuse: 1.5, kps: 2, browser: 1, ci: 1 }, SCENARIOS = { required: [], core: ["task", "corpus", "matrix", "files", "stalwart"], full: null }, modelProvider = get("model-provider"), modelUrl = get("model-url"), modelKey = get("model-key"), modelFast = get("model-fast"), modelDeep = get("model-deep"), modelClear = get("model-clear-key");
+  let savedModelUrl = "", savedModelKey = !1, modelPassed = "", modelSerial = 0, modelAbort, modelChoices = [], preferredFast = "qwen-plus", preferredDeep = "qwen-plus";
   const updateModelTest = () => {
     get("model-test").disabled = !modelChoices.includes(modelFast.value) || !modelChoices.includes(modelDeep.value);
   };
@@ -228,10 +228,6 @@
       updateModelTest();
     });
   modelProvider.addEventListener("input", invalidateModels);
-  modelSkip.addEventListener("change", () => {
-    invalidateModels();
-    get("model-settings").hidden = modelSkip.checked;
-  });
   async function checkModels(action) {
     invalidateModels();
     const serial = modelSerial;
@@ -920,7 +916,7 @@ ${access.domain}      A    ${access.entryIp}`;
     get("summary-entry").textContent = install.publicAccess ? `${install.publicAccess.mode === "relay" ? "ECS \u8F6C\u53D1" : "\u516C\u7F51\u76F4\u8FDE"} \xB7 ${install.publicAccess.publicIp}` : `\u5185\u7F51 \xB7 ${install.entryIp || "\u2014"}`;
     get("summary-ports").textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;
     get("summary-apps").textContent = selectedApps().map((id) => apps.find((app) => app.id === id)?.name ?? id).join("\u3001");
-    get("summary-models").textContent = modelSkip.checked ? "\u7A0D\u540E\u914D\u7F6E" : `${modelProvider.value.trim()} \xB7 ${modelUrl.value.trim()} \xB7 ${modelFast.value} / ${modelDeep.value}`;
+    get("summary-models").textContent = `${modelProvider.value.trim()} \xB7 ${modelUrl.value.trim()} \xB7 ${modelFast.value} / ${modelDeep.value}`;
   }
   function renderProgress(active) {
     document.querySelectorAll("[data-step]").forEach((item, index) => {
@@ -959,7 +955,7 @@ ${access.domain}      A    ${access.entryIp}`;
     const grid = get("app-grid");
     grid.replaceChildren();
     let previousGroup = "";
-    apps.forEach((app) => {
+    [...apps].sort((a, b) => Number(b.required) - Number(a.required) || Number(b.selected) - Number(a.selected)).forEach((app) => {
       const group = app.required ? "\u5FC5\u9009\u5E94\u7528" : app.selected ? "\u53EF\u9009\u5E94\u7528 \xB7 \u9ED8\u8BA4\u9009\u4E2D" : "\u5176\u4ED6\u53EF\u9009\u5E94\u7528 \xB7 \u9ED8\u8BA4\u4E0D\u9009";
       if (group !== previousGroup) {
         const heading = document.createElement("h2");
@@ -1075,8 +1071,8 @@ ${access.domain}      A    ${access.entryIp}`;
         return !1;
       }
     }
-    if (step === 3 && !modelSkip.checked && modelPassed !== modelFingerprint()) {
-      showError("\u8BF7\u5148\u6D4B\u8BD5\u5FEB\u901F\u548C\u6DF1\u5EA6\u601D\u8003\u6A21\u578B\uFF0C\u6216\u9009\u62E9\u7A0D\u540E\u914D\u7F6E\u3002");
+    if (step === 3 && modelPassed !== modelFingerprint()) {
+      showError("\u8BF7\u5148\u914D\u7F6E\u5E76\u6D4B\u8BD5\u5FEB\u901F\u548C\u6DF1\u5EA6\u601D\u8003\u6A21\u578B\u3002");
       return !1;
     }
     return !0;
@@ -1784,7 +1780,7 @@ ${access.domain}      A    ${access.entryIp}`;
       const response = await fetch(endpoint("deploy"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelSkip.checked ? null : modelInput(), deployment: target() })
+        body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelInput(), deployment: target() })
       }), result = await response.json();
       if (!response.ok || !result.config)
         throw Error(result.error || "\u542F\u52A8\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u914D\u7F6E\u3002");

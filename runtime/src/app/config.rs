@@ -220,6 +220,12 @@ pub fn models(v: &Value, previous: &Value) -> Result<Value> {
     } else {
         text(v, "apiKey", 4096, true)?
     };
+    if provider == "bailian" && (key.is_empty() || url.scheme() != "https") {
+        return Err(fail(
+            "阿里云百炼需要 HTTPS Base URL 和 API Key；地址与密钥必须属于同一地域和计费方案。",
+            400,
+        ));
+    }
     Ok(
         json!({"provider":provider,"baseUrl":base,"apiKey":key,"fast":text(v,"fast",256,false)?,"deep":text(v,"deep",256,false)?}),
     )

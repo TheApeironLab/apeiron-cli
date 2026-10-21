@@ -437,6 +437,7 @@ impl State {
                     }
                     let current = config::read(&path)?;
                     let candidate = config::validate(&input, &current["config"])?;
+                    models::require_for_installation(&candidate)?;
                     preflight = cluster::preflight(&path, &candidate["deployment"]["installation"], &self.cancel)?;
                 }
                 let saved = config::save(&path, &input)?;

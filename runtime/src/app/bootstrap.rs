@@ -202,7 +202,7 @@ fn check_offline_operator(target: &Value, c: &Context) -> Result<()> {
         .map_err(|_| fail(format!("管理机离线依赖预检未通过，请查看日志。若缺少工具，可在 CLI 主机显式运行 sudo python3 {} --bundle {} --install 后重试。",
             quote(&helper.to_string_lossy()), quote(&bundle.to_string_lossy())), 400))
 }
-fn replace(v: &mut Value, entries: &[(&str, String)]) {
+fn replace(v: &mut Value, entries: &[(&str, String)]) -> Result<()> {
     match v {
         Value::String(s) => {
             for (k, value) in entries {
@@ -211,16 +211,27 @@ fn replace(v: &mut Value, entries: &[(&str, String)]) {
         }
         Value::Array(a) => {
             for v in a {
-                replace(v, entries)
+                replace(v, entries)?;
             }
         }
         Value::Object(o) => {
-            for v in o.values_mut() {
-                replace(v, entries)
+            let mut relocated = serde_json::Map::new();
+            for (key, value) in o.iter() {
+                let mut key = key.clone();
+                for (placeholder, replacement) in entries {
+                    key = key.replace(placeholder, replacement);
+                }
+                let mut value = value.clone();
+                replace(&mut value, entries)?;
+                if relocated.insert(key, value).is_some() {
+                    return Err(fail("安装包配置在替换占位符后出现重复键。", 400));
+                }
             }
+            *o = relocated;
         }
         _ => {}
     }
+    Ok(())
 }
 pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     let mut target = config["deployment"].clone();
@@ -496,7 +507,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
             ("__BUNDLE__", bundle_value.clone()),
             ("__ARCH__", arch.clone()),
         ],
-    );
+    )?;
     resources::merge(
         &mut values,
         &json!({"topology":i["topology"],"domain":domain,"registry":format!("registry.{domain}"),"node":node,"work":work_value,"bundle":bundle_value,"architecture":arch,"publicHttpsPort":i["httpsPort"],"publicHttpPort":i["httpPort"]}),
@@ -1452,6 +1463,42 @@ fi
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Regression: https://github.com/TheApeironLab/apeiron-cli/issues/28
+    #[test]
+    fn installation_placeholders_relocate_image_pin_keys_and_nested_values() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let mut values = json!({
+            "registry":"__REGISTRY__",
+            "imagePins":{"__REGISTRY__/busybox:1.36":format!("__REGISTRY__/busybox:1.36@{digest}")},
+            "nested":[{"__BUNDLE__/skills":"__DOMAIN__"}],
+            "enabled":true
+        });
+        let replacements = [
+            ("__REGISTRY__", "registry.example.internal".into()),
+            ("__BUNDLE__", "/work/bundle".into()),
+            ("__DOMAIN__", "example.internal".into()),
+        ];
+        replace(&mut values, &replacements).unwrap();
+        assert_eq!(
+            values,
+            json!({
+                "registry":"registry.example.internal",
+                "imagePins":{"registry.example.internal/busybox:1.36":format!("registry.example.internal/busybox:1.36@{digest}")},
+                "nested":[{"/work/bundle/skills":"example.internal"}], "enabled":true
+            })
+        );
+        let once = values.clone();
+        replace(&mut values, &replacements).unwrap();
+        assert_eq!(values, once);
+    }
+    #[test]
+    fn installation_placeholders_reject_colliding_keys() {
+        let mut values =
+            json!({"imagePins":{"__REGISTRY__/busybox:1.36":"one", "registry.example.internal/busybox:1.36":"two"}});
+        let before = values.clone();
+        assert!(replace(&mut values, &[("__REGISTRY__", "registry.example.internal".into())]).is_err());
+        assert_eq!(values, before);
+    }
     fn node(host: &str, role: &str) -> Value {
         json!({"host":host,"name":host,"address":"192.0.2.1","role":role})
     }

@@ -489,7 +489,12 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
             if !release.is_object() {
                 return Err(fail("应用配置必须是对象。", 400));
             }
-            release["enabled"] = json!(config["apps"].as_array().unwrap().contains(&app["id"]));
+            // Fresh package planning has already selected the native Helmfile
+            // dependency closure (e.g. Task requires mail). Keep those dependencies.
+            release["enabled"] = json!(
+                config["apps"].as_array().unwrap().contains(&app["id"])
+                    || (config["deployment"]["installation"].is_object() && release["enabled"] == true)
+            );
         }
     }
     if config["deployment"]["installation"].is_object() && config["apps"].as_array().unwrap().contains(&json!("vasi")) {
@@ -526,6 +531,24 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
         v["defaultModel"] = json!("");
         v["allowedModels"] = json!("");
         v["models"] = models::values(&config["models"]);
+        if models::uses_gateway(config) {
+            v["models"] = models::gateway_values(&config["models"]);
+            if values["releases"]["gateway"]["values"].is_null() {
+                values["releases"]["gateway"]["values"] = json!({});
+            }
+            let gateway = &mut values["releases"]["gateway"]["values"];
+            gateway["replicaCount"] = json!(1);
+            gateway["modelStub"] = json!({"enabled":false});
+            gateway["routes"] = models::routes(&config["models"]);
+            gateway["clients"] = json!([{"name":"apeiron","routes":gateway["routes"].as_array().unwrap().iter().map(|r|r["name"].clone()).collect::<Vec<_>>()}]);
+            // Respect the distribution/operator's existing egress policy. The
+            // default permits public HTTPS only, excluding private/cluster ranges.
+            if gateway["egress"]["proxy"]["host"].as_str().unwrap_or("").is_empty()
+                && gateway["egress"]["cidrs"].as_array().is_none_or(|rows| rows.is_empty())
+            {
+                gateway["egress"] = json!({"port":443,"proxy":{},"cidrs":[{"cidr":"0.0.0.0/0","except":["0.0.0.0/8","10.0.0.0/8","100.64.0.0/10","127.0.0.0/8","169.254.0.0/16","172.16.0.0/12","192.168.0.0/16","224.0.0.0/4","240.0.0.0/4"]}]});
+            }
+        }
     }
     if let Some(domain) = config["deployment"]["installation"]["domain"].as_str() {
         values["embedAllowedOrigins"] = json!([format!("https://{domain}:*"), format!("https://*.{domain}:*")]);
@@ -609,6 +632,7 @@ impl Deployment {
         ["preparing", "running", "stopping"].contains(&self.snapshot()["phase"].as_str().unwrap_or(""))
     }
     pub fn start(&self, path: &Path, config: Value) -> Result<()> {
+        models::require_for_installation(&config)?;
         if self.active() {
             return Err(fail("部署正在进行。", 409));
         }
@@ -825,7 +849,11 @@ impl Deployment {
                 // This bounded capture owns its child internally. Persist an
                 // uncertain-operation barrier if the CLI dies inside it.
                 context.command_checkpoint(true, None)?;
-                let applied = cluster::model_key(&config["models"], &target, &env, &cancel);
+                let applied = if models::uses_gateway(&config) {
+                    cluster::gateway_model_key(&config["models"], &target, &env, &cancel)
+                } else {
+                    cluster::model_key(&config["models"], &target, &env, &cancel)
+                };
                 context.command_checkpoint(false, None)?;
                 applied?;
             }

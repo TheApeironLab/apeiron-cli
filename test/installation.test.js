@@ -1,3 +1,4 @@
+import { fixtureModels } from './fixtures';
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -59,7 +60,7 @@ test('an incomplete install package stops before any cluster command', async () 
   const installation = { ...localInstallation(), httpPort: ports[0].port, httpsPort: ports[1].port };
   for (const listener of ports) listener.stop(true);
   try {
-    await deployment.start({ slug: 'example', apps: requiredApps, deployment: { offline: false, installation } });
+    await deployment.start({ slug: 'example', apps: requiredApps, models: fixtureModels, deployment: { offline: false, installation } });
     while (deployment.active) await Bun.sleep(10);
     expect(deployment.snapshot.phase).toBe('failed');
     expect(deployment.snapshot.message).toContain('setup/install.json');

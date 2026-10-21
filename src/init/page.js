@@ -147,16 +147,16 @@ export function renderPage(nonce) {
 <div id="entry-field" class="field"><label id="entry-label" class="field-label" for="entry-ip">入口 IP</label><input id="entry-ip" type="text" required placeholder="例如 192.168.1.100" inputmode="decimal" list="entry-addresses" autocomplete="off"><datalist id="entry-addresses"></datalist><p id="entry-note" class="hint"></p></div>
 <section class="machine-probe" aria-labelledby="models-title"><div class="probe-heading"><h2 id="models-title">既有模型服务</h2></div>
 <section id="model-settings">
-<div class="field"><label class="field-label" for="model-provider">Provider</label><input id="model-provider" type="text" maxlength="64" placeholder="例如 bigmodel" autocomplete="off"><p class="hint">必填；使用小写字母、数字、点、下划线或短横线，以字母或数字开头。</p></div>
-<div class="field"><label class="field-label" for="model-url">API 地址</label><input id="model-url" type="url" maxlength="2048" placeholder="https://models.example.com/v1" autocomplete="off"><p class="hint">OpenAI 兼容接口，须能从部署后的集群访问。离线部署可填写内网模型服务地址。</p></div>
-<div class="field"><label class="field-label" for="model-key">API Key <span class="optional">无鉴权服务可留空</span></label><input id="model-key" type="password" maxlength="4096" autocomplete="new-password"><label class="clear-key"><input id="model-clear-key" type="checkbox">清除已保存的 Key</label></div>
+<div class="field"><label class="field-label" for="model-provider">Provider</label><input id="model-provider" type="text" maxlength="64" value="bailian" placeholder="例如 bailian" autocomplete="off"><p class="hint">必填；使用小写字母、数字、点、下划线或短横线，以字母或数字开头。</p></div>
+<div class="field"><label class="field-label" for="model-url">Base URL</label><input id="model-url" type="url" maxlength="2048" value="https://dashscope.aliyuncs.com/compatible-mode/v1" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" autocomplete="off"><p class="hint">默认阿里云百炼北京 OpenAI 兼容接口；可改为业务空间专属地址。Base URL 与 API Key 须属于同一地域和计费方案。Gateway 必须能访问该地址；内网服务需配置安装包的出口策略。</p></div>
+<div class="field"><label class="field-label" for="model-key">API Key <span class="optional">百炼必填；无鉴权内网服务可留空</span></label><input id="model-key" type="password" maxlength="4096" autocomplete="new-password"><label class="clear-key"><input id="model-clear-key" type="checkbox">清除已保存的 Key</label></div>
 <button id="model-list" type="button" class="button">获取模型列表</button>
 <div class="field" style="margin-top:24px"><label class="field-label" for="model-fast">快速 · apeiron-flash</label><select id="model-fast" disabled><option value="">请先获取模型列表</option></select></div>
 <div class="field"><label class="field-label" for="model-deep">深度思考 · apeiron-pro</label><select id="model-deep" disabled><option value="">请先获取模型列表</option></select><p class="hint">可与快速使用同一模型；是否具备推理能力由模型本身决定。</p></div>
 <button id="model-test" disabled type="button" class="button primary">测试两种模式</button><p class="hint">从 CLI 主机各发送一次简短请求，可能产生少量模型费用；集群网络仍需能访问此地址。</p>
 <p id="model-status" class="hint" role="status" aria-live="polite"></p>
 </section>
-<label class="clear-key" style="margin-top:24px"><input id="model-skip" type="checkbox">稍后配置（安装后暂时无法对话）</label>
+<p class="hint">基础安装必须配置模型。Apeiron 通过 Gateway 使用模型，供应商 Key 仅写入本机受保护配置与 Gateway Secret。</p>
 </section>
 </div>
 <div data-panel hidden>
