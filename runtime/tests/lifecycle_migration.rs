@@ -153,6 +153,28 @@ fn collect_migrate_preserves_legacy_and_secrets_and_never_accepts_unknown_invent
     t.write("configuration", &json!({"password":"changed"}));
     assert!(!t.cli(&migrate).status.success());
     assert!(!t.0.join("migration").exists());
+    // A legacy UID must not be rebound to a different collected cluster even
+    // when the file digests themselves match the new collection.
+    t.write("configuration", &json!({"password":"configuration-private-value"}));
+    t.write(
+        "legacy",
+        &json!({"schemaVersion":1,"checkpoint":"bootstrap-complete",
+        "commandActive":false,"clusterUid":"another-cluster"}),
+    );
+    let mut recollect = collect.to_vec();
+    *recollect.last_mut().unwrap() = "collection-other-legacy";
+    assert!(t.cli(&recollect).status.success());
+    let mut wrong_cluster = migrate.to_vec();
+    let at = wrong_cluster.iter().position(|s| *s == "--collection").unwrap();
+    wrong_cluster[at + 1] = "collection-other-legacy";
+    assert!(!t.cli(&wrong_cluster).status.success());
+    assert!(!t.0.join("migration").exists());
+    // Reject a cluster replacement during capture without leaving an output.
+    fs::write(&tool, format!("#!/bin/sh\ncase \"$*\" in\n*'get namespace kube-system'*) /bin/cat '{0}/namespace'; /bin/cp '{0}/next-namespace' '{0}/namespace';;\n*'get nodes'*) /bin/cat '{0}/nodes';;\n*'get pods --all-namespaces'*) /bin/cat '{0}/pods';;\n*'get persistentvolumeclaims --all-namespaces'*) /bin/cat '{0}/volumes';;\n*) exit 91;;\nesac\n", t.0.display())).unwrap();
+    t.write("next-namespace", &json!({"metadata":{"uid":"replacement-cluster"}}));
+    *recollect.last_mut().unwrap() = "unstable-collection";
+    assert!(!t.cli(&recollect).status.success());
+    assert!(!t.0.join("unstable-collection").exists());
 }
 #[test]
 fn inspect_source_distinguishes_declared_multi_k3s_from_unsupported_amd64_targets() {
