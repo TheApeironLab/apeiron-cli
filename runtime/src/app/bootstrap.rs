@@ -3,7 +3,7 @@ use super::{
     deploy::{strings, Context},
     process,
 };
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, io::Read, path::PathBuf, process::Command};
 pub struct Prepared {
     pub target: Value,
     pub values: Value,
@@ -41,6 +41,115 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
 }
 fn path(v: &Value, key: &str) -> PathBuf {
     PathBuf::from(v[key].as_str().unwrap_or(""))
+}
+fn archive_toolbox_image(target: &Value) -> Result<&str> {
+    // Published legacy archives (including rc.5) only declare toolboxImageId.
+    // New catalogs may use a tag to avoid Docker store-specific image IDs.
+    target["toolboxImage"]
+        .as_str()
+        .filter(|image| !image.is_empty())
+        .or_else(|| target["toolboxImageId"].as_str())
+        .filter(|image| config::matches(r"^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$", image))
+        .ok_or_else(|| fail("安装包缺少有效的工具箱镜像名称或 ID。", 400))
+}
+fn archive_metadata(path: &std::path::Path, name: &str) -> std::io::Result<Vec<u8>> {
+    if !resources::safe_relative(name) {
+        return Err(std::io::Error::other("unsafe image metadata path"));
+    }
+    let mut archive = tar::Archive::new(fs::File::open(path)?);
+    let mut found = None;
+    for entry in archive.entries_with_seek()? {
+        let mut entry = entry?;
+        if entry.path()?.as_ref() != std::path::Path::new(name) {
+            continue;
+        }
+        if found.is_some() || !entry.header().entry_type().is_file() || entry.size() > 4 * 1024 * 1024 {
+            return Err(std::io::Error::other("invalid image metadata member"));
+        }
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes)?;
+        found = Some(bytes);
+    }
+    found.ok_or_else(|| std::io::Error::other("missing image metadata"))
+}
+fn system_image_identity(
+    archive: &std::path::Path,
+    name: &str,
+    expected: &str,
+    observed: &str,
+    architecture: &str,
+) -> std::io::Result<bool> {
+    if expected == observed {
+        return Ok(true);
+    }
+    // Classic Docker reports the config digest; containerd may report an OCI
+    // manifest/index digest. Prove their relationship from the already
+    // checksum-verified archive, rather than accepting an arbitrary loaded tag.
+    let manifest: Value = serde_json::from_slice(&archive_metadata(archive, "manifest.json")?)?;
+    let rows = manifest
+        .as_array()
+        .ok_or_else(|| std::io::Error::other("invalid Docker manifest"))?;
+    let tagged = rows
+        .iter()
+        .filter(|row| {
+            row["RepoTags"]
+                .as_array()
+                .is_some_and(|tags| tags.iter().any(|tag| tag == name))
+        })
+        .collect::<Vec<_>>();
+    if tagged.len() != 1 {
+        return Ok(false);
+    }
+    let config_path = tagged[0]["Config"]
+        .as_str()
+        .ok_or_else(|| std::io::Error::other("missing image config"))?;
+    let bytes = archive_metadata(archive, config_path)?;
+    if format!("sha256:{}", config::hash(&bytes)) != observed {
+        return Ok(false);
+    }
+    let config: Value = serde_json::from_slice(&bytes)?;
+    if config["os"] != "linux" || config["architecture"] != architecture {
+        return Ok(false);
+    }
+    let mut digest = expected.to_owned();
+    let mut size = None;
+    for _ in 0..4 {
+        if !config::matches(r"^sha256:[a-f0-9]{64}$", &digest) {
+            return Ok(false);
+        }
+        let data = archive_metadata(archive, &format!("blobs/sha256/{}", &digest[7..]))?;
+        if format!("sha256:{}", config::hash(&data)) != digest || size.is_some_and(|n| n != data.len() as u64) {
+            return Ok(false);
+        }
+        let object: Value = serde_json::from_slice(&data)?;
+        if object["schemaVersion"] != 2 {
+            return Ok(false);
+        }
+        if object["config"].is_object() {
+            return Ok(object["config"]["digest"] == observed && object["config"]["size"] == bytes.len() as u64);
+        }
+        let Some(children) = object["manifests"].as_array() else {
+            return Ok(false);
+        };
+        let matches = children
+            .iter()
+            .filter(|child| {
+                child["platform"]["os"] == config["os"] && child["platform"]["architecture"] == config["architecture"]
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Ok(false);
+        }
+        let Some(next) = matches[0]["digest"].as_str() else {
+            return Ok(false);
+        };
+        let Some(next_size) = matches[0]["size"].as_u64() else {
+            return Ok(false);
+        };
+        digest = next.to_owned();
+        size = Some(next_size);
+    }
+    Ok(false)
 }
 fn present(tool: &str, env: &BTreeMap<String, String>) -> bool {
     let paths = env
@@ -244,6 +353,11 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     };
     let bundle = work.join("bundle");
     process::private_directory(&bundle)?;
+    if docker {
+        // Even the configuration checker creates /work/state on Linux. Reserve
+        // host-owned state before any toolbox process can mount this directory.
+        reserve_k3d_kubeconfig(&work)?;
+    }
     for f in plan["files"].as_array().unwrap() {
         c.cancel.check()?;
         let rel = f["path"].as_str().unwrap();
@@ -251,7 +365,8 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         process::private_directory(dest.parent().unwrap())?;
         fs::copy(resources::destination(&cache, rel)?, dest).map_err(|_| fail("无法暂存已校验资源。", 500))?;
     }
-    resources::prepare_files(&plan, &bundle, true, &c.cancel, &|_| {})?;
+    c.event("正在校验安装工作目录中的资源副本。");
+    resources::prepare_files(&plan, &bundle, true, &c.cancel, &|m| c.event(m))?;
     let mut generated = Vec::new();
     let images = plan["images"].as_array().unwrap();
     if !images.is_empty() {
@@ -424,6 +539,20 @@ fn write_managed(path: &Path, data: &[u8]) -> Result<()> {
     private_write(&tmp, data)?;
     fs::rename(&tmp, path).map_err(|_| fail("无法保存生成文件。", 500))
 }
+fn reserve_k3d_kubeconfig(work: &Path) -> Result<()> {
+    let path = resources::destination(work, "state/kubeconfig")?;
+    process::private_directory(path.parent().unwrap())?;
+    if path.exists() {
+        // A retry must retain the original credentials; reject unreadable or
+        // special files instead of replacing an existing cluster's identity.
+        resources::read(&path, 4 * 1024 * 1024)?;
+    } else {
+        // The toolbox writes into this inode. On native Linux it would otherwise
+        // create a root-owned 0600 file that the unprivileged CLI cannot read.
+        private_write(&path, b"")?;
+    }
+    Ok(())
+}
 fn native_tools(plan: &Value, target: &Value, bundle: &Path, c: &Context) -> Result<BTreeMap<String, String>> {
     let files = plan["files"].as_array().unwrap();
     let paths = files.iter().map(|f| f["path"].as_str().unwrap()).collect::<Vec<_>>();
@@ -567,6 +696,7 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         env.insert("LAB_CONTAINER".into(), container.clone());
         let t = &p.plan["target"];
         let image = if let Some(archive) = t["toolboxArchive"].as_str() {
+            let image = archive_toolbox_image(t)?;
             c.checked(
                 "docker",
                 strings(&["load", "-i", &p.bundle.join(archive).to_string_lossy()]),
@@ -578,14 +708,19 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
             // guarantee the toolbox content. Docker's image ID varies between
             // store implementations (classic returns config digest, containerd
             // returns manifest digest), so comparing IDs is unreliable.
-            let image = t["toolboxImage"].as_str().unwrap_or("");
             process::text(
                 Command::new("docker").args(["image", "inspect", "--format", "{{.Id}}", image]),
                 b"",
                 20,
                 4096,
                 &c.cancel,
-            )?;
+            )
+            .map_err(|_| {
+                fail(
+                    format!("工具箱已导入，但 Docker 无法找到安装包声明的镜像：{image}。"),
+                    400,
+                )
+            })?;
             if let Some(archives) = t["dockerArchives"].as_array() {
                 for a in archives {
                     c.checked(
@@ -613,8 +748,19 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
                             4096,
                             &c.cancel,
                         )?;
-                        if observed.trim() != img["id"].as_str().unwrap() {
-                            return Err(fail("系统镜像 ID 不匹配。", 400));
+                        if !system_image_identity(
+                            &p.bundle.join(a["file"].as_str().unwrap()),
+                            img["name"].as_str().unwrap(),
+                            img["id"].as_str().unwrap(),
+                            observed.trim(),
+                            &p.arch,
+                        )
+                        .unwrap_or(false)
+                        {
+                            return Err(fail(
+                                format!("系统镜像身份与已校验归档不匹配：{}。", img["name"].as_str().unwrap()),
+                                400,
+                            ));
                         }
                     }
                 }
@@ -959,6 +1105,121 @@ pub fn public_access(phase: &str, target: &Value, c: &Context, env: &BTreeMap<St
 mod tool_contracts {
     use super::*;
     use crate::app::contracts::Temp;
+    #[test]
+    fn k3d_kubeconfig_is_private_host_owned_and_preserves_existing_identity() {
+        use std::os::unix::fs::{symlink, MetadataExt, PermissionsExt};
+        let temp = Temp::new();
+        reserve_k3d_kubeconfig(&temp.0).unwrap();
+        let path = temp.0.join("state/kubeconfig");
+        let metadata = fs::metadata(&path).unwrap();
+        assert_eq!(metadata.uid(), fs::metadata(&temp.0).unwrap().uid());
+        assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+        fs::write(&path, b"existing cluster identity").unwrap();
+        reserve_k3d_kubeconfig(&temp.0).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"existing cluster identity");
+        assert_eq!(fs::metadata(&path).unwrap().ino(), metadata.ino());
+        fs::remove_file(&path).unwrap();
+        symlink(temp.0.join("outside"), &path).unwrap();
+        assert!(reserve_k3d_kubeconfig(&temp.0).is_err());
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(reserve_k3d_kubeconfig(&temp.0).is_err());
+    }
+    #[test]
+    fn system_archives_bind_classic_and_containerd_ids_without_accepting_foreign_or_corrupt_configs() {
+        let temp = Temp::new();
+        for indexed in [false, true] {
+            for damage in [
+                "",
+                "config-bytes",
+                "manifest-bytes",
+                "config-link",
+                "config-size",
+                "tag",
+                "ambiguous",
+            ] {
+                if !indexed && damage == "ambiguous" {
+                    continue;
+                }
+                let config =
+                    br#"{"os":"linux","architecture":"arm64","rootfs":{"type":"layers","diff_ids":[]}}"#.to_vec();
+                let config_digest = format!("sha256:{}", config::hash(&config));
+                let config_path = format!("blobs/sha256/{}", &config_digest[7..]);
+                let manifest = json!({
+                    "schemaVersion":2,
+                    "config":{"digest":if damage=="config-link" {format!("sha256:{}", "a".repeat(64))} else {config_digest.clone()},
+                              "size":config.len()+usize::from(damage=="config-size")},
+                    "layers":[]
+                })
+                .to_string()
+                .into_bytes();
+                let manifest_digest = format!("sha256:{}", config::hash(&manifest));
+                let descriptor = json!({"digest":manifest_digest,"size":manifest.len(),
+                    "platform":{"os":"linux","architecture":"arm64"}});
+                let index = json!({"schemaVersion":2,"manifests":if damage=="ambiguous" {
+                    json!([descriptor.clone(),descriptor])
+                } else {json!([descriptor])}})
+                .to_string()
+                .into_bytes();
+                let index_digest = format!("sha256:{}", config::hash(&index));
+                let expected = if indexed { &index_digest } else { &manifest_digest };
+                let compat = json!([{"Config":config_path,"RepoTags":[if damage=="tag" {"foreign:1"} else {"registry:2"}],"Layers":[]}])
+                    .to_string().into_bytes();
+                let archive_path = temp.0.join("system.tar");
+                let mut archive = tar::Builder::new(fs::File::create(&archive_path).unwrap());
+                for (path, mut data) in [
+                    ("manifest.json".to_owned(), compat),
+                    (config_path, config),
+                    (format!("blobs/sha256/{}", &manifest_digest[7..]), manifest),
+                    (format!("blobs/sha256/{}", &index_digest[7..]), index),
+                ] {
+                    if (damage == "config-bytes" && path.ends_with(&config_digest[7..]))
+                        || (damage == "manifest-bytes" && path.ends_with(&manifest_digest[7..]))
+                    {
+                        data.push(b' ');
+                    }
+                    let mut header = tar::Header::new_gnu();
+                    header.set_size(data.len() as u64);
+                    header.set_mode(0o644);
+                    header.set_cksum();
+                    archive.append_data(&mut header, path, data.as_slice()).unwrap();
+                }
+                archive.finish().unwrap();
+                assert_eq!(
+                    system_image_identity(&archive_path, "registry:2", expected, &config_digest, "arm64").unwrap(),
+                    damage.is_empty(),
+                    "indexed={indexed} damage={damage}"
+                );
+                assert!(!system_image_identity(
+                    &archive_path,
+                    "registry:2",
+                    expected,
+                    &format!("sha256:{}", "f".repeat(64)),
+                    "arm64"
+                )
+                .unwrap());
+                assert!(
+                    !system_image_identity(&archive_path, "registry:2", expected, &config_digest, "amd64").unwrap()
+                );
+                assert!(system_image_identity(&archive_path, "registry:2", expected, expected, "arm64").unwrap());
+            }
+        }
+    }
+    #[test]
+    fn published_rc5_toolbox_without_tag_retains_legacy_image_reference() {
+        let legacy = json!({
+            "toolboxArchive": "tools/chentu-toolbox-arm64.tar",
+            "toolboxImageId": "sha256:5da6f98d803beae5199eae264650c5b5998e524745a5e5322d05d318662b6028"
+        });
+        assert_eq!(
+            archive_toolbox_image(&legacy).unwrap(),
+            legacy["toolboxImageId"].as_str().unwrap()
+        );
+        let mut named = legacy.clone();
+        named["toolboxImage"] = json!("chentu-lab:spark-534c491");
+        assert_eq!(archive_toolbox_image(&named).unwrap(), "chentu-lab:spark-534c491");
+        assert!(archive_toolbox_image(&json!({"toolboxArchive":"tools/toolbox.tar"})).is_err());
+    }
     #[test]
     fn offline_operator_check_uses_original_bundle_and_never_installs() {
         let temp = Temp::new();

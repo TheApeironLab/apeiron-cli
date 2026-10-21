@@ -68,7 +68,7 @@ bun scripts/publish-resources.js /absolute/bundle /absolute/output --publish
 
 CLI 在创建集群前验证完整发布目录、所选应用依赖、完整 Nexus bootstrap 闭包，以及实际 Chentu 源码/生成目录的逐文件 SHA-256。新版 sourceOverlay 必须为空。只接受 ONLINE hosted/proxy 仓库；proxy 必须启用 autoBlocking。联网与离线使用同一个正式 nexus_first.py 部署流程，proxy 始终 ONLINE。旧版无 nexusFirst 能力的目录继续使用原安装契约。
 
-CLI 生成 nexus/install-selection.json，保留同一个 release 并声明所选 profile、组件闭包和 artifact ID；images/install-manifest.json 的 bootstrap 标记来自同一基础闭包。离线缺包错误逐项显示名称、版本、平台、仓库及路径。正式 Nexus 分发的管理机契约为 macOS ARM64 对应 `k3d-arm64 / single-k3d`、Linux AMD64 对应 `k3d-amd64 / single-k3d`，或 Ubuntu 22.04 AMD64（含 22.04.x 点版本）对应 `k3s-amd64 / multi-k3s`。CLI 使用实际管理机系统、硬件架构和运行架构核对契约；其他系统、版本、架构、安装目标或拓扑组合在资源准备前拒绝。Apple Silicon 上运行 AMD64 CLI 同样不满足 macOS ARM64 契约。
+CLI 生成 nexus/install-selection.json，保留同一个 release 并声明所选 profile、组件闭包和 artifact ID；images/install-manifest.json 的 bootstrap 标记来自同一基础闭包。离线缺包错误逐项显示名称、版本、平台、仓库及路径。正式 Nexus 分发的管理机契约为 macOS ARM64 或 Linux ARM64 对应 `k3d-arm64 / single-k3d`、Linux AMD64 对应 `k3d-amd64 / single-k3d`，或 Ubuntu 22.04 AMD64（含 22.04.x 点版本）对应 `k3s-amd64 / multi-k3s`。CLI 使用实际管理机系统、硬件架构和运行架构核对契约；其他系统、版本、架构、安装目标或拓扑组合在资源准备前拒绝。Apple Silicon 上运行 AMD64 CLI 同样不满足 macOS ARM64 契约。
 
 原生 Nexus-first 候选目标为 `k3s-amd64 / multi-k3s`，要求包中明确声明 Ubuntu 22.04
 AMD64，节点恰为三个 server。安装目标声明描述的是部署节点；管理机还必须满足上述对应平台契约，不能由安装目标标签推断实际管理机系统。每个节点继续独立通过系统和架构检测。CLI 将同一 inventory 传入 Chentu 驱动，并只预载 bootstrap
@@ -78,10 +78,15 @@ APT 与 PyPI 发布制品使用原生 hosted 坐标。CLI 分别验证 Deb 包�
 只允许对应的确定性原生路径；Deb epoch 等版本字符不会放宽本地文件路径校验。两类制品必须声明 native transport，
 目标架构不符、路径篡改或封装声明错误在修改集群前拒绝。
 
-### Linux AMD64 hosted K3d
+### Linux ARM64 / AMD64 hosted K3d
 
-正式清单可声明 `k3d-amd64` / `single-k3d`。管理机必须为 Linux，
-硬件和 CLI 进程架构均为 AMD64；Mac ARM64 对应 `k3d-arm64`。
+正式清单可声明 `k3d-arm64` 或 `k3d-amd64` / `single-k3d`。Linux 管理机的
+硬件、CLI 进程与所选包必须同为 ARM64 或同为 AMD64；Mac ARM64 对应 `k3d-arm64`。
+DGX Spark 的 Ubuntu 24.04 ARM64 使用 K3d ARM64 契约，不因此获得原生 K3s ARM64 支持。
+Docker 的经典镜像存储和 containerd 存储可能分别返回 config 与 OCI manifest/index 摘要。
+系统镜像导入后若 ID 不直接相同，CLI 只接受能从已校验归档证明对应关系的 config：
+标签必须唯一，config 字节和平台必须匹配，OCI 摘要链和 config 引用必须一致，
+子描述符大小逐项核对。不会因为标签存在而忽略身份不匹配。
 目标、清单、资源镜像和工具箱均须匹配架构，不能通过修改目标名复用 ARM64 归档。
 原生 `k3s-amd64` 仍仅接受 Ubuntu 22.04 AMD64 管理机。
 K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这些结果单独记录。
@@ -92,7 +97,7 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 
 | 安装目标 | 拓扑 | 管理机契约 | 节点规则（hosted-first） |
 | --- | --- | --- | --- |
-| `k3d-arm64` | `single-k3d` | macOS ARM64 | `nodes: []`，`entryIp: 127.0.0.1`，runner `docker`，端口由实例注册表分配 |
+| `k3d-arm64` | `single-k3d` | macOS ARM64 / Linux ARM64 | `nodes: []`，`entryIp: 127.0.0.1`，runner `docker`，端口由实例注册表分配 |
 | `k3d-amd64` | `single-k3d` | Linux AMD64 | 同上 |
 | `k3s-amd64` | `single-k3s` | Ubuntu 22.04 AMD64（管理机即目标机） | 配置 `nodes: []`，向导探测本机后以 `localhost` 作为唯一 server，Ansible 本地连接；固定 80/443 |
 | `k3s-amd64` | `multi-k3s` | Ubuntu 22.04 AMD64 | ≥3 个、奇数个 server，0 个 agent（`ha: true`）；每个节点独立通过系统/架构检测 |
@@ -152,6 +157,10 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 
 预检只读取状态，不修改路由、防火墙或 Docker 资源；警告随部署事件写入安装日志并在 `api/deploy` 响应的 `preflight` 字段返回。多实例、共存与 SSH 转发尚未在真实多实例宿主上完成验收。
 
+快速切换共存与摘要步骤时，向导等待正在执行的预检结束，再检查最新配置；过时结果不更新页面。
+浏览器取消请求不会取消服务端 Docker 检查，因此不以中断 fetch 代替完成等待。
+开始安装和返回实例首页也等待该检查结束，避免与服务端的保存/配置互斥锁竞争。
+
 ### 验收 harness 契约（WP5 对齐）
 
 - `start.sh`：读取 `APEIRON_WIZARD_PORT`（默认 3210）与 `APEIRON_INSTANCE`（默认 `default`），以 `--config "$STATE/config.json" --port "$WIZARD_PORT"` 启动，并透传其余参数（如 `--no-open`）；CLI 标准输出保持 `schema=apeiron.init.v1` 表格：`url\thttp://127.0.0.1:<port>/setup/<hex>/`、`config\t<path>`、`forward\tssh -L <port>:127.0.0.1:<port> <user>@<this-host>`。
@@ -165,3 +174,7 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 应用角色与成员权限继续生效。首次安装明确选择 Files 时，向导默认声明
 `releases.files.values.operatorBucket: files-owner`，由宸途绑定到实际持久操作员，提供私人桶与
 已有共享桶 `files-team`；保留已有 `users` 和显式桶配置，不自动开通其他 IAM 用户。
+
+K3d 的 kubeconfig 由 CLI 预先创建为当前用户拥有的 `0600` 普通文件，工具箱原位写入；
+这样 Linux Docker 不会留下 CLI 无权读取的 root 专有文件。重试保留已有文件与凭据，
+拒绝符号链接、特殊文件和不可读文件，不扩大读取权限。

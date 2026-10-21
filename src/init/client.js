@@ -43,7 +43,6 @@ export function initWizard(supportsK3sHost) {
     let instanceList = [];
     let lastPreflight = null;
     let preflightSerial = 0;
-    let preflightRequest;
     let preflightPending = Promise.resolve();
     // Rough per-application memory estimate (GiB) for the budget step; the base platform is counted once.
     const MEMORY_ESTIMATE = { base: 6, task: 0.5, corpus: 1, matrix: 1, files: 0.5, stalwart: 0.5, gateway: 0.5, filer: 0.5, git: 1, gpustack: 2, langfuse: 1.5, kps: 2, browser: 1, ci: 1 };
@@ -719,14 +718,17 @@ export function initWizard(supportsK3sHost) {
         }
     }
     function runPreflight() {
-        preflightPending = preflightOnce();
+        const serial = ++preflightSerial;
+        renderPreflightResult(null);
+        // Aborting fetch leaves Docker inspection holding the server's request
+        // gate. Drain it before the latest preflight or installation can start.
+        preflightPending = preflightPending.catch(() => { }).then(() => {
+            if (serial === preflightSerial)
+                return preflightOnce(serial);
+        });
         return preflightPending;
     }
-    async function preflightOnce() {
-        const serial = ++preflightSerial;
-        preflightRequest?.abort();
-        preflightRequest = new AbortController();
-        renderPreflightResult(null);
+    async function preflightOnce(serial) {
         try {
             // Before the domain step the cluster identity is unknown: check host
             // coexistence under a placeholder domain and recheck in the summary.
@@ -735,7 +737,7 @@ export function initWizard(supportsK3sHost) {
             if (provisional)
                 deployment.installation.domain = 'preflight.apeironlab.internal';
             const response = await fetch(endpoint('preflight'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ revision, slug: slug.value.trim() || 'preflight', apps: selectedApps(), models: null, deployment }), signal: preflightRequest.signal });
+                body: JSON.stringify({ revision, slug: slug.value.trim() || 'preflight', apps: selectedApps(), models: null, deployment }) });
             const result = await response.json();
             if (serial !== preflightSerial)
                 return;
@@ -933,7 +935,7 @@ export function initWizard(supportsK3sHost) {
             ['applications', '安装与初始化应用', '按依赖安装基础服务和所选应用，完成初始化。'],
             ['access', '准备访问与验证', '配置集群访问，整理地址和验证入口；随后测试登录。'],
         ];
-        const labels = { pending: '等待', active: '进行中', done: '已完成', skipped: '无需执行', failed: '失败', cancelled: '已停止' };
+        const labels = { pending: '等待', active: '进行中', done: '已完成', skipped: '未单独执行', failed: '失败', cancelled: '已停止' };
         const current = definitions.findIndex(([id]) => id === status.stage);
         const fallback = status.phase === 'preparing' ? 0 : status.phase === 'running' ? 4 : -1;
         const index = current < 0 ? fallback : current;
@@ -1334,7 +1336,7 @@ export function initWizard(supportsK3sHost) {
     }
     function showHome() {
         clearTimeout(timer);
-        preflightRequest?.abort();
+        ++preflightSerial;
         form.hidden = true;
         get('form-heading').hidden = true;
         get('instances').hidden = true;
@@ -1537,7 +1539,12 @@ export function initWizard(supportsK3sHost) {
     get('manage-instances').addEventListener('click', () => { void showInstances(); });
     get('instances-refresh').addEventListener('click', () => { void showInstances(); });
     get('instances-back').addEventListener('click', showHome);
-    get('form-home').addEventListener('click', showHome);
+    get('form-home').addEventListener('click', async () => {
+        ++preflightSerial;
+        await preflightPending.catch(() => { });
+        await loadInstances();
+        showHome();
+    });
     get('configure-current').addEventListener('click', showForm);
     get('create-instance').addEventListener('click', async () => {
         const name = get('new-instance-name').value.trim();

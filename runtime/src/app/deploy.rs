@@ -840,6 +840,13 @@ impl Deployment {
                 context.stage(2, "正在准备制品仓库及必要的基础组件。");
             } else {
                 context.stage(4, "正在按依赖安装和初始化所选应用。");
+                if fresh && target["runner"] == "docker" {
+                    let mut status = self.0.status.lock().unwrap();
+                    status["stages"][2]["detail"] =
+                        json!("此安装包的镜像仓库已随集群准备；Nexus 随应用安装，不单独执行 Nexus-first 阶段。");
+                    status["stages"][3]["detail"] =
+                        json!("镜像已随集群准备导入；Chart 使用已校验的本地文件，不单独向 Nexus 导入。");
+                }
             }
             context.event("正在运行 Helmfile sync。");
             context.run(
@@ -942,7 +949,7 @@ impl Deployment {
             } else if result.is_ok() {
                 0
             } else {
-                s["exitCode"].as_i64().unwrap_or(9)
+                s["exitCode"].as_i64().filter(|code| *code != 0).unwrap_or(9)
             });
             finish_stages(
                 &mut s,

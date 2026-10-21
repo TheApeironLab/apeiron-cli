@@ -26,6 +26,7 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
     if (path === '/') return new Response(embeddedPage.replaceAll('APEIRON_NONCE_PLACEHOLDER', 'test-nonce'), { headers: { 'Content-Type': 'text/html' } });
     if (path === '/api/config') return Response.json({ apps, defaults, revision: 'fixture-revision', config: null, host: { name: 'fixture-mac', platform: 'darwin', architecture: 'arm64' }, deployment: status });
     if (path === '/api/deployment') return Response.json(status);
+    if (path === '/api/instances') return Response.json({ instances: [], registry: '/fixture/instances.json', current: null });
     if (path === '/api/deployment/retry') { retries++; status = snapshot(0, 'preparing'); return Response.json({ deployment: status }); }
     if (path === '/api/deployment/resume') return request.json().then(input => {
         assert.deepEqual(input, { revision: 'fixture-revision' });
@@ -110,6 +111,13 @@ try {
     await page.getByRole('heading', { name: '部署阶段已完成', exact: true }).waitFor();
     assert.equal(await page.locator('#deployment-stages [data-state=done]').count(), 6);
     assert.match(await page.locator('#deployment-stage-note').innerText(), /测试登录/);
+    status = { phase: 'interrupted', resumable: true, events: [], message: '原部署等待身份核对后继续。' };
+    await page.reload();
+    await page.getByRole('button', { name: '返回修改', exact: true }).click();
+    await page.getByRole('button', { name: '返回首页', exact: true }).click();
+    await page.getByText('注册表中有 0 个实例。', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('button', { name: '创建并开始配置', exact: true }).isEnabled(), true);
+    assert.equal(await page.getByRole('button', { name: '查看实例列表', exact: true }).isEnabled(), true);
     assert.deepEqual(errors, []);
     console.log(`PASS six deployment stages: live transitions, reload, failure, retry reset, cancellation, interrupted-run continuation, completion, safe text, mobile; screenshots: ${directory}`);
 } finally {

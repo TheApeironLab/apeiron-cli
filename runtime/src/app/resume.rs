@@ -490,7 +490,8 @@ mod tests {
         let uid = temp.write("uid", "fixture-cluster-uid");
         let target = json!({"root":root,"environment":env_file,"kubeconfig":kubeconfig,"runner":"native"});
         let env = BTreeMap::from([
-            ("PATH".into(), format!("{}:/bin", temp.0.join("bin").display())),
+            // macOS provides python3 in /usr/bin; keep fixture tools first.
+            ("PATH".into(), format!("{}:/usr/bin:/bin", temp.0.join("bin").display())),
             ("RESUME_FIXTURE_UID".into(), uid.to_string_lossy().into_owned()),
             ("CHENTU_ENV".into(), env_file.to_string_lossy().into_owned()),
             (

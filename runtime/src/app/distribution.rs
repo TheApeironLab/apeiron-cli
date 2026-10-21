@@ -371,7 +371,8 @@ fn validate_management_platform(
     let runtime_arch = discovery::architecture(hardware["runtimeArchitecture"].as_str().unwrap_or(""));
     let supported = match (runtime_os, arch, runtime_arch, key, topology) {
         ("macos", "arm64", "arm64", "k3d-arm64", "single-k3d") => machine["os"]["name"] == "macOS",
-        ("linux", "amd64", "amd64", "k3d-amd64", "single-k3d") => {
+        ("linux", "amd64", "amd64", "k3d-amd64", "single-k3d")
+        | ("linux", "arm64", "arm64", "k3d-arm64", "single-k3d") => {
             plan["target"]["nexusFirst"]["supportedTopologies"] == json!(["single-k3d"])
                 && machine["os"]["name"].as_str().is_some_and(|name| !name.is_empty())
         }
@@ -386,7 +387,7 @@ fn validate_management_platform(
         _ => false,
     };
     if !supported {
-        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 或 Linux AMD64 / single-k3d，或 Ubuntu 22.04 AMD64 / single-k3s、multi-k3s"));
+        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 或 Linux ARM64/AMD64 / single-k3d，或 Ubuntu 22.04 AMD64 / single-k3s、multi-k3s"));
     }
     Ok(())
 }
@@ -537,6 +538,25 @@ mod tests {
         wrong["profiles"]["k3d-amd64"]["architecture"] = json!("arm64");
         assert!(validate(&wrong, &catalog, &mut plan, "k3d-amd64", "single-k3d").is_err());
         assert!(validate(&manifest, &catalog, &mut plan, "k3d-amd64", "multi-k3s").is_err());
+    }
+    #[test]
+    fn linux_arm64_k3d_accepts_native_spark_but_rejects_emulation_and_native_k3s() {
+        let (manifest, catalog, mut plan) = fixture();
+        validate(&manifest, &catalog, &mut plan, "k3d-arm64", "single-k3d").unwrap();
+        let spark = management_machine("Ubuntu", "24.04", "aarch64", "aarch64");
+        validate_management_platform(&plan, "k3d-arm64", "single-k3d", "linux", &spark).unwrap();
+        for (arch, runtime_arch, key, topology) in [
+            ("aarch64", "x86_64", "k3d-arm64", "single-k3d"),
+            ("x86_64", "aarch64", "k3d-arm64", "single-k3d"),
+            ("aarch64", "aarch64", "k3d-amd64", "single-k3d"),
+            ("aarch64", "aarch64", "k3s-arm64", "single-k3s"),
+            ("aarch64", "aarch64", "k3d-arm64", "multi-k3s"),
+        ] {
+            let machine = management_machine("Ubuntu", "24.04", arch, runtime_arch);
+            assert!(validate_management_platform(&plan, key, topology, "linux", &machine).is_err());
+        }
+        plan["target"]["nexusFirst"]["supportedTopologies"] = json!(["multi-k3s"]);
+        assert!(validate_management_platform(&plan, "k3d-arm64", "single-k3d", "linux", &spark).is_err());
     }
     fn management_machine(os: &str, version: &str, arch: &str, runtime_arch: &str) -> Value {
         json!({"os":{"name":os,"version":version},"hardware":{"architecture":arch,"runtimeArchitecture":runtime_arch}})
@@ -700,7 +720,7 @@ mod tests {
     // manifest/provenance/resource bytes. On other hosts it verifies rejection.
     #[test]
     fn actual_prepare_checks_management_machine_and_preserves_integrity() {
-        let native_host = cfg!(target_os = "linux");
+        let native_host = cfg!(all(target_os = "linux", target_arch = "x86_64"));
         let (root, cache, manifest, catalog, mut plan) = preparation_fixture(native_host, false);
         let (key, topology) = if native_host {
             ("k3s-amd64", "multi-k3s")
@@ -746,10 +766,9 @@ mod tests {
                 && version.split('.').take(2).collect::<Vec<_>>() == ["22", "04"]
                 && discovery::supported(os, version, arch)
         } else {
-            cfg!(target_os = "macos")
-                && discovery::architecture(std::env::consts::ARCH) == "arm64"
+            discovery::architecture(std::env::consts::ARCH) == "arm64"
                 && arch == "arm64"
-                && os == "macOS"
+                && ((cfg!(target_os = "macos") && os == "macOS") || (cfg!(target_os = "linux") && !os.is_empty()))
         };
         let cancel = process::Cancellation::default();
         let run = |plan: &mut Value| {

@@ -66,6 +66,10 @@ test('instances: create registers and can select in one call; create is idempote
     expect(again.instance.id).toBe(created.instance.id);
     response = await post('instances/create', { name: 'lab', topology: 'multi-k3s' });
     expect(response.status).toBe(409);
+    snapshot = await config();
+    expect(snapshot.instance.topology).toBe('single-k3d');
+    expect(snapshot.config.deployment.installation.topology).toBe('single-k3d');
+    expect(snapshot.instance.httpPort).toBe(created.instance.httpPort);
     // 4. Other duplicates, bad names and unknown fields fail.
     expect((await post('instances/create', { name: 'edge', topology: 'single-k3d' })).status).toBe(409);
     expect((await post('instances/create', { name: 'Bad Name', topology: 'single-k3d' })).status).toBe(400);
