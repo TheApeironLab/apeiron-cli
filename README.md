@@ -283,7 +283,9 @@ bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
 
-当前尚未发布到 npm registry。`connect` / `status` / `disconnect` 使用 Rust 连接运行时；
+当前尚未发布到 npm registry。`connect` / `status` / `disconnect` / `serve` 使用
+`third_party/apeiron/cli` 的 Rust 连接运行时，通过 Git submodule 锁定上游提交并静态链接，
+不再维护连接运行时的源码副本。SSO、IAM、Task 暂时保留本仓库现有实现；
 `platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
 
 部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）
@@ -393,6 +395,12 @@ apeiron zygos model list
 ```
 
 连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
+本机连接的上游是 `third_party/apeiron`，接收端上报的软件版本来自上游 `VERSION`；
+宿主 `apeiron --version` 仍报告本 CLI 的发行版本。更新时先在 Apeiron 上游验证并合并，
+再更新 gitlink 与 Cargo.lock；不要在构建中追踪浮动分支或复制运行时代码。
+宿主保留真实可执行文件的生命周期集成测试，CI 另外运行 vendor 内的 Rust 检查与测试。
+CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos 与 Apeiron；名称沿用现有配置。
+
 源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
 `apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
 克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。
