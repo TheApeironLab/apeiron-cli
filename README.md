@@ -377,3 +377,17 @@ apeiron iam member update <SUBJECT> --file access.json --idempotency-key <UUID> 
 `member create`、`member update`、`member reset-password` 的 JSON 文件沿用组织 API 契约，`--file -` 可从 stdin 读取。密码不通过命令参数传递。所有写命令必须指定 UUID 幂等键；未知结果先查询操作记录，再使用原幂等键与原输入重试，不自动生成新操作。开户的邮箱核验声明仍须基于真实组织核验。CLI 不接受任意 API URL 或租户参数，组织由 SSO 身份决定。
 
 Zygos 可在安装向导中选择，需使用包含其 API、Web、Worker、EvalScope 四个镜像的新版 Chentu 安装包。旧版在线包不包含 Zygos，因此当前默认应用选择保持兼容；使用新版包时显式勾选 Zygos。GPU 节点与模型权重单独配置。
+
+## Zygos 内置子命令
+
+`apeiron zygos` 静态链接 Zygos Rust CLI，单个 apeiron 文件即可使用；
+不需要外部 zygos 可执行文件，也不读取 `APEIRON_ZYGOS_BIN`。
+
+```sh
+apeiron zygos --help
+export ZYGOS_API_BASE_URL=http://127.0.0.1:8000
+apeiron zygos model list
+```
+
+连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
+精确的上游源码版本和同步方式记录在 `vendor/zygos-cli/UPSTREAM.md`。

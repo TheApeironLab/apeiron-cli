@@ -1,0 +1,358 @@
+{
+  "listBamlTemplatesV2": {
+    "method": "GET",
+    "path": "/v2/baml-templates"
+  },
+  "createBamlTemplateV2": {
+    "method": "POST",
+    "path": "/v2/baml-templates"
+  },
+  "getBamlTemplateV2": {
+    "method": "GET",
+    "path": "/v2/baml-templates/{template_id}"
+  },
+  "archiveBamlTemplateV2": {
+    "method": "POST",
+    "path": "/v2/baml-templates/{template_id}/archive"
+  },
+  "updateBamlDraftV2": {
+    "method": "PATCH",
+    "path": "/v2/baml-templates/{template_id}/draft"
+  },
+  "publishBamlTemplateV2": {
+    "method": "POST",
+    "path": "/v2/baml-templates/{template_id}/publish"
+  },
+  "restoreBamlTemplateV2": {
+    "method": "POST",
+    "path": "/v2/baml-templates/{template_id}/restore"
+  },
+  "listConvertersV2": {
+    "method": "GET",
+    "path": "/v2/converters"
+  },
+  "getConverterV2": {
+    "method": "GET",
+    "path": "/v2/converters/{name}"
+  },
+  "createDatasetV2": {
+    "method": "POST",
+    "path": "/v2/datasets"
+  },
+  "ingestCanonicalDatasetV2": {
+    "method": "POST",
+    "path": "/v2/datasets:ingest-jsonl"
+  },
+  "exportDatasetV2": {
+    "method": "POST",
+    "path": "/v2/datasets/{dataset_version}:export"
+  },
+  "previewBamlDatasetV2": {
+    "method": "POST",
+    "path": "/v2/datasets/{dataset_version}/baml-preview"
+  },
+  "businessDatasetInfoV2": {
+    "method": "GET",
+    "path": "/v2/datasets/{dataset_version}/business-info"
+  },
+  "importDatasetV2": {
+    "method": "POST",
+    "path": "/v2/datasets/{name}/imports"
+  },
+  "addDatasetRecordV2": {
+    "method": "POST",
+    "path": "/v2/datasets/{name}/records"
+  },
+  "describeDatasetV2": {
+    "method": "GET",
+    "path": "/v2/datasets/{ref_or_version}"
+  },
+  "auditDatasetV2": {
+    "method": "POST",
+    "path": "/v2/datasets/{ref_or_version}:audit"
+  },
+  "inspectDatasetExportV2": {
+    "method": "POST",
+    "path": "/v2/datasets/{ref_or_version}:inspect-export"
+  },
+  "listDatasetRecordsV2": {
+    "method": "GET",
+    "path": "/v2/datasets/{ref_or_version}/records"
+  },
+  "deleteDatasetRecordV2": {
+    "method": "DELETE",
+    "path": "/v2/datasets/{ref_or_version}/records/{record_id}"
+  },
+  "getDatasetRecordV2": {
+    "method": "GET",
+    "path": "/v2/datasets/{ref_or_version}/records/{record_id}"
+  },
+  "updateDatasetRecordV2": {
+    "method": "PUT",
+    "path": "/v2/datasets/{ref_or_version}/records/{record_id}"
+  },
+  "listDeletedRefsV2": {
+    "method": "GET",
+    "path": "/v2/deleted-refs"
+  },
+  "listEvaluationRunsV2": {
+    "method": "GET",
+    "path": "/v2/evaluation-runs"
+  },
+  "createEvaluationRunV2": {
+    "method": "POST",
+    "path": "/v2/evaluation-runs"
+  },
+  "getEvaluationRunV2": {
+    "method": "GET",
+    "path": "/v2/evaluation-runs/{run_id}"
+  },
+  "cancelEvaluationRunV2": {
+    "method": "POST",
+    "path": "/v2/evaluation-runs/{run_id}:cancel"
+  },
+  "completeEvaluationRunV2": {
+    "method": "POST",
+    "path": "/v2/evaluation-runs/{run_id}:complete"
+  },
+  "failEvaluationRunV2": {
+    "method": "POST",
+    "path": "/v2/evaluation-runs/{run_id}:fail"
+  },
+  "startEvaluationRunV2": {
+    "method": "POST",
+    "path": "/v2/evaluation-runs/{run_id}:start"
+  },
+  "getLineageV2": {
+    "method": "GET",
+    "path": "/v2/lineage/{ref_or_version}"
+  },
+  "listManagedDeploymentConfigsV2": {
+    "method": "GET",
+    "path": "/v2/managed-deployment-configs"
+  },
+  "createManagedDeploymentConfigV2": {
+    "method": "POST",
+    "path": "/v2/managed-deployment-configs"
+  },
+  "showManagedDeploymentV2": {
+    "method": "GET",
+    "path": "/v2/managed-deployment-configs/{deployment_id}"
+  },
+  "capabilitiesManagedDeploymentInterfaceV2": {
+    "method": "GET",
+    "path": "/v2/managed-deployment-configs/{deployment_id}/capabilities"
+  },
+  "startManagedDeploymentV2": {
+    "method": "POST",
+    "path": "/v2/managed-deployment-configs/{deployment_id}/start"
+  },
+  "stopManagedDeploymentV2": {
+    "method": "POST",
+    "path": "/v2/managed-deployment-configs/{deployment_id}/stop"
+  },
+  "testManagedDeploymentInterfaceV2": {
+    "method": "POST",
+    "path": "/v2/managed-deployment-configs/{deployment_id}/test"
+  },
+  "createModelArtifactImportV2": {
+    "method": "POST",
+    "path": "/v2/model-artifact-imports"
+  },
+  "getModelArtifactImportV2": {
+    "method": "GET",
+    "path": "/v2/model-artifact-imports/{import_id}"
+  },
+  "listModelArtifactsV2": {
+    "method": "GET",
+    "path": "/v2/model-artifacts"
+  },
+  "getModelArtifactV2": {
+    "method": "GET",
+    "path": "/v2/model-artifacts/{artifact_id}"
+  },
+  "inspectModelRegistrationV2": {
+    "method": "POST",
+    "path": "/v2/model-registrations:inspect"
+  },
+  "getModelVersionV2": {
+    "method": "GET",
+    "path": "/v2/model-versions/{version_id}"
+  },
+  "listModelVersionDeploymentsV2": {
+    "method": "GET",
+    "path": "/v2/model-versions/{version_id}/deployments"
+  },
+  "createModelVersionDeploymentV2": {
+    "method": "POST",
+    "path": "/v2/model-versions/{version_id}/deployments"
+  },
+  "activateModelVersionDeploymentV2": {
+    "method": "POST",
+    "path": "/v2/model-versions/{version_id}/deployments/{deployment_id}:activate"
+  },
+  "checkModelVersionDeploymentV2": {
+    "method": "POST",
+    "path": "/v2/model-versions/{version_id}/deployments/{deployment_id}:check"
+  },
+  "disableModelVersionDeploymentV2": {
+    "method": "POST",
+    "path": "/v2/model-versions/{version_id}/deployments/{deployment_id}:disable"
+  },
+  "listModelWeightBaseBindingsV2": {
+    "method": "GET",
+    "path": "/v2/model-weight-base-bindings"
+  },
+  "bindModelWeightBaseV2": {
+    "method": "POST",
+    "path": "/v2/model-weight-base-bindings"
+  },
+  "listModelWeightsV2": {
+    "method": "GET",
+    "path": "/v2/model-weights"
+  },
+  "commitModelWeightsV2": {
+    "method": "POST",
+    "path": "/v2/model-weights:commit"
+  },
+  "inspectModelWeightsV2": {
+    "method": "POST",
+    "path": "/v2/model-weights:inspect"
+  },
+  "listModelsV2": {
+    "method": "GET",
+    "path": "/v2/models"
+  },
+  "registerModelV2": {
+    "method": "POST",
+    "path": "/v2/models:register"
+  },
+  "getModelV2": {
+    "method": "GET",
+    "path": "/v2/models/{model_id}"
+  },
+  "listModelVersionsV2": {
+    "method": "GET",
+    "path": "/v2/models/{model_id}/versions"
+  },
+  "registerModelVersionV2": {
+    "method": "POST",
+    "path": "/v2/models/{model_id}/versions:register"
+  },
+  "listRefsV2": {
+    "method": "GET",
+    "path": "/v2/refs"
+  },
+  "deleteRefV2": {
+    "method": "DELETE",
+    "path": "/v2/refs/{name}"
+  },
+  "getRefV2": {
+    "method": "GET",
+    "path": "/v2/refs/{name}"
+  },
+  "putRefV2": {
+    "method": "PUT",
+    "path": "/v2/refs/{name}"
+  },
+  "restoreRefV2": {
+    "method": "POST",
+    "path": "/v2/refs/{name}:restore"
+  },
+  "listSwiftStudioSessionsV2": {
+    "method": "GET",
+    "path": "/v2/swift-studio-sessions"
+  },
+  "createSwiftStudioSessionV2": {
+    "method": "POST",
+    "path": "/v2/swift-studio-sessions"
+  },
+  "getSwiftStudioSessionV2": {
+    "method": "GET",
+    "path": "/v2/swift-studio-sessions/{session_id}"
+  },
+  "closeSwiftStudioSessionV2": {
+    "method": "POST",
+    "path": "/v2/swift-studio-sessions/{session_id}:close"
+  },
+  "listSwiftStudioSessionOutputsV2": {
+    "method": "GET",
+    "path": "/v2/swift-studio-sessions/{session_id}/outputs"
+  },
+  "getTrainingNodeV2": {
+    "method": "GET",
+    "path": "/v2/training-node"
+  },
+  "checkTrainingNodeV2": {
+    "method": "POST",
+    "path": "/v2/training-node:check"
+  },
+  "connectTrainingNodeV2": {
+    "method": "POST",
+    "path": "/v2/training-node:connect"
+  },
+  "disconnectTrainingNodeV2": {
+    "method": "POST",
+    "path": "/v2/training-node:disconnect"
+  },
+  "listTrainingNodesV2": {
+    "method": "GET",
+    "path": "/v2/training-nodes"
+  },
+  "createSavedTrainingNodeV2": {
+    "method": "POST",
+    "path": "/v2/training-nodes"
+  },
+  "listTrainingBundlesV2": {
+    "method": "GET",
+    "path": "/v2/training/bundles"
+  },
+  "createTrainingBundleV2": {
+    "method": "POST",
+    "path": "/v2/training/bundles"
+  },
+  "inspectTrainingBundleV2": {
+    "method": "POST",
+    "path": "/v2/training/bundles:inspect"
+  },
+  "getTrainingBundleV2": {
+    "method": "GET",
+    "path": "/v2/training/bundles/{bundle_id}"
+  },
+  "getTrainingModelsV2": {
+    "method": "GET",
+    "path": "/v2/training/models"
+  },
+  "getTrainingResourcesV2": {
+    "method": "GET",
+    "path": "/v2/training/resources"
+  },
+  "listTrainingRunsV2": {
+    "method": "GET",
+    "path": "/v2/training/runs"
+  },
+  "createTrainingRunV2": {
+    "method": "POST",
+    "path": "/v2/training/runs"
+  },
+  "getTrainingRunV2": {
+    "method": "GET",
+    "path": "/v2/training/runs/{run_id}"
+  },
+  "stopTrainingRunV2": {
+    "method": "POST",
+    "path": "/v2/training/runs/{run_id}:stop"
+  },
+  "getTrainingRunLogsV2": {
+    "method": "GET",
+    "path": "/v2/training/runs/{run_id}/logs"
+  },
+  "listTransformsV2": {
+    "method": "GET",
+    "path": "/v2/transforms"
+  },
+  "runTransformV2": {
+    "method": "POST",
+    "path": "/v2/transforms/{name}/run"
+  }
+}

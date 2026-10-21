@@ -4,6 +4,7 @@ mod auth;
 mod iam;
 mod kaneo;
 mod sso;
+mod zygos;
 
 use std::ffi::OsString;
 
@@ -17,4 +18,8 @@ pub fn run_sso(argv: &[OsString]) -> i32 {
 
 pub fn run_iam(argv: &[OsString]) -> i32 {
     iam::run(argv)
+}
+
+pub fn run_zygos(argv: &[OsString]) -> i32 {
+    zygos::run(argv)
 }

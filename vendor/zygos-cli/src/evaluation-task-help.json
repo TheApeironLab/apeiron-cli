@@ -1,0 +1,29 @@
+{
+  "authority": "Existing EvalScope gateway payload; Provider validates all inputs. config/benchmarks/metrics list actual capabilities. Examples contain placeholders and do not authorize execution.",
+  "effect_example": {
+    "zygos_deployment_id": "<registered inference connection UUID, not saved deployment config ID>",
+    "datasets": ["<one supported benchmark>"],
+    "metric_selection": {
+      "mode": "benchmark_default"
+    },
+    "limit": 10,
+    "eval_batch_size": 1,
+    "generation_config": {
+      "max_tokens": 128,
+      "temperature": 0
+    }
+  },
+  "dataset_source": "Replace datasets with zygos_source: source_ref, dataset_version, converter=evalscope-general-qa, options.target_source (selected-candidate or verification-ground-truth), accepted_fidelity_digest from converter inspection. Never invent the digest.",
+  "performance_example": {
+    "api": "openai",
+    "model": "<actual served model ID>",
+    "url": "<confirmed reachable inference URL>",
+    "parallel": [1],
+    "number": [10],
+    "stream": false,
+    "max_tokens": 128
+  },
+  "performance_limit": "Performance currently does not accept zygos_deployment_id. Use the configured Provider endpoint and credential policy. Do not expose secrets in CLI args/logs or bypass authentication.",
+  "recovery": "create invokes real inference and may wait for completion. After timeout, query show/logs with the SAME task ID. Replay only the same ID and unchanged input; never automatically create another task. Use --timeout-seconds per CLI global help.",
+  "systemone_source": "Native SystemOne: converter=evalscope-systemone and options.target_source=business-supervision; inspect the exact Dataset version first and use its accepted_fidelity_digest. Use a registered managed inference connection, limit, eval_batch_size=1, generation_config={}, and explicit metrics returned by metrics --benchmark systemone. No datasets/model/api_url/api_key, chat conversion, or reference labels in inference requests. Choice/Noul accuracy uses argmax; Score accuracy uses argmax level and MAE uses expected level."
+}
