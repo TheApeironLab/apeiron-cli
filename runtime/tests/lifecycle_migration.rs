@@ -175,6 +175,16 @@ fn collect_migrate_preserves_legacy_and_secrets_and_never_accepts_unknown_invent
     *recollect.last_mut().unwrap() = "unstable-collection";
     assert!(!t.cli(&recollect).status.success());
     assert!(!t.0.join("unstable-collection").exists());
+    // Imported collection metadata must not turn into an arbitrary secret echo.
+    t.write("legacy", &legacy);
+    let mut poisoned: Value = serde_json::from_str(&data).unwrap();
+    poisoned["unverified"] = json!({"password":"collection-private-value"});
+    t.write("poisoned-collection", &poisoned);
+    wrong_cluster[at + 1] = "poisoned-collection";
+    let rejected = t.cli(&wrong_cluster);
+    assert!(!rejected.status.success());
+    assert!(!String::from_utf8_lossy(&rejected.stderr).contains("collection-private-value"));
+    assert!(!t.0.join("migration").exists());
 }
 #[test]
 fn inspect_source_distinguishes_declared_multi_k3s_from_unsupported_amd64_targets() {

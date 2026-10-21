@@ -2,6 +2,15 @@
 //! Imported checkpoints and collected snapshots are evidence, not acceptance.
 use super::*;
 use std::process::Command;
+const UNVERIFIED: &[&str] = &[
+    "component-artifacts-and-schemas",
+    "effective-values",
+    "data-ownership",
+    "foundation-configuration",
+    "installation-completion",
+    "application-health",
+    "baseline-acceptance",
+];
 
 fn read(path: &str) -> Result<(Value, String)> {
     let bytes = resources::read(Path::new(path), LIMIT)?;
@@ -156,8 +165,7 @@ fn collect(options: &BTreeMap<String, String>) -> Result<Value> {
         "configurationSha256":configuration_hash,"resumeConfigurationSha256":resume::config_hash(&configuration),
         "nodes":last_nodes,"pods":pods,"volumes":volumes,"atomicSnapshot":false,
         "coverage":["cluster-identity","nodes","runtime-images","pvc-metadata"],
-        "unverified":["component-artifacts-and-schemas","effective-values","data-ownership",
-            "foundation-configuration","installation-completion","application-health","baseline-acceptance"]}),
+        "unverified":UNVERIFIED}),
     )
 }
 fn migrate(options: &BTreeMap<String, String>) -> Result<Value> {
@@ -173,6 +181,34 @@ fn migrate(options: &BTreeMap<String, String>) -> Result<Value> {
         .contains(&k.as_str())
     }))?;
     let (collected, collection_hash) = read(required(options, "collection")?)?;
+    let keys = collected.as_object().ok_or_else(invalid)?;
+    let fields = [
+        "schemaVersion",
+        "kind",
+        "readOnly",
+        "executionAllowed",
+        "startedAt",
+        "completedAt",
+        "clusterUid",
+        "topology",
+        "network",
+        "manifestSha256",
+        "legacySha256",
+        "configurationSha256",
+        "resumeConfigurationSha256",
+        "nodes",
+        "pods",
+        "volumes",
+        "atomicSnapshot",
+        "coverage",
+        "unverified",
+    ];
+    check(
+        keys.len() == fields.len()
+            && keys.keys().all(|k| fields.contains(&k.as_str()))
+            && collected["atomicSnapshot"] == false
+            && collected["unverified"] == json!(UNVERIFIED),
+    )?;
     let (legacy, legacy_hash) = read(required(options, "legacy")?)?;
     let (manifest, manifest_hash) = read(required(options, "manifest")?)?;
     let (configuration, configuration_hash) = read(required(options, "configuration")?)?;
@@ -231,7 +267,7 @@ fn migrate(options: &BTreeMap<String, String>) -> Result<Value> {
         "executionAllowed":false,"status":"review-required","liveVerified":false,
         "installationCandidate":record,"observationCandidate":observation,"collectionSha256":collection_hash,"legacySha256":legacy_hash,
         "unknownDigestSentinel":"0".repeat(64),"legacyClusterUidPresent":legacy["clusterUid"].is_string(),
-        "gaps":collected["unverified"],"remediation":remediation::guidance("BASELINE_UNVERIFIED"),
+        "gaps":UNVERIFIED,"remediation":remediation::guidance("BASELINE_UNVERIFIED"),
         "preserveLegacyCheckpoint":true,"resumeCompatible":false,
         "warning":"候选记录不是已验收基线；未知组件不能推断为已安装或缺席。需独立核实后验收，生产执行保持阻断。"}),
     )
