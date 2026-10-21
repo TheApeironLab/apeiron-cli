@@ -243,6 +243,32 @@ pub struct Context {
     log: fs::File,
 }
 impl Context {
+    pub(crate) fn application(config: &Path, directory: &Path) -> Result<Self> {
+        process::private_directory(directory)?;
+        let path = directory.join("install.log");
+        if !path.exists() {
+            private_write(&path, b"")?;
+        }
+        config::location(&path)?;
+        let owner = Deployment::new();
+        Ok(Self {
+            config: config.to_owned(),
+            directory: directory.to_owned(),
+            cancel: Cancellation::default(),
+            owner,
+            log: OpenOptions::new()
+                .append(true)
+                .open(path)
+                .map_err(|_| fail("无法打开应用操作日志。", 9))?,
+        })
+    }
+    pub(crate) fn app_checkpoint(&self) {
+        *self.owner.0.checkpoint.lock().unwrap() = Some(resume::location(&self.config));
+    }
+    pub(crate) fn app_cleanup(&self) -> bool {
+        self.owner.cleanup()
+    }
+
     #[cfg(test)]
     pub fn fixture(directory: &Path) -> Self {
         Self {
@@ -586,6 +612,9 @@ impl Deployment {
         }
         let record =
             resume::recovery(path)?.ok_or_else(|| fail("没有可信的部署检查点；不能自动接管未完成的集群引导。", 409))?;
+        if record.get("appOperation").is_some() && record["succeeded"] != true {
+            return Err(fail("存在未完成的应用操作，请使用原 apeiron app 命令重试。", 409));
+        }
         resume::inactive(&record)?;
         if record["configHash"] != resume::config_hash(&config) {
             return Err(fail("配置已变化，不能作为同一次安装继续。", 409));

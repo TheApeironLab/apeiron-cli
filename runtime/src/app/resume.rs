@@ -372,6 +372,21 @@ pub fn checkpoint(
     write(&location(config_path), &value)?;
     Ok(value)
 }
+/// A new application operation may use a newer CLI, but must prove the completed
+/// installation's files, configuration and cluster identity unchanged.
+pub(crate) fn validate_completed(
+    record: &Value,
+    config: &Value,
+    cancel: &Cancellation,
+) -> Result<BTreeMap<String, String>> {
+    if record["succeeded"] != true || record["finished"] != true {
+        return Err(error());
+    }
+    inactive(record)?;
+    let mut record = record.clone();
+    record["cliSha256"] = json!(cli_identity()?);
+    validate(&record, config, cancel)
+}
 pub fn validate(record: &Value, config: &Value, cancel: &Cancellation) -> Result<BTreeMap<String, String>> {
     if record["configHash"] != config_hash(config)
         || record["checkpoint"] != "bootstrap-complete"

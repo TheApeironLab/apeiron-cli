@@ -377,3 +377,30 @@ apeiron iam member update <SUBJECT> --file access.json --idempotency-key <UUID> 
 `member create`、`member update`、`member reset-password` 的 JSON 文件沿用组织 API 契约，`--file -` 可从 stdin 读取。密码不通过命令参数传递。所有写命令必须指定 UUID 幂等键；未知结果先查询操作记录，再使用原幂等键与原输入重试，不自动生成新操作。开户的邮箱核验声明仍须基于真实组织核验。CLI 不接受任意 API URL 或租户参数，组织由 SSO 身份决定。
 
 Zygos 可在安装向导中选择，需使用包含其 API、Web、Worker、EvalScope 四个镜像的新版 Chentu 安装包。旧版在线包不包含 Zygos，因此当前默认应用选择保持兼容；使用新版包时显式勾选 Zygos。GPU 节点与模型权重单独配置。
+
+## 单应用安装、更新与卸载
+
+对已完成 `apeiron init` 的实例操作，显式指定实例，避免操作到其它集群：
+
+```sh
+apeiron app list --instance my-team
+apeiron app install zygos --instance my-team --bundle-dir /absolute/chentu-package --dry-run
+apeiron app install zygos --instance my-team --bundle-dir /absolute/chentu-package
+apeiron app update zygos --instance my-team --bundle-dir /absolute/next-package
+apeiron app uninstall zygos --instance my-team --dry-run
+apeiron app uninstall zygos --instance my-team --yes
+```
+
+也可使用 `--config /absolute/config.json`。程序仍是 Rust 单文件，运行不需要 Bun/Node。
+安装包须包含新版 Chentu 的应用生命周期入口，已有集群与资源身份会先被核验。
+`install` 追加应用，依赖应用和共享服务须已安装；`update` 同步当前或指定包中固定的版本，
+不会自动选择公网 latest。单应用包不得同时改变其它已安装组件的制品；整体升级使用安装向导。
+更新保留运维配置，只推进所选应用的镜像与 Chart。安装/卸载另同步 Apeiron 的应用目录。
+
+`uninstall` 停止并移除应用服务，保留 PVC、凭据、共享数据库和对象存储，不提供清空数据开关。
+基础应用和仍被依赖的应用不能卸载。老版本若未在 Helm 记录中声明数据保留策略，须先执行
+`app update`；存在删除 hook 的 release 会拒绝通用卸载。Zygos 卸载前检查活动评测，维护前须结束 Worker 任务。
+
+`--dry-run` 校验资源、目标集群和卸载策略，不修改集群或实例配置，会生成本地预览日志。
+应用选择在操作成功后才保存。失败可能已部分改变集群，不自动回滚数据库；使用完全相同的命令
+和包重试。检查点会拒绝变动资源、错误集群及并发部署。`app list` 展示配置中的选择，不代替服务健康检查。
