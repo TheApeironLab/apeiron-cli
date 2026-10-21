@@ -4,7 +4,7 @@ import APPS from '../runtime/assets/apps.json';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-export const requiredApps = ['nexus', 'vasi', 'ontology', 'apeiron'];
+export const requiredApps = ['nexus', 'vasi', 'apeiron', 'gateway'];
 export async function deploymentFixture(dir) {
     const root = join(dir, 'chentu fixture');
     const workDir = join(dir, 'work');
@@ -91,3 +91,6 @@ export async function freshInstallFixture(dir, setup, exit = 0, resumeDomain) {
         files: [{ path: 'core.bin', size: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') }] };
     await writeFile(join(setup.root, 'setup/install.json'), JSON.stringify(catalog));
 }
+
+// No model requests: deterministic input for deployment control-path tests.
+export const fixtureModels = { provider: 'fixture', baseUrl: 'https://models.example.internal/v1', apiKey: 'fixture-only-key', fast: 'fixture-chat', deep: 'fixture-chat' };
