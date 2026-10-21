@@ -23,7 +23,9 @@ export function initWizard(supportsK3sHost) {
     let deploymentRequestSerial = 0;
     let nodesFingerprint = '';
     let nodeRequest;
-    const topology = () => document.querySelector('[name="topology"]:checked').value;
+    // Legacy names below describe local/SSH transport only; new intent stores k3s.
+    const runtime = () => document.querySelector('[name="topology"]:checked').value;
+    const topology = () => runtime() === 'single-k3d' ? 'single-k3d' : get('use-current-node').checked ? 'single-k3s' : 'multi-k3s';
     let step = 0;
     let busy = false;
     let revision = null;
@@ -436,14 +438,16 @@ export function initWizard(supportsK3sHost) {
         const mode = topology();
         get('node-section').hidden = mode !== 'multi-k3s';
         get('ha-fields').hidden = mode !== 'multi-k3s';
-        get('deployment-mode').textContent = mode === 'single-k3d' ? '本地测试 · K3d' : mode === 'multi-k3s' ? '多机 K3s' : '单机 K3s';
+        get('deployment-mode').textContent = mode === 'single-k3d' ? '本地测试 · K3d' : 'K3s';
+        get('current-node-field').hidden = mode === 'single-k3d';
         fields.bundleDir.required = offline.checked;
         get('bundle-fields').hidden = !offline.checked;
         get('resource-mode').textContent = offline.checked ? '检查本地应用及依赖包；缺少或校验失败时停止，不访问外网。' : '选择应用后检查实际安装资源，下载与校验通过后才会安装。';
         const supported = machine && supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture);
-        get('topology-note').textContent = mode === 'single-k3d' ? offline.checked ? '使用本地完整安装包创建 K3d 测试集群，需要本机 Docker 正在运行。' : '创建独立的本地测试集群，需要本机 Docker 正在运行。' : mode === 'multi-k3s' ? '管理机可以使用 macOS；节点需为 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，系统与架构一致，并提供匹配的安装包。' : machine && !supported ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '在当前 Ubuntu 主机上安装 K3s；需要匹配系统与架构的安装包，以及 root 或免密 sudo。';
+        get('topology-note').textContent = mode === 'single-k3d' ? offline.checked ? '使用本地完整安装包创建 K3d 测试集群，需要本机 Docker 正在运行。' : '创建独立的本地测试集群，需要本机 Docker 正在运行。' : mode === 'multi-k3s' ? '管理机可以使用 macOS；节点需为 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，系统与架构一致，并提供匹配的安装包。' : machine && !supported ? '当前节点需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '在当前 Ubuntu 主机上安装 K3s；需要匹配系统与架构的安装包，以及 root 或免密 sudo。';
         renderSetup();
     }
+    get('use-current-node').addEventListener('change', renderTarget);
     for (const input of document.querySelectorAll('[name="topology"]'))
         input.addEventListener('change', renderTarget);
     for (const input of document.querySelectorAll('[name="source"]'))
@@ -606,7 +610,7 @@ export function initWizard(supportsK3sHost) {
             address: row.querySelector('[data-field=address]')?.value ?? '',
             role: row.querySelector('[data-field=role]')?.value,
         })) : [];
-        return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? localPorts()[0] : 80, httpsPort: mode === 'single-k3d' ? localPorts()[1] : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField('public-ip'), tunnelPort: paired?.tunnelPort ?? Number(publicField('tunnel-port')), ...(paired ? { pairingId: paired.id } : accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
+        return { installation: { topology: runtime(), domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? localPorts()[0] : 80, httpsPort: mode === 'single-k3d' ? localPorts()[1] : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField('public-ip'), tunnelPort: paired?.tunnelPort ?? Number(publicField('tunnel-port')), ...(paired ? { pairingId: paired.id } : accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
             runner: mode === 'single-k3d' ? 'docker' : 'native',
             root: '', offline: offline.checked, bundleDir: offline.checked ? fields.bundleDir.value.trim() : '',
             environment: '', kubeconfig: '', workDir: '', image: 'chentu-lab' };
@@ -621,7 +625,8 @@ export function initWizard(supportsK3sHost) {
         document.querySelector(`[name="access-mode"][value="${published?.mode ?? 'private'}"]`).checked = true;
         for (const [id, text] of Object.entries({ 'public-ip': published?.publicIp ?? '', 'gateway-host': published?.gateway?.host ?? '', 'gateway-user': published?.gateway?.sshUser ?? '', 'gateway-key': published?.gateway?.sshKey ?? '', 'gateway-port': String(published?.gateway?.sshPort ?? 22), 'tunnel-port': String(published?.tunnelPort ?? 19444) }))
             get(id).value = text;
-        document.querySelector(`[name="topology"][value="${install?.topology ?? 'single-k3d'}"]`).checked = true;
+        document.querySelector(`[name="topology"][value="${!install?.topology || install.topology === 'single-k3d' ? 'single-k3d' : 'k3s'}"]`).checked = true;
+        get('use-current-node').checked = install?.topology !== 'multi-k3s' && !(install?.nodes?.length);
         offline.checked = Boolean(value.offline);
         get('online').checked = !offline.checked;
         fields.bundleDir.value = value.bundleDir;
@@ -674,7 +679,7 @@ export function initWizard(supportsK3sHost) {
     }
     function renderCoexistence() {
         const mode = topology();
-        get('instance-topology-label').textContent = mode === 'single-k3d' ? '单机 K3d' : mode === 'multi-k3s' ? '多机 K3s' : '单机 K3s';
+        get('instance-topology-label').textContent = mode === 'single-k3d' ? 'K3d' : 'K3s';
         get('coexist-instance').textContent = instanceLabel();
         get('coexist-config').textContent = configPath || '—';
         get('coexist-ports').textContent = mode === 'single-k3d' ? `HTTP ${localPorts()[0]} / HTTPS ${localPorts()[1]}（服务端分配）` : 'HTTP 80 / HTTPS 443（原生 K3s 固定）';
@@ -755,8 +760,8 @@ export function initWizard(supportsK3sHost) {
         const value = target();
         const install = value.installation;
         get('summary-instance').textContent = instanceLabel();
-        get('summary-topology').textContent = install.topology === 'single-k3d' ? '单机 K3d（本机 Docker）' : install.topology === 'multi-k3s' ? `多机 K3s${install.ha ? ' · 控制平面高可用' : ''}` : '单机 K3s（当前主机）';
-        get('summary-nodes').textContent = install.topology === 'multi-k3s' ? install.nodes.map(node => `${node.host}（${node.role === 'server' ? '控制' : '工作'} · ${node.address}）`).join('、') || '尚未检测' : install.topology === 'single-k3d' ? '本机 Docker 容器' : '当前主机';
+        get('summary-topology').textContent = install.topology === 'single-k3d' ? '单机 K3d（本机 Docker）' : `K3s${install.ha ? ' · 控制平面高可用' : ''}`;
+        get('summary-nodes').textContent = topology() === 'multi-k3s' ? install.nodes.map(node => `${node.host}（${node.role === 'server' ? '控制' : '工作'} · ${node.address}）`).join('、') || '尚未检测' : install.topology === 'single-k3d' ? '本机 Docker 容器' : '当前主机';
         get('summary-source').textContent = value.offline ? `离线 · ${value.bundleDir}` : '在线下载固定发行版';
         get('summary-domain').textContent = install.domain || '—';
         get('summary-entry').textContent = install.publicAccess ? `${install.publicAccess.mode === 'relay' ? 'ECS 转发' : '公网直连'} · ${install.publicAccess.publicIp}` : `内网 · ${install.entryIp || '—'}`;
@@ -859,12 +864,12 @@ export function initWizard(supportsK3sHost) {
             if (offline.checked && !fields.bundleDir.reportValidity())
                 return false;
             if (topology() === 'single-k3s' && (!machine || !supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture))) {
-                showError(machine ? '单机 K3s 需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '请先完成当前主机的系统检测。');
+                showError(machine ? '当前节点需要 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64。' : '请先完成当前主机的系统检测。');
                 return false;
             }
             if (topology() === 'multi-k3s') {
-                if (nodesFingerprint !== fingerprint() || nodeFacts.length < 2 || nodeFacts.some(node => node.error)) {
-                    showError('请先成功检测至少 2 台 Ubuntu 节点。');
+                if (nodesFingerprint !== fingerprint() || nodeFacts.length < 1 || nodeFacts.some(node => node.error)) {
+                    showError('请先成功检测目标 Ubuntu 节点。');
                     return false;
                 }
                 const nodes = target().installation.nodes;
@@ -1400,7 +1405,7 @@ export function initWizard(supportsK3sHost) {
             header.append(state);
             const meta = document.createElement('div');
             meta.className = 'instance-meta';
-            for (const [label, value] of [['ID', instance.id], ['拓扑', instance.topology], ['域名', instance.domain || '—'], ['端口', `${instance.httpPort} / ${instance.httpsPort}`], ['配置', instance.config]]) {
+            for (const [label, value] of [['ID', instance.id], ['运行方式', instance.topology === 'single-k3d' ? 'K3d' : 'K3s'], ['域名', instance.domain || '—'], ['端口', `${instance.httpPort} / ${instance.httpsPort}`], ['配置', instance.config]]) {
                 const cell = document.createElement('span');
                 cell.textContent = label;
                 const strong = document.createElement('b');

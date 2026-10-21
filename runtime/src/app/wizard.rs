@@ -158,7 +158,8 @@ impl State {
                     .and_then(|r| instances::entry(&r, &instances::id_for(&path)).ok().cloned())
                     .filter(|e| e["name"] == name);
                 if let Some(entry) = existing {
-                    if entry["topology"] != topology {
+                    if entry["topology"] != topology
+                        && !(topology == "k3s" && [Some("single-k3s"), Some("multi-k3s")].contains(&entry["topology"].as_str())) {
                         // Changing only the index leaves the saved configuration
                         // and reserved ports on the original topology. Creation
                         // is idempotent only for the same installation identity.

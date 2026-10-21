@@ -121,10 +121,19 @@ test('a packaged instance path is adopted on open and reported by api/config', a
 });
 test('api/preflight validates like deploy, reports warnings or a blocking reason, and never saves', async () => {
     const { path, post, body, installBody, setup } = await fixture();
-    let response = await post('preflight', await installBody());
+    // Use free ports: real developer clusters may own the conventional K3d ports.
+    const listeners = [0, 1].map(() => Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('fixture') }));
+    const [httpPort, httpsPort] = listeners.map(server => server.port);
+    for (const listener of listeners) listener.stop(true);
+    const preflightBody = async () => {
+        const input = await installBody();
+        Object.assign(input.deployment.installation, { httpPort, httpsPort });
+        return input;
+    };
+    let response = await post('preflight', await preflightBody());
     expect(response.status).toBe(200);
     let result = await response.json();
-    expect(result.installation).toMatchObject({ topology: 'single-k3d', httpPort: 54320, httpsPort: 54321 });
+    expect(result.installation).toMatchObject({ topology: 'single-k3d', httpPort, httpsPort });
     expect(result.blocked).toBeNull();
     expect(typeof result.preflight).toBe('string');
     expect(await Bun.file(path).exists()).toBe(false);

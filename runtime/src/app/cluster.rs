@@ -23,7 +23,7 @@ pub fn native_k3s_present() -> bool {
 /// nodes are remote and are checked by the node probe instead.
 pub fn preflight(config: &Path, installation: &Value, cancel: &Cancellation) -> Result<String> {
     let topology = installation["topology"].as_str().unwrap_or("");
-    if topology == "multi-k3s" {
+    if config::explicit_nodes(installation) {
         return Ok(String::new());
     }
     let co = coexistence(topology, native_k3s_present(), &instances::Host)?;

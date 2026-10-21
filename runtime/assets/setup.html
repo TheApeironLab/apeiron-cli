@@ -11,7 +11,7 @@
 .machine-probe{border:1px solid #e1e8f2;border-radius:12px;background:#fafbfd;padding:18px;margin-bottom:29px}.probe-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.probe-heading h2{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:650;margin:0}.probe-heading h2 svg{width:20px;height:20px;color:#3e78e8}.probe-heading button{font-size:11px;padding:7px 10px;background:white}.system-probe{margin-bottom:16px}.system-host{font-size:10px;color:#91a0b2}.system-grid{display:grid;grid-template-columns:1.35fr 1fr .85fr 1fr;gap:16px;margin:23px 0 18px}.system-grid dt{font-size:11px;color:#8996a9;margin-bottom:9px}.system-grid dd{margin:0;font-size:13px;line-height:1.6;font-weight:600;color:#40516a;overflow-wrap:anywhere}.system-grid small{display:block;font-size:10px;line-height:1.7;color:#9aa6b7;margin-top:4px;overflow-wrap:anywhere}.system-cpu{display:flex;gap:12px;margin:0;padding-top:13px;border-top:1px solid #e6ecf4;font-size:11px;line-height:1.7;color:#8996a9}.system-cpu strong{font-weight:450;color:#60718a;overflow-wrap:anywhere}
 .network-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;list-style:none;padding:0;margin:18px 0 0}.network-card{display:flex;flex-direction:column;align-items:center;min-width:0;padding:18px 10px 13px;background:#f0f4fa;border:1px solid #e8edf5;border-radius:10px;text-align:center}.network-icon{display:grid;place-items:center;width:29px;height:29px;margin-bottom:10px;color:#273448}.network-icon svg{width:100%;height:100%}.network-card:last-child .network-icon{color:#5285d6}.network-card strong{font-size:12px;font-weight:550;color:#54647b}.network-result{align-self:stretch;display:flex;flex-direction:column;gap:4px;border-top:1px solid #dee5ee;margin-top:13px;padding-top:11px;font-size:11px;color:#8190a4}.network-latency{font-size:10px;color:#97a3b4;min-height:14px}.network-card[data-state=reachable] .network-status{color:#238366}.network-card[data-state=limited] .network-status{color:#a16d2f}.network-card[data-state=pending] .network-status{color:#6488c8}.probe-details{margin-top:13px}.probe-details summary{font-size:10px;color:#8a98aa;cursor:pointer;width:fit-content}.probe-time{font-size:10px;line-height:1.8;color:#8b98aa;margin:12px 0}.probe-sites{list-style:none;padding:0;margin:12px 0 0}.probe-sites li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;font-size:10px;color:#7b8ba1;line-height:1.8;margin-top:6px;overflow-wrap:anywhere}.probe-sites li>span{min-width:0}.probe-sites li>small{grid-column:1/-1;font-size:10px;color:#8b98aa}.probe-sites [data-state=reachable]{color:#208568}.probe-sites [data-state=limited]{color:#a56b25}.probe-note{font-size:10px;color:#8997aa;line-height:1.8;margin:12px 0 0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:760px){.system-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.machine-probe{padding:15px}.network-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.network-card{padding-top:15px}.probe-sites li{grid-template-columns:minmax(0,1fr);gap:2px}}
-.choice-field{margin-top:22px}.choice-field legend{font-size:11px;color:#8390a3;margin-bottom:10px}.choices{display:grid;gap:9px}.source-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.topology-choices{grid-template-columns:repeat(3,minmax(0,1fr))}.choice{position:relative;padding:14px 10px;border:1px solid #dfe6ef;border-radius:9px;background:white;cursor:pointer;display:flex;flex-direction:column;gap:7px}.choice input{position:absolute;right:9px;top:10px;accent-color:var(--accent);width:12px;height:12px;margin:0}.choice strong{font-size:12px;padding-right:14px;font-weight:600}.choice small{font-size:10px;color:#8a97a8;line-height:1.6}.choice:has(input:checked){border-color:#7398ee;background:#f0f5ff}.choice:has(input:disabled){opacity:.5;cursor:not-allowed}#bundle-fields{margin-top:18px}#ha-fields{margin-top:16px;padding-top:15px;border-top:1px solid #e3eaf3}.node-addresses{margin-top:20px}textarea{font:inherit;font-size:12px;width:100%;resize:vertical;border:1px solid #dbe2ec;border-radius:8px;padding:11px;min-height:88px}.connection-grid{display:grid;grid-template-columns:minmax(0,1fr) 85px;gap:12px}.path-picker{display:flex;gap:8px}.node-results{display:grid;gap:10px;margin-top:16px}.node-result{border:1px solid #e1e8f2;border-radius:9px;background:white;padding:12px;font-size:11px;line-height:1.8;min-width:0;overflow-wrap:anywhere}.node-result header{display:flex;justify-content:space-between;gap:10px}.node-result p{color:#8a97a8;margin:5px 0}.node-result .node-error{color:#ad6e29}.node-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.node-controls label{font-size:10px;color:#7c8ba1}.node-controls select{font-size:11px;height:34px;margin-top:4px}.node-controls input{height:34px;font-size:11px;margin-top:4px}@media(max-width:480px){.topology-choices{grid-template-columns:1fr}.choice small{padding-right:10px}.path-picker{flex-direction:column}}
+.choice-field{margin-top:22px}.choice-field legend{font-size:11px;color:#8390a3;margin-bottom:10px}.choices{display:grid;gap:9px}.source-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.topology-choices{grid-template-columns:repeat(2,minmax(0,1fr))}.choice{position:relative;padding:14px 10px;border:1px solid #dfe6ef;border-radius:9px;background:white;cursor:pointer;display:flex;flex-direction:column;gap:7px}.choice input{position:absolute;right:9px;top:10px;accent-color:var(--accent);width:12px;height:12px;margin:0}.choice strong{font-size:12px;padding-right:14px;font-weight:600}.choice small{font-size:10px;color:#8a97a8;line-height:1.6}.choice:has(input:checked){border-color:#7398ee;background:#f0f5ff}.choice:has(input:disabled){opacity:.5;cursor:not-allowed}#bundle-fields{margin-top:18px}#ha-fields{margin-top:16px;padding-top:15px;border-top:1px solid #e3eaf3}.node-addresses{margin-top:20px}textarea{font:inherit;font-size:12px;width:100%;resize:vertical;border:1px solid #dbe2ec;border-radius:8px;padding:11px;min-height:88px}.connection-grid{display:grid;grid-template-columns:minmax(0,1fr) 85px;gap:12px}.path-picker{display:flex;gap:8px}.node-results{display:grid;gap:10px;margin-top:16px}.node-result{border:1px solid #e1e8f2;border-radius:9px;background:white;padding:12px;font-size:11px;line-height:1.8;min-width:0;overflow-wrap:anywhere}.node-result header{display:flex;justify-content:space-between;gap:10px}.node-result p{color:#8a97a8;margin:5px 0}.node-result .node-error{color:#ad6e29}.node-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px}.node-controls label{font-size:10px;color:#7c8ba1}.node-controls select{font-size:11px;height:34px;margin-top:4px}.node-controls input{height:34px;font-size:11px;margin-top:4px}@media(max-width:480px){.topology-choices{grid-template-columns:1fr}.choice small{padding-right:10px}.path-picker{flex-direction:column}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 .chip-sep{color:#b7c0cc}#instance-chip{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.entry-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.entry-card{border:1px solid #e1e8f2;border-radius:12px;background:#fafbfd;padding:22px;min-width:0}.entry-card h2{font-size:16px;margin:0 0 8px}.entry-card .field{margin:16px 0 0}.entry-card .button{margin-top:16px}.link-button{border:0;background:none;padding:0;color:var(--accent);font-size:11px;text-decoration:underline;cursor:pointer}.instance-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}.instance-toolbar .saved-path{margin-left:auto}.instance-list{list-style:none;padding:0;margin:0;display:grid;gap:12px}.instance-card{border:1px solid #e1e8f2;border-radius:12px;background:white;padding:16px 18px;min-width:0}.instance-card[data-current=true]{border-color:#7398ee;background:#f5f8ff}.instance-card header{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}.instance-card header strong{font-size:14px}.instance-card .current-badge{font-size:10px;color:#1c4dbd;background:#e3ecff;border-radius:10px;padding:2px 8px}.instance-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 16px;margin:12px 0;font-size:11px;color:#64748b}.instance-meta span{overflow-wrap:anywhere}.instance-meta b{display:block;color:#40516a;font-weight:600;margin-top:2px}.instance-actions{display:flex;gap:8px;flex-wrap:wrap}.instance-actions .button{padding:8px 12px;font-size:11px}.instance-state{font-size:11px;color:#64748b;margin-left:auto}.instance-state[data-state=running],.instance-state[data-state=succeeded]{color:#218769}.instance-state[data-state=blocked],.instance-state[data-state=interrupted]{color:#aa6329}.instance-confirm{margin-top:16px;border:1px solid #f1d4d9;background:#fff6f7;border-radius:10px;padding:14px}.instance-confirm .button{margin:8px 8px 0 0}.scenario-buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.scenario-buttons .button[aria-pressed=true]{border-color:#7398ee;background:#f0f5ff;color:#1c4dbd}#app-grid{margin-top:22px}#coexist-warnings li,#summary-warnings li{color:#805b00}#coexist-status[data-state=blocked],#summary-preflight[data-state=blocked]{color:#ac3443}#coexist-status[data-state=clear],#summary-preflight[data-state=clear]{color:#218769}#summary-list dd{overflow-wrap:anywhere}input[readonly]#http-port,input[readonly]#https-port{background:#f7f9fc;color:#506784}#form-home{margin-right:auto}
 @media(max-width:760px){.entry-cards{grid-template-columns:1fr}#instance-chip{max-width:120px}.instance-toolbar .saved-path{display:none}}
@@ -39,7 +39,7 @@
 <div class="entry-cards">
 <section class="entry-card" aria-labelledby="create-title"><h2 id="create-title">创建新安装实例</h2><p class="hint">登记一个新的实例目录，并由服务端分配入口端口；随后进入配置流程。</p>
 <div class="field"><label class="field-label" for="new-instance-name">实例名称</label><input id="new-instance-name" type="text" maxlength="63" placeholder="例如 lab" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"><p class="hint">小写字母、数字和连字符；同时作为默认域名前缀。</p></div>
-<div class="field"><label class="field-label" for="new-instance-topology">拓扑</label><select id="new-instance-topology"><option value="single-k3d">单机 K3d · 本机 Docker</option><option value="single-k3s">单机 K3s · 当前 Ubuntu 主机</option><option value="multi-k3s">多机 K3s · 多台 Ubuntu 主机</option></select></div>
+<div class="field"><label class="field-label" for="new-instance-topology">运行方式</label><select id="new-instance-topology"><option value="single-k3d">单机 K3d · 本机 Docker</option><option value="k3s">K3s · Ubuntu 节点</option></select></div>
 <button id="create-instance" class="button primary" type="button">创建并开始配置</button><p id="create-instance-status" class="hint" role="status"></p>
 <p class="hint"><button id="configure-current" class="link-button" type="button">直接配置当前实例（不新建）</button></p></section>
 <section class="entry-card" aria-labelledby="manage-title"><h2 id="manage-title">管理已有安装实例</h2><p class="hint">查看注册表中的实例、集群状态与端口；可以切换、采集诊断或卸载未运行的 K3d 实例。</p><p id="home-instance-count" class="hint"></p><button id="manage-instances" class="button" type="button">查看实例列表</button></section>
@@ -72,12 +72,13 @@
 <div id="bundle-fields" hidden><div class="field"><label class="field-label" for="bundle-dir">离线安装包目录</label><div class="path-picker"><input id="bundle-dir" type="text" placeholder="/media/chentu-bundle" autocomplete="off"><button id="pick-bundle" class="button" type="button">选择目录</button></div><p class="hint">选择包含宸途部署程序和应用资源的完整离线包目录。也可以粘贴 CLI 主机上的路径。</p></div></div>
 <p id="resource-mode" class="hint">选择应用后检查实际安装资源，下载与校验通过后才会安装。</p>
 <fieldset class="choice-field"><legend>集群类型</legend><div class="choices topology-choices">
-<label class="choice"><input type="radio" name="topology" value="single-k3s"><strong>单机 K3s</strong><small>安装到当前 Ubuntu 主机</small></label>
+<label class="choice"><input type="radio" name="topology" value="k3s"><strong>K3s</strong><small>安装到一个或多个 Ubuntu 节点</small></label>
 <label class="choice"><input type="radio" name="topology" value="single-k3d"><strong>单机 K3d</strong><small>本地开发测试 · Docker</small></label>
-<label class="choice"><input type="radio" name="topology" value="multi-k3s"><strong>多机 K3s</strong><small>连接多台 Ubuntu 主机</small></label></div></fieldset>
+</div></fieldset>
+<div id="current-node-field"><label class="test-switch"><input id="use-current-node" type="checkbox" checked>使用当前主机作为节点</label><p class="hint">取消后填写目标节点；节点数量不会自动改变应用副本或存储策略。</p></div>
 <p id="topology-note" class="hint" role="status"></p>
 <div id="local-ports" hidden><div class="node-controls choice-field"><label class="field-label" for="http-port">HTTP 端口<input id="http-port" type="text" inputmode="numeric" value="54320" maxlength="5" readonly></label><label class="field-label" for="https-port">HTTPS 端口<input id="https-port" type="text" inputmode="numeric" value="54321" maxlength="5" readonly></label></div><p class="hint" id="local-ports-note">入口端口由服务端在创建实例时分配并登记，页面只读展示；同一集群重试沿用原端口。</p></div>
-<div id="ha-fields" hidden><label class="test-switch" for="ha"><input id="ha" type="checkbox">控制平面高可用</label><p class="hint">普通多机：1 个控制节点，其余为工作节点。高可用：至少 3 个、且为奇数个控制节点。</p></div>
+<div id="ha-fields" hidden><label class="test-switch" for="ha"><input id="ha" type="checkbox">控制平面高可用</label><p class="hint">默认：1 个控制节点，其余为工作节点。高可用：至少 3 个、且为奇数个控制节点。</p></div>
 </section>
 <section id="node-section" class="machine-probe" aria-labelledby="nodes-title" hidden>
 <div class="probe-heading"><h2 id="nodes-title">节点连接</h2><button id="import-ssh" class="button" type="button">导入 SSH 别名</button></div>
@@ -147,7 +148,7 @@
 </div>
 <div data-panel hidden>
 <section class="machine-probe" aria-labelledby="summary-title"><div class="probe-heading"><h2 id="summary-title">部署摘要</h2></div>
-<dl class="summary" id="summary-list"><div><dt>实例</dt><dd id="summary-instance"></dd></div><div><dt>拓扑</dt><dd id="summary-topology"></dd></div><div><dt>节点</dt><dd id="summary-nodes"></dd></div><div><dt>安装来源</dt><dd id="summary-source"></dd></div><div><dt>域名</dt><dd id="summary-domain"></dd></div><div><dt>入口</dt><dd id="summary-entry"></dd></div><div><dt>端口</dt><dd id="summary-ports"></dd></div><div><dt>应用</dt><dd id="summary-apps"></dd></div><div><dt>模型</dt><dd id="summary-models"></dd></div></dl></section>
+<dl class="summary" id="summary-list"><div><dt>实例</dt><dd id="summary-instance"></dd></div><div><dt>运行方式</dt><dd id="summary-topology"></dd></div><div><dt>节点</dt><dd id="summary-nodes"></dd></div><div><dt>安装来源</dt><dd id="summary-source"></dd></div><div><dt>域名</dt><dd id="summary-domain"></dd></div><div><dt>入口</dt><dd id="summary-entry"></dd></div><div><dt>端口</dt><dd id="summary-ports"></dd></div><div><dt>应用</dt><dd id="summary-apps"></dd></div><div><dt>模型</dt><dd id="summary-models"></dd></div></dl></section>
 <section class="machine-probe" aria-labelledby="summary-preflight-title"><div class="probe-heading"><h2 id="summary-preflight-title">预检</h2><button id="summary-refresh" class="button" type="button">重新预检</button></div><p id="summary-preflight" class="hint" role="status"></p><ul id="summary-warnings" class="dns-results"></ul></section>
 <p class="hint">点击“开始安装”后先校验配置与端口、检查安装资源，再创建集群并部署应用。缺少资源或校验失败时会停止。</p>
 </div>
@@ -178,7 +179,7 @@
     sshKey: get("ssh-key")
   };
   let machine, nodeFacts = [], nodeSerial = 0, deploymentAction = !1, deploymentRequestSerial = 0, nodesFingerprint = "", nodeRequest;
-  const topology = () => document.querySelector('[name="topology"]:checked').value;
+  const runtime = () => document.querySelector('[name="topology"]:checked').value, topology = () => runtime() === "single-k3d" ? "single-k3d" : get("use-current-node").checked ? "single-k3s" : "multi-k3s";
   let step = 0, busy = !1, revision = null, apps = [], timer;
   const endpoint = (name) => new URL("api/" + name, location.href).href, error = get("error");
   form.addEventListener("input", () => {
@@ -582,14 +583,16 @@ ${access.domain}      A    ${access.entryIp}`;
     const mode = topology();
     get("node-section").hidden = mode !== "multi-k3s";
     get("ha-fields").hidden = mode !== "multi-k3s";
-    get("deployment-mode").textContent = mode === "single-k3d" ? "\u672C\u5730\u6D4B\u8BD5 \xB7 K3d" : mode === "multi-k3s" ? "\u591A\u673A K3s" : "\u5355\u673A K3s";
+    get("deployment-mode").textContent = mode === "single-k3d" ? "\u672C\u5730\u6D4B\u8BD5 \xB7 K3d" : "K3s";
+    get("current-node-field").hidden = mode === "single-k3d";
     fields.bundleDir.required = offline.checked;
     get("bundle-fields").hidden = !offline.checked;
     get("resource-mode").textContent = offline.checked ? "\u68C0\u67E5\u672C\u5730\u5E94\u7528\u53CA\u4F9D\u8D56\u5305\uFF1B\u7F3A\u5C11\u6216\u6821\u9A8C\u5931\u8D25\u65F6\u505C\u6B62\uFF0C\u4E0D\u8BBF\u95EE\u5916\u7F51\u3002" : "\u9009\u62E9\u5E94\u7528\u540E\u68C0\u67E5\u5B9E\u9645\u5B89\u88C5\u8D44\u6E90\uFF0C\u4E0B\u8F7D\u4E0E\u6821\u9A8C\u901A\u8FC7\u540E\u624D\u4F1A\u5B89\u88C5\u3002";
     const supported = machine && supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture);
-    get("topology-note").textContent = mode === "single-k3d" ? offline.checked ? "\u4F7F\u7528\u672C\u5730\u5B8C\u6574\u5B89\u88C5\u5305\u521B\u5EFA K3d \u6D4B\u8BD5\u96C6\u7FA4\uFF0C\u9700\u8981\u672C\u673A Docker \u6B63\u5728\u8FD0\u884C\u3002" : "\u521B\u5EFA\u72EC\u7ACB\u7684\u672C\u5730\u6D4B\u8BD5\u96C6\u7FA4\uFF0C\u9700\u8981\u672C\u673A Docker \u6B63\u5728\u8FD0\u884C\u3002" : mode === "multi-k3s" ? "\u7BA1\u7406\u673A\u53EF\u4EE5\u4F7F\u7528 macOS\uFF1B\u8282\u70B9\u9700\u4E3A Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\uFF0C\u7CFB\u7EDF\u4E0E\u67B6\u6784\u4E00\u81F4\uFF0C\u5E76\u63D0\u4F9B\u5339\u914D\u7684\u5B89\u88C5\u5305\u3002" : machine && !supported ? "\u5355\u673A K3s \u9700\u8981 Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\u3002" : "\u5728\u5F53\u524D Ubuntu \u4E3B\u673A\u4E0A\u5B89\u88C5 K3s\uFF1B\u9700\u8981\u5339\u914D\u7CFB\u7EDF\u4E0E\u67B6\u6784\u7684\u5B89\u88C5\u5305\uFF0C\u4EE5\u53CA root \u6216\u514D\u5BC6 sudo\u3002";
+    get("topology-note").textContent = mode === "single-k3d" ? offline.checked ? "\u4F7F\u7528\u672C\u5730\u5B8C\u6574\u5B89\u88C5\u5305\u521B\u5EFA K3d \u6D4B\u8BD5\u96C6\u7FA4\uFF0C\u9700\u8981\u672C\u673A Docker \u6B63\u5728\u8FD0\u884C\u3002" : "\u521B\u5EFA\u72EC\u7ACB\u7684\u672C\u5730\u6D4B\u8BD5\u96C6\u7FA4\uFF0C\u9700\u8981\u672C\u673A Docker \u6B63\u5728\u8FD0\u884C\u3002" : mode === "multi-k3s" ? "\u7BA1\u7406\u673A\u53EF\u4EE5\u4F7F\u7528 macOS\uFF1B\u8282\u70B9\u9700\u4E3A Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\uFF0C\u7CFB\u7EDF\u4E0E\u67B6\u6784\u4E00\u81F4\uFF0C\u5E76\u63D0\u4F9B\u5339\u914D\u7684\u5B89\u88C5\u5305\u3002" : machine && !supported ? "\u5F53\u524D\u8282\u70B9\u9700\u8981 Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\u3002" : "\u5728\u5F53\u524D Ubuntu \u4E3B\u673A\u4E0A\u5B89\u88C5 K3s\uFF1B\u9700\u8981\u5339\u914D\u7CFB\u7EDF\u4E0E\u67B6\u6784\u7684\u5B89\u88C5\u5305\uFF0C\u4EE5\u53CA root \u6216\u514D\u5BC6 sudo\u3002";
     renderSetup();
   }
+  get("use-current-node").addEventListener("change", renderTarget);
   for (const input of document.querySelectorAll('[name="topology"]'))
     input.addEventListener("change", renderTarget);
   for (const input of document.querySelectorAll('[name="source"]'))
@@ -752,7 +755,7 @@ ${access.domain}      A    ${access.entryIp}`;
       role: row.querySelector("[data-field=role]")?.value
     })) : [];
     return {
-      installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === "single-k3d" ? localPorts()[0] : 80, httpsPort: mode === "single-k3d" ? localPorts()[1] : 443, ha: mode === "multi-k3s" && ha.checked, ...connection(), nodes, ...accessMode() !== "private" ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField("public-ip"), tunnelPort: paired?.tunnelPort ?? Number(publicField("tunnel-port")), ...paired ? { pairingId: paired.id } : accessMode() === "relay" ? { gateway: { host: publicField("gateway-host"), sshUser: publicField("gateway-user"), sshKey: publicField("gateway-key"), sshPort: Number(publicField("gateway-port")) } } : {} } } : {} },
+      installation: { topology: runtime(), domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === "single-k3d" ? localPorts()[0] : 80, httpsPort: mode === "single-k3d" ? localPorts()[1] : 443, ha: mode === "multi-k3s" && ha.checked, ...connection(), nodes, ...accessMode() !== "private" ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField("public-ip"), tunnelPort: paired?.tunnelPort ?? Number(publicField("tunnel-port")), ...paired ? { pairingId: paired.id } : accessMode() === "relay" ? { gateway: { host: publicField("gateway-host"), sshUser: publicField("gateway-user"), sshKey: publicField("gateway-key"), sshPort: Number(publicField("gateway-port")) } } : {} } } : {} },
       runner: mode === "single-k3d" ? "docker" : "native",
       root: "",
       offline: offline.checked,
@@ -772,7 +775,8 @@ ${access.domain}      A    ${access.entryIp}`;
     document.querySelector(`[name="access-mode"][value="${published?.mode ?? "private"}"]`).checked = !0;
     for (const [id, text] of Object.entries({ "public-ip": published?.publicIp ?? "", "gateway-host": published?.gateway?.host ?? "", "gateway-user": published?.gateway?.sshUser ?? "", "gateway-key": published?.gateway?.sshKey ?? "", "gateway-port": String(published?.gateway?.sshPort ?? 22), "tunnel-port": String(published?.tunnelPort ?? 19444) }))
       get(id).value = text;
-    document.querySelector(`[name="topology"][value="${install?.topology ?? "single-k3d"}"]`).checked = !0;
+    document.querySelector(`[name="topology"][value="${!install?.topology || install.topology === "single-k3d" ? "single-k3d" : "k3s"}"]`).checked = !0;
+    get("use-current-node").checked = install?.topology !== "multi-k3s" && !install?.nodes?.length;
     offline.checked = Boolean(value.offline);
     get("online").checked = !offline.checked;
     fields.bundleDir.value = value.bundleDir;
@@ -828,7 +832,7 @@ ${access.domain}      A    ${access.entryIp}`;
   }
   function renderCoexistence() {
     const mode = topology();
-    get("instance-topology-label").textContent = mode === "single-k3d" ? "\u5355\u673A K3d" : mode === "multi-k3s" ? "\u591A\u673A K3s" : "\u5355\u673A K3s";
+    get("instance-topology-label").textContent = mode === "single-k3d" ? "K3d" : "K3s";
     get("coexist-instance").textContent = instanceLabel();
     get("coexist-config").textContent = configPath || "\u2014";
     get("coexist-ports").textContent = mode === "single-k3d" ? `HTTP ${localPorts()[0]} / HTTPS ${localPorts()[1]}\uFF08\u670D\u52A1\u7AEF\u5206\u914D\uFF09` : "HTTP 80 / HTTPS 443\uFF08\u539F\u751F K3s \u56FA\u5B9A\uFF09";
@@ -909,8 +913,8 @@ ${access.domain}      A    ${access.entryIp}`;
   function renderSummary() {
     const value = target(), install = value.installation;
     get("summary-instance").textContent = instanceLabel();
-    get("summary-topology").textContent = install.topology === "single-k3d" ? "\u5355\u673A K3d\uFF08\u672C\u673A Docker\uFF09" : install.topology === "multi-k3s" ? `\u591A\u673A K3s${install.ha ? " \xB7 \u63A7\u5236\u5E73\u9762\u9AD8\u53EF\u7528" : ""}` : "\u5355\u673A K3s\uFF08\u5F53\u524D\u4E3B\u673A\uFF09";
-    get("summary-nodes").textContent = install.topology === "multi-k3s" ? install.nodes.map((node) => `${node.host}\uFF08${node.role === "server" ? "\u63A7\u5236" : "\u5DE5\u4F5C"} \xB7 ${node.address}\uFF09`).join("\u3001") || "\u5C1A\u672A\u68C0\u6D4B" : install.topology === "single-k3d" ? "\u672C\u673A Docker \u5BB9\u5668" : "\u5F53\u524D\u4E3B\u673A";
+    get("summary-topology").textContent = install.topology === "single-k3d" ? "\u5355\u673A K3d\uFF08\u672C\u673A Docker\uFF09" : `K3s${install.ha ? " \xB7 \u63A7\u5236\u5E73\u9762\u9AD8\u53EF\u7528" : ""}`;
+    get("summary-nodes").textContent = topology() === "multi-k3s" ? install.nodes.map((node) => `${node.host}\uFF08${node.role === "server" ? "\u63A7\u5236" : "\u5DE5\u4F5C"} \xB7 ${node.address}\uFF09`).join("\u3001") || "\u5C1A\u672A\u68C0\u6D4B" : install.topology === "single-k3d" ? "\u672C\u673A Docker \u5BB9\u5668" : "\u5F53\u524D\u4E3B\u673A";
     get("summary-source").textContent = value.offline ? `\u79BB\u7EBF \xB7 ${value.bundleDir}` : "\u5728\u7EBF\u4E0B\u8F7D\u56FA\u5B9A\u53D1\u884C\u7248";
     get("summary-domain").textContent = install.domain || "\u2014";
     get("summary-entry").textContent = install.publicAccess ? `${install.publicAccess.mode === "relay" ? "ECS \u8F6C\u53D1" : "\u516C\u7F51\u76F4\u8FDE"} \xB7 ${install.publicAccess.publicIp}` : `\u5185\u7F51 \xB7 ${install.entryIp || "\u2014"}`;
@@ -1012,12 +1016,12 @@ ${access.domain}      A    ${access.entryIp}`;
       if (offline.checked && !fields.bundleDir.reportValidity())
         return !1;
       if (topology() === "single-k3s" && (!machine || !supportsK3sHost(machine.os.name, machine.os.version, machine.hardware.architecture))) {
-        showError(machine ? "\u5355\u673A K3s \u9700\u8981 Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\u3002" : "\u8BF7\u5148\u5B8C\u6210\u5F53\u524D\u4E3B\u673A\u7684\u7CFB\u7EDF\u68C0\u6D4B\u3002");
+        showError(machine ? "\u5F53\u524D\u8282\u70B9\u9700\u8981 Ubuntu 22.04 / AMD64 \u6216 Ubuntu 24.04 / ARM64\u3002" : "\u8BF7\u5148\u5B8C\u6210\u5F53\u524D\u4E3B\u673A\u7684\u7CFB\u7EDF\u68C0\u6D4B\u3002");
         return !1;
       }
       if (topology() === "multi-k3s") {
-        if (nodesFingerprint !== fingerprint() || nodeFacts.length < 2 || nodeFacts.some((node) => node.error)) {
-          showError("\u8BF7\u5148\u6210\u529F\u68C0\u6D4B\u81F3\u5C11 2 \u53F0 Ubuntu \u8282\u70B9\u3002");
+        if (nodesFingerprint !== fingerprint() || nodeFacts.length < 1 || nodeFacts.some((node) => node.error)) {
+          showError("\u8BF7\u5148\u6210\u529F\u68C0\u6D4B\u76EE\u6807 Ubuntu \u8282\u70B9\u3002");
           return !1;
         }
         const nodes = target().installation.nodes, count = nodes.filter((node) => node.role === "server").length;
@@ -1542,7 +1546,7 @@ ${access.domain}      A    ${access.entryIp}`;
       header.append(state);
       const meta = document.createElement("div");
       meta.className = "instance-meta";
-      for (const [label, value] of [["ID", instance.id], ["\u62D3\u6251", instance.topology], ["\u57DF\u540D", instance.domain || "\u2014"], ["\u7AEF\u53E3", `${instance.httpPort} / ${instance.httpsPort}`], ["\u914D\u7F6E", instance.config]]) {
+      for (const [label, value] of [["ID", instance.id], ["\u8FD0\u884C\u65B9\u5F0F", instance.topology === "single-k3d" ? "K3d" : "K3s"], ["\u57DF\u540D", instance.domain || "\u2014"], ["\u7AEF\u53E3", `${instance.httpPort} / ${instance.httpsPort}`], ["\u914D\u7F6E", instance.config]]) {
         const cell = document.createElement("span");
         cell.textContent = label;
         const strong = document.createElement("b");

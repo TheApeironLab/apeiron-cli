@@ -21,6 +21,8 @@ pub struct Prepared {
 pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
     let servers = nodes.iter().filter(|n| n["role"] == "server").count();
     let ok = match topology {
+        "k3s" => (nodes.len() == 1 && nodes[0]["host"] == "localhost" && servers == 1)
+            || (nodes.len() >= 3 && servers == nodes.len() && servers % 2 == 1),
         "multi-k3s" => nodes.len() >= 3 && servers == nodes.len() && servers % 2 == 1,
         "single-k3s" => nodes.len() == 1 && nodes[0]["host"] == "localhost" && servers == 1,
         _ => false,
@@ -28,8 +30,8 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
     if !ok {
         return Err(fail(
             match topology {
-                "multi-k3s" => {
-                    "原生 Nexus-first 多机部署需要至少 3 个、奇数个 server 节点且没有 agent 节点；尚未修改集群。"
+                "multi-k3s" | "k3s" => {
+                    "此 Nexus-first 发行路径仅支持当前主机一个 server，或至少 3 个奇数 server 且无 agent；节点组合不在已支持范围内，尚未修改集群。"
                 }
                 "single-k3s" => "原生 Nexus-first 单机部署以管理机为唯一节点，不接受远程节点；尚未修改集群。",
                 _ => "原生 Nexus-first 不支持该拓扑；尚未修改集群。",
@@ -242,7 +244,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     } else {
         vec!["bash", "tar", "python3"]
     };
-    if i["topology"] == "multi-k3s" {
+    if config::explicit_nodes(&i) {
         system_tools.push("ssh");
     }
     // These tools cannot be supplied by target-node resources. Fail before
@@ -258,7 +260,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     let mut facts = Vec::new();
     if !docker {
         c.event("复查节点系统、架构、权限和已有集群。");
-        facts = if i["topology"] == "multi-k3s" {
+        facts = if config::explicit_nodes(&i) {
             let mut input = i.clone();
             input["hosts"] = json!(nodes.iter().map(|n| n["host"].clone()).collect::<Vec<_>>());
             discovery::nodes(&input, &c.cancel)?["nodes"]
@@ -280,7 +282,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         {
             return Err(fail("请选择 CPU 架构一致的节点。", 400));
         }
-        if i["topology"] == "single-k3s" {
+        if !config::explicit_nodes(&i) {
             let addresses = facts[0]["addresses"].as_array().unwrap();
             nodes.push(json!({"host":"localhost","name":facts[0]["name"],"address":if addresses.contains(&i["entryIp"]){i["entryIp"].clone()}else{addresses[0].clone()},"role":"server"}));
         }
@@ -318,7 +320,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         &catalog,
         &mut plan,
         &key,
-        i["topology"].as_str().unwrap(),
+        config::release_topology(&i),
         distribution::Preparation {
             offline: target["offline"] == true,
             cancel: &c.cancel,
@@ -510,7 +512,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     )?;
     resources::merge(
         &mut values,
-        &json!({"topology":i["topology"],"domain":domain,"registry":format!("registry.{domain}"),"node":node,"work":work_value,"bundle":bundle_value,"architecture":arch,"publicHttpsPort":i["httpsPort"],"publicHttpPort":i["httpPort"]}),
+        &json!({"topology":config::release_topology(&i),"domain":domain,"registry":format!("registry.{domain}"),"node":node,"work":work_value,"bundle":bundle_value,"architecture":arch,"publicHttpsPort":i["httpsPort"],"publicHttpPort":i["httpPort"]}),
     )?;
     if plan.get("releaseManifest").is_some() {
         values["nexusFirst"] = json!(true);
@@ -894,7 +896,7 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         &env,
         "校验应用配置",
     )?;
-    let multi = i["topology"] == "multi-k3s";
+    let multi = config::explicit_nodes(&i);
     let bundle = if multi {
         format!(
             "/opt/chentu/bundles/{}",
@@ -1498,6 +1500,13 @@ mod tests {
         let before = values.clone();
         assert!(replace(&mut values, &[("__REGISTRY__", "registry.example.internal".into())]).is_err());
         assert_eq!(values, before);
+    }
+    #[test]
+    fn unified_runtime_keeps_hosted_distribution_node_limits() {
+        hosted_nodes("k3s", &[node("localhost", "server")]).unwrap();
+        hosted_nodes("k3s", &[node("a", "server"),node("b", "server"),node("c", "server")]).unwrap();
+        assert!(hosted_nodes("k3s", &[node("remote", "server")]).is_err());
+        assert!(hosted_nodes("k3s", &[node("a", "server"),node("b", "agent")]).is_err());
     }
     fn node(host: &str, role: &str) -> Value {
         json!({"host":host,"name":host,"address":"192.0.2.1","role":role})

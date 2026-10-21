@@ -396,3 +396,9 @@ apeiron zygos model list
 源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
 `apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
 克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。
+
+### K3s 按节点清单安装
+
+新向导只选择 K3s 或 K3d。K3s 选择当前主机或填写目标节点；新增配置保存 `installation.topology: k3s`，不要求手选 single/multi。节点角色、控制平面 HA、存储与应用副本分别配置；节点数量不自动改变应用部署。
+
+旧 single-k3s/multi-k3s 配置仍可打开，重新提交后使用统一 K3s 意图。对接固定 Chentu 发行包时，安装器根据实际节点数派生旧包选择器，不扩大其目标声明。当前原生 Nexus-first 节点范围仍是当前主机单 server，或至少三个奇数 server 且无 agent；界面能填写节点不代表已通过该平台的部署验收。现有集群扩容不在本次变更范围。

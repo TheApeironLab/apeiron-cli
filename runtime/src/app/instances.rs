@@ -9,7 +9,7 @@ use std::{collections::BTreeSet, fs, net::TcpListener, path::PathBuf, process::C
 
 pub const FIRST_PORT: u16 = 54320;
 pub const LAST_PORT: u16 = 60000;
-pub const TOPOLOGIES: [&str; 3] = ["single-k3d", "single-k3s", "multi-k3s"];
+pub const TOPOLOGIES: [&str; 4] = ["single-k3d", "k3s", "single-k3s", "multi-k3s"];
 
 /// External tool access. Production runs the host binaries; tests inject fakes.
 pub trait Runner: Sync {
@@ -270,8 +270,11 @@ fn template(name: &str, topology: &str, http: u16, https: u16, source: &Value) -
         });
     let d = &source["deployment"];
     let i = &d["installation"];
-    let same = i["topology"] == topology;
-    let nodes = if topology == "multi-k3s" {
+    let same = i["topology"] == topology
+        || (topology == "k3s" && [Some("single-k3s"), Some("multi-k3s")].contains(&i["topology"].as_str()));
+    let nodes = if topology == "k3s" {
+        if same { i["nodes"].clone() } else { json!([]) }
+    } else if topology == "multi-k3s" {
         if same {
             i["nodes"].clone()
         } else {
@@ -287,7 +290,7 @@ fn template(name: &str, topology: &str, http: u16, https: u16, source: &Value) -
     json!({"schemaVersion":2,"slug":name,"apps":apps,"deployment":{
         "runner":if local{"docker"}else{"native"},
         "installation":{"topology":topology,"domain":format!("{name}.apeironlab.internal"),
-            "entryIp":if local{"127.0.0.1"}else{""},"httpPort":http,"httpsPort":https,"ha":false,
+            "entryIp":if local{"127.0.0.1"}else{""},"httpPort":http,"httpsPort":https,"ha":same && i["ha"] == true,
             "sshUser":text("sshUser"),"sshKey":text("sshKey"),"sshPort":i["sshPort"].as_u64().filter(|_|same).unwrap_or(22),"nodes":nodes},
         "root":"","environment":"","kubeconfig":"","workDir":"","image":"chentu-lab",
         "offline":d["offline"].as_bool().unwrap_or(false),"bundleDir":d["bundleDir"].as_str().unwrap_or("")}})
@@ -522,6 +525,15 @@ mod tests {
         }).collect::<Vec<_>>()})
     }
 
+    #[test]
+    fn unified_k3s_clone_preserves_legacy_nodes_and_explicit_ha() {
+        let nodes = json!([{"host":"a","role":"server"},{"host":"b","role":"server"},{"host":"c","role":"server"}]);
+        let source = json!({"deployment":{"installation":{"topology":"multi-k3s","nodes":nodes,"ha":true}}});
+        let copied = template("new", "k3s", 80, 443, &source);
+        assert_eq!(copied["deployment"]["installation"]["topology"], "k3s");
+        assert_eq!(copied["deployment"]["installation"]["nodes"], nodes);
+        assert_eq!(copied["deployment"]["installation"]["ha"], true);
+    }
     #[test]
     fn port_allocation_skips_registry_bind_failures_and_docker_bindings() {
         let free = |_: u16| true;

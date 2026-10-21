@@ -823,3 +823,26 @@ fn fresh_files_selection_declares_only_operator_bucket_and_preserves_user_mappin
         );
     }
 }
+
+#[test]
+fn unified_k3s_intent_derives_distribution_selector_without_enabling_ha() {
+    for count in [0, 1, 2, 3] {
+        let mut i = install("single-k3s");
+        i["topology"] = json!("k3s");
+        i["nodes"] = json!((0..count).map(|n| json!({"host":format!("node-{n}"),"name":format!("node-{n}"),"address":format!("192.0.2.{}",n+10),"role":if n==0{"server"}else{"agent"}})).collect::<Vec<_>>());
+        let normalized = config::installation(&i).unwrap();
+        assert_eq!(normalized["topology"], "k3s");
+        assert_eq!(normalized["ha"], false);
+        assert_eq!(normalized["nodes"], i["nodes"]);
+        assert_eq!(config::release_topology(&normalized), if count > 1 {"multi-k3s"} else {"single-k3s"});
+        assert_eq!(config::explicit_nodes(&normalized), count > 0);
+    }
+    let mut i = install("single-k3s");
+    i["topology"] = json!("k3s");
+    i["ha"] = json!(true);
+    assert!(config::installation(&i).is_err());
+    i["nodes"] = json!((0..3).map(|n|json!({"host":format!("node-{n}"),"name":format!("node-{n}"),"address":format!("192.0.2.{}",n+10),"role":"server"})).collect::<Vec<_>>());
+    assert!(config::installation(&i).is_ok());
+    i["nodes"].as_array_mut().unwrap().pop();
+    assert!(config::installation(&i).is_err());
+}
