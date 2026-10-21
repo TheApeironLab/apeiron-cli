@@ -98,6 +98,13 @@ fn compatible(old: &Value, new: &Value, selected: &[String], active: &Value) -> 
             .flatten()
             .filter(|a| protected.contains(a["id"].as_str().unwrap_or("")))
             .filter(|a| a["kind"] == "image" || a["kind"] == "chart" || a["kind"] == "resource")
+            // The runtime source archive carries the lifecycle entry itself.
+            // Its digest is verified by preparation, but can advance with CLI code.
+            .filter(|a| {
+                !(a["kind"] == "resource"
+                    && a["name"] == "chentu-deployment"
+                    && a["id"] == "sources/deployment-source.tar.gz")
+            })
             .map(|a| {
                 (
                     format!("{}:{}", a["kind"].as_str().unwrap(), a["name"].as_str().unwrap()),
@@ -615,6 +622,22 @@ mod tests {
         new["artifacts"][1]["sha256"] = json!("changed-database");
         assert!(compatible(&old, &new, &selected, &active).is_err());
         new["artifacts"].as_array_mut().unwrap().pop();
+        assert!(compatible(&old, &new, &selected, &active).is_err());
+    }
+    #[test]
+    fn deployment_code_can_advance_but_shared_business_resources_cannot() {
+        let mut old = manifest();
+        old["components"]["postgres"]["artifacts"] = json!(["shared", "sources/deployment-source.tar.gz", "skills"]);
+        old["artifacts"].as_array_mut().unwrap().extend([
+            json!({"id":"sources/deployment-source.tar.gz","name":"chentu-deployment","kind":"resource","sha256":"old-code"}),
+            json!({"id":"skills","name":"system-skills","kind":"resource","sha256":"old-skills"}),
+        ]);
+        let mut new = old.clone();
+        new["artifacts"][2]["sha256"] = json!("new-code");
+        let selected = vec!["zygos".into()];
+        let active = json!(["zygos", "postgres"]);
+        assert!(compatible(&old, &new, &selected, &active).is_ok());
+        new["artifacts"][3]["sha256"] = json!("new-skills");
         assert!(compatible(&old, &new, &selected, &active).is_err());
     }
     #[test]
