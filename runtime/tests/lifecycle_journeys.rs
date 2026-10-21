@@ -26,20 +26,31 @@ fn assert_blocked_persisted(temp: &Temp, args: &[String], want: &[&str]) -> Valu
 fn assert_blocked_persisted_labeled(temp: &Temp, args: &[String], want: &[&str], label: &str) -> Value {
     let out = temp.path().join("plan.json");
     let output = cli(args, temp.path());
-    eprintln!("[journey-cli] label={label} exit={:?} stderr={}", output.status.code(),
-        String::from_utf8_lossy(&output.stderr).trim());
+    eprintln!(
+        "[journey-cli] label={label} exit={:?} stderr={}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr).trim()
+    );
     assert!(
         output.status.success(),
         "blocked plans exit 0 [{label}]: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let dump = "/tmp/journey-debug2"; let _ = std::fs::remove_dir_all(dump);
+    let dump = "/tmp/journey-debug2";
+    let _ = std::fs::remove_dir_all(dump);
     let _ = fs::create_dir_all(dump);
     let _ = fs::write(format!("{dump}/stderr.txt"), &output.stderr);
     let mut pairs = args.iter().peekable();
     while let Some(flag) = pairs.next() {
         if let (true, Some(path)) = (flag.starts_with("--") && *flag != "--out", pairs.peek()) {
-            let _ = fs::copy(path, format!("{dump}/{}-{}", flag.trim_start_matches('-'), Path::new(path).file_name().unwrap().to_string_lossy()));
+            let _ = fs::copy(
+                path,
+                format!(
+                    "{dump}/{}-{}",
+                    flag.trim_start_matches('-'),
+                    Path::new(path).file_name().unwrap().to_string_lossy()
+                ),
+            );
         }
     }
     #[cfg(unix)]
@@ -139,9 +150,17 @@ fn j1_one_release_is_validated_once_then_plans_two_clusters_independently() {
 #[test]
 fn j2_field_drift_produces_a_blocked_but_auditable_plan_file() {
     let mutations: &[(&str, Value, &str)] = &[
-        ("observation", json!({"drift": ["manual-image-change"]}), "UNEXPLAINED_DRIFT"),
+        (
+            "observation",
+            json!({"drift": ["manual-image-change"]}),
+            "UNEXPLAINED_DRIFT",
+        ),
         ("intent", json!({"expectedGeneration": 2}), "STALE_BASELINE"),
-        ("intent", json!({"clusterUid": "outer-cluster"}), "CLUSTER_IDENTITY_MISMATCH"),
+        (
+            "intent",
+            json!({"clusterUid": "outer-cluster"}),
+            "CLUSTER_IDENTITY_MISMATCH",
+        ),
     ];
     // COMPONENT_STATE_UNKNOWN 在单测（lifecycle/tests.rs）以先补齐字段的 absent
     // 组件覆盖；记录层的资源完整性检查要求 shared-db 的 owner 与 consumer 均
@@ -201,11 +220,16 @@ fn j3_upgrade_contract_gates_are_evaluated_against_the_installed_field() {
     input["releaseManifest"]["lifecycle"]["upgradePaths"][0]["componentSets"] = json!([["apeiron"]]);
     fixtures::refresh(&mut input);
     let temp = Temp::new();
-    assert_blocked_persisted(&temp, &plan_args(&temp, &input), &["UPGRADE_PATH_NOT_UNIQUELY_VERIFIED"]);
+    assert_blocked_persisted(
+        &temp,
+        &plan_args(&temp, &input),
+        &["UPGRADE_PATH_NOT_UNIQUELY_VERIFIED"],
+    );
 
     // Gate 2: a migration prerequisite that the field does not satisfy.
     let mut input = fixtures::fixture(true);
-    input["releaseManifest"]["lifecycle"]["migrationRules"]["apeiron"]["requiredComponents"]["postgres"]["dataSchema"] = json!("0");
+    input["releaseManifest"]["lifecycle"]["migrationRules"]["apeiron"]["requiredComponents"]["postgres"]
+        ["dataSchema"] = json!("0");
     fixtures::refresh(&mut input);
     let temp = Temp::new();
     assert_blocked_persisted(&temp, &plan_args(&temp, &input), &["MIGRATION_PREREQUISITE_MISMATCH"]);
@@ -226,7 +250,11 @@ fn j3_upgrade_contract_gates_are_evaluated_against_the_installed_field() {
     input["releaseManifest"]["components"]["apeiron"]["requires"] = json!(["postgres", "ontology"]);
     fixtures::refresh(&mut input);
     let temp = Temp::new();
-    assert_blocked_persisted(&temp, &plan_args(&temp, &input), &["NEW_DEPENDENCY_REQUIRES_SEPARATE_CHANGE"]);
+    assert_blocked_persisted(
+        &temp,
+        &plan_args(&temp, &input),
+        &["NEW_DEPENDENCY_REQUIRES_SEPARATE_CHANGE"],
+    );
 
     // Gate 5: selecting an uninstalled component reports both the missing
     // component and the rejected set change together.
@@ -255,17 +283,22 @@ fn j4_standalone_backup_binds_the_source_release_and_a_verified_adapter() {
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         serde_json::from_slice(&fs::read(temp.path().join("plan.json")).unwrap()).unwrap()
     };
-    assert!(plan["planningStatus"] == "ready" || plan["planningStatus"] == "blocked",
-        "backup planning must terminate cleanly");
+    assert!(
+        plan["planningStatus"] == "ready" || plan["planningStatus"] == "blocked",
+        "backup planning must terminate cleanly"
+    );
     assert_eq!(plan["executionAllowed"], false);
     assert_eq!(plan["changedComponents"], json!([]));
-    assert_eq!(plan["targetRelease"]["version"], input["installation"]["release"]["version"]);
+    assert_eq!(
+        plan["targetRelease"]["version"],
+        input["installation"]["release"]["version"]
+    );
     let resources = plan["protection"]["resources"].as_array().unwrap();
     assert_eq!(resources.len(), 1, "shared data is deduplicated to its owner");
     assert_eq!(resources[0]["owner"], "postgres");
 
     // The backup manifest must be the source contract, not the upgrade target.
-    let mut mutated = input.clone();
+    let mutated = input.clone();
     let temp = Temp::new();
     let wrong = temp.write_input("target-manifest", &fixtures::fixture(true)["releaseManifest"]);
     let mut args = plan_args(&temp, &mutated);
@@ -278,7 +311,11 @@ fn j4_standalone_backup_binds_the_source_release_and_a_verified_adapter() {
     mutated["releaseManifest"]["lifecycle"]["backupAdapters"]["pg-logical"]["status"] = json!("declared");
     fixtures::refresh(&mut mutated);
     let temp = Temp::new();
-    assert_blocked_persisted(&temp, &plan_args(&temp, &mutated), &["BACKUP_RESTORE_ADAPTER_UNVERIFIED"]);
+    assert_blocked_persisted(
+        &temp,
+        &plan_args(&temp, &mutated),
+        &["BACKUP_RESTORE_ADAPTER_UNVERIFIED"],
+    );
 
     // Capacity below the declared estimate is rejected.
     let mut mutated = input.clone();
@@ -334,7 +371,14 @@ fn j5_restore_honors_expansion_lineage_and_never_reverts_nodes() {
         let mut pairs = args.iter().peekable();
         while let Some(flag) = pairs.next() {
             if let (true, Some(path)) = (flag.starts_with("--") && *flag != "--out", pairs.peek()) {
-                let _ = fs::copy(path, format!("{dump}/{}-{}", flag.trim_start_matches('-'), Path::new(path).file_name().unwrap().to_string_lossy()));
+                let _ = fs::copy(
+                    path,
+                    format!(
+                        "{dump}/{}-{}",
+                        flag.trim_start_matches('-'),
+                        Path::new(path).file_name().unwrap().to_string_lossy()
+                    ),
+                );
             }
         }
         let _ = fs::write(format!("{dump}/args.txt"), format!("{args:?}"));

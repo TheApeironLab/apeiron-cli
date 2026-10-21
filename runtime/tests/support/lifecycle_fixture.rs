@@ -1,3 +1,5 @@
+// Shared by unit and several independent integration-test crates.
+#![allow(dead_code)]
 use serde_json::{json, Value};
 fn identity(value: &Value) -> String {
     use sha2::{Digest, Sha256};
@@ -78,7 +80,10 @@ pub fn fixture(inner: bool) -> Value {
 }
 
 // ---- journey helpers (moved from src/app/lifecycle/tests.rs so integration tests share one implementation) ----
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub fn refresh(input: &mut Value) {
     input["observation"]["recordSha256"] = json!(identity(&input["installation"]));
@@ -182,7 +187,9 @@ impl Temp {
         fs::create_dir(&path).unwrap();
         Self(path)
     }
-    pub fn path(&self) -> &Path { &self.0 }
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
     pub fn write_input(&self, name: &str, value: &Value) -> String {
         let path = self.0.join(format!("{name}.json"));
         fs::write(&path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
@@ -215,23 +222,39 @@ pub fn cli(args: &[String], root: &Path) -> std::process::Output {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        for tool in ["kubectl", "helm", "helmfile", "k3s", "ansible-playbook", "python3", "curl"] {
+        for tool in [
+            "kubectl",
+            "helm",
+            "helmfile",
+            "k3s",
+            "ansible-playbook",
+            "python3",
+            "curl",
+        ] {
             let path = bin.join(tool);
             fs::write(
                 &path,
-                format!("#!/bin/sh\nprintf invoked > '{}'\nexit 91\n", root.join("unexpected-command").display()),
+                format!(
+                    "#!/bin/sh\nprintf invoked > '{}'\nexit 91\n",
+                    root.join("unexpected-command").display()
+                ),
             )
             .unwrap();
             fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
         }
     }
-    let output = Command::new(std::env::var("CARGO_BIN_EXE_apeiron").expect("integration tests build the apeiron binary first"))
-        .args(args)
-        .env("PATH", bin)
-        .env("KUBECONFIG", root.join("nonexistent-context"))
-        .env("APEIRON_LIFECYCLE_BIN", root.join("forbidden-forwarder"))
-        .output()
-        .unwrap();
+    let output = Command::new(
+        option_env!("CARGO_BIN_EXE_apeiron")
+            .map(str::to_owned)
+            .or_else(|| std::env::var("CARGO_BIN_EXE_apeiron").ok())
+            .expect("integration tests build the apeiron binary first"),
+    )
+    .args(args)
+    .env("PATH", bin)
+    .env("KUBECONFIG", root.join("nonexistent-context"))
+    .env("APEIRON_LIFECYCLE_BIN", root.join("forbidden-forwarder"))
+    .output()
+    .unwrap();
     assert!(!root.join("unexpected-command").exists());
     output
 }

@@ -60,3 +60,12 @@ recordSha256 是安装记录 JSON 值的 `sorted-json-utf8-v1` 摘要：对象�
 本批验收包括原生 CLI 的文件读写/权限/不覆盖及执行阻断，Python publisher 与 Rust 的共同合法/非法契约语料，多来源/拓扑/组件选择、漂移与身份、迁移前置、数据去重与共享恢复、扩容阶段和节点保留。
 
 后续依次实现可信首装记录持久化/只读采集与旧记录迁移、完整容量与RPO/RTO估算、备份及隔离恢复适配器、集群锁与冻结、升级执行与崩溃对账；每个执行能力分别做真实部署及断网验收后才可开放。本批的 fixture 验收不能替代生产或原生扩容验收。
+
+
+## 2026-10-21 后续入口
+
+新增 collect / migrate-record / inspect-source，详见 [操作手册](lifecycle-operations.md)。
+plan 的 block 项新增 remediation，执行级指引位于 executionRemediations；均参与 planId。
+纯 plan 仍不调用集群工具；collect 是显式指定工具和 context 的固定 GET 入口。迁移只输出待审候选，
+组件 unknown、基线证据为空、健康未确认；不得将其自动接管为成功安装。发布端冻结报告核验器
+已交付，现场内容可信接入与所有执行仍未交付，执行阻断码保持有效。

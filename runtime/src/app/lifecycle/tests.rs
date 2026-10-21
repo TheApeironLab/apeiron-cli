@@ -328,3 +328,34 @@ fn restore_rejects_same_generation_with_another_source_and_unproven_history() {
     refresh(&mut input);
     assert!(codes(&plan(&input).unwrap()).contains(&"HISTORICAL_BACKUP_LINEAGE_UNVERIFIED"));
 }
+
+#[test]
+fn blocked_plans_explain_the_owner_evidence_and_verification_without_unlocking_execution() {
+    let mut input = fixture(true);
+    input["releaseManifest"]["lifecycle"]["upgradePaths"] = json!([]);
+    let result = plan(&input).unwrap();
+    assert_eq!(result["planningStatus"], "blocked");
+    assert_eq!(result["executionAllowed"], false);
+    let blocker = result["blockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["code"] == "UPGRADE_PATH_NOT_UNIQUELY_VERIFIED")
+        .unwrap();
+    assert_eq!(blocker["remediation"]["owner"], "release-maintainer");
+    assert!(blocker["remediation"]["action"]
+        .as_str()
+        .unwrap()
+        .contains("冻结发布验收"));
+    for entry in result["blockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(result["executionRemediations"].as_array().unwrap())
+    {
+        assert_eq!(entry["remediation"]["allowsExecution"], false);
+        for field in ["owner", "action", "verification", "reference"] {
+            assert!(!entry["remediation"][field].as_str().unwrap().is_empty());
+        }
+    }
+}

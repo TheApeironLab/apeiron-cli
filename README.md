@@ -293,3 +293,5 @@ Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.
 只读升级、备份及应用恢复规划：`apeiron lifecycle --help`。
 首批仅校验现场快照并生成独立计划，执行操作保持阻断；输入契约及验收边界见
 [生命周期规划 v1](docs/lifecycle-planning-v1.md)。
+
+旧现场只读采集、保守迁移及阻断补救说明：[生命周期操作手册](docs/lifecycle-operations.md)。

@@ -1,6 +1,8 @@
-//! Pure snapshot planning. This module contains no subprocess or network calls.
+//! Pure snapshot planning; the separate opt-in collector only issues fixed GETs.
 //! Planning never authorizes execution, including when all input checks pass.
+mod collection;
 mod model;
+mod remediation;
 #[cfg(test)]
 mod tests;
 use super::*;
@@ -242,12 +244,14 @@ pub(super) fn validate_release(manifest: &Value) -> Result<()> {
 struct Blocker {
     code: String,
     subject: String,
+    remediation: Value,
 }
 fn block(blockers: &mut Vec<Blocker>, code: &str, subject: &str) {
     if !blockers.iter().any(|b| b.code == code && b.subject == subject) {
         blockers.push(Blocker {
             code: code.into(),
             subject: subject.into(),
+            remediation: remediation::guidance(code),
         });
     }
 }
@@ -734,21 +738,34 @@ pub(super) fn plan(input: &Value) -> Result<Value> {
             "capacityBudgetIncludesDrillAndCoexistence":false},
         "restore":restore,"stages":stages,"blockers":blockers,
         "inputSha256":identity(input),"recordIdentityAlgorithm":"sorted-json-utf8-v1"});
-    let plan_id = identity(&payload);
     let mut result = payload;
+    result["executionRemediations"] = json!(result["executionBlockers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|code| json!({"code":code,"remediation":remediation::guidance(code.as_str().unwrap())}))
+        .collect::<Vec<_>>());
+    // Include guidance in the identity of the reviewable plan.
+    let plan_id = identity(&result);
     result["planId"] = json!(plan_id);
     result["stateNamespace"] = json!(format!("{}/{}/{}", record.cluster_uid, record.installation_id, plan_id));
     Ok(result)
 }
 
 pub fn run(args: &[String]) -> Result<()> {
+    if args
+        .first()
+        .is_some_and(|s| ["collect", "migrate-record", "inspect-source"].contains(&s.as_str()))
+    {
+        return collection::run(args);
+    }
     let (pos, options) = parse(
         args,
         &["installation", "observation", "intent", "manifest", "backup", "out"],
         &["help"],
     )?;
     if options.contains_key("help") {
-        println!("apeiron lifecycle validate-manifest --manifest FILE\napeiron lifecycle validate-record --installation FILE\napeiron lifecycle plan --installation FILE --observation FILE --intent FILE [--manifest FILE] [--backup FILE] [--out NEW_FILE]\nRead-only snapshot planning; all execution operations are blocked.");
+        println!("apeiron lifecycle validate-manifest --manifest FILE\napeiron lifecycle validate-record --installation FILE\napeiron lifecycle plan --installation FILE --observation FILE --intent FILE [--manifest FILE] [--backup FILE] [--out NEW_FILE]\nUse lifecycle collect --help and lifecycle migrate-record --help for legacy discovery.\nRead-only snapshot planning; all execution operations are blocked.");
         return Ok(());
     }
     if pos == ["validate-manifest"] {
