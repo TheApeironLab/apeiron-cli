@@ -53,7 +53,7 @@ test('wizard serves the eight-step setup including model configuration without w
     const snapshot = await fetch(server.url + 'api/config').then(r => r.json());
     expect(snapshot.config).toBeNull();
     expect(snapshot.apps.map((a) => a.id)).toEqual([
-        'nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'zygos', 'matrix', 'files', 'stalwart',
+        'nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart', 'zygos',
         'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci',
     ]);
     expect(snapshot.apps.filter((a) => a.required).map((a) => a.id)).toEqual(requiredApps);
@@ -145,7 +145,7 @@ test('deploy generates exact app flags, preserves base values, runs sync once an
     expect(records[0].values.tenantSlug).toBe(input.slug);
     expect(records[0].values.releases.apeiron.values.models).toEqual({ keep: true });
     expect(records[0].values.releases.postgres).toEqual({ enabled: true, values: { storage: '10Gi' } });
-    for (const name of ['task', 'corpus', 'zygos', 'matrix', 'files', 'stalwart', 'gateway'])
+    for (const name of ['task', 'corpus', 'matrix', 'files', 'stalwart', 'zygos', 'gateway'])
         expect(records[0].values.releases[name].enabled).toBe(false);
     expect(records[0].values.releases.nexus.enabled).toBe(true);
     expect(records[0].values.releases.nexus.values.publicProxies).toBe(true);
