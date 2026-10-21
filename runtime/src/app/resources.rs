@@ -501,6 +501,17 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
     if t["deploymentTopology"] != true || !t["environment"].is_object() || t["environment"].get("profile").is_some() {
         return Err(fail("安装包不支持目标或仍使用旧 profile。", 400));
     }
+    // Target defaults enumerate available releases, not the installation's
+    // dependency closure. Only visited component values may enable releases.
+    // Older packages pre-enable optional apps without shipping their resources.
+    if t["environment"]["releases"].as_object().is_some_and(|releases| {
+        releases.values().any(|release| release["enabled"] == true)
+    }) {
+        return Err(fail(
+            "安装包默认启用了未经过应用依赖选择的 release，无法可靠安装基础版。请使用配套的新部署包；尚未下载应用资源或创建集群。",
+            400,
+        ));
+    }
     fn visit(c: &Value, name: &str, visiting: &mut Vec<String>, done: &mut Vec<String>) -> Result<()> {
         if done.iter().any(|x| x == name) {
             return Ok(());

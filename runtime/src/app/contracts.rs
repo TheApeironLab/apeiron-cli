@@ -188,6 +188,35 @@ fn old_packages_profiles_and_mismatched_architectures_fail_before_preparation() 
     }
 }
 #[test]
+fn package_defaults_cannot_enable_unselected_apps_before_resource_preparation() {
+    // Regression: TheApeironLab/apeiron-cli#32 (legacy online package defaults).
+    let mut c = catalog();
+    c["targets"]["k3s-amd64"]["environment"]["releases"] =
+        json!({"langfuse":{"enabled":true},"clickhouse":{"enabled":false}});
+    let error = resources::plan(&c, "k3s-amd64", &json!([])).unwrap_err();
+    assert!(error.message.contains("请使用配套的新部署包"));
+    assert!(error.message.contains("尚未下载应用资源或创建集群"));
+}
+#[test]
+fn selected_package_components_enable_only_their_declared_release_closure() {
+    let mut c = catalog();
+    c["targets"]["k3s-amd64"]["environment"]["releases"] = json!({
+        "postgres":{"enabled":false}, "task":{"enabled":false},
+        "stalwart":{"enabled":false}, "langfuse":{"enabled":false},
+        "clickhouse":{"enabled":false}
+    });
+    c["components"]["core"]["values"] = json!({"releases":{"postgres":{"enabled":true}}});
+    c["components"]["task"]["requires"] = json!(["core", "stalwart"]);
+    c["components"]["task"]["values"] = json!({"releases":{"task":{"enabled":true}}});
+    c["components"]["stalwart"] = json!({"requires":["core"],"files":[],"values":{"releases":{"stalwart":{"enabled":true}}}});
+    for (apps, expected) in [(json!([]), vec!["postgres"]), (json!(["task"]), vec!["postgres", "stalwart", "task"])] {
+        let plan = resources::plan(&c, "k3s-amd64", &apps).unwrap();
+        let enabled: Vec<_> = plan["environment"]["releases"].as_object().unwrap().iter()
+            .filter(|(_, value)| value["enabled"] == true).map(|(name, _)| name.as_str()).collect();
+        assert_eq!(enabled, expected);
+    }
+}
+#[test]
 fn resource_closure_excludes_unselected_apps_and_rejects_missing_or_cyclic_dependencies() {
     let mut c = catalog();
     let p = resources::plan(&c, "k3s-amd64", &json!(["task"])).unwrap();
