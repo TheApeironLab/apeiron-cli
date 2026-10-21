@@ -30,7 +30,13 @@ Rust 或 Node。Zygos API 服务仍须单独部署。
 需由维护者在 Apeiron 仓库/组织的 Actions secret 中配置 `ZYGOS_READ_TOKEN`，
 使用对 Apeiron 与 Zygos 两个仓库仅有 Contents: read 权限的 fine-grained token。
 工作流递归检出并关闭凭据持久化；凭据不得加入 Git URL、`.gitmodules` 或日志。
-此代码修改不会创建、扩大或保存任何凭据权限。
+此代码修改不会创建、扩大或保存任何凭据权限。工作流在 secret 缺失时直接失败并说明
+所需权限，不再回退到没有跨仓库访问权的 GITHUB_TOKEN。
+
+当前 Zygos 仓库禁止 deploy keys（GitHub API 返回 `Deploy keys are disabled for this repository`）。
+不要为此关闭仓库/组织安全策略，也不要复用开发者本机的个人登录 token。维护者需在
+Apeiron Settings → Secrets and variables → Actions 中设置以上专用只读 secret；
+完成后重新运行失败的 workflow。
 
 没有该 secret 的 fork PR 无法检出私有子模块，需要有权限的受信任分支执行 CI；
 不要通过 pull_request_target 执行未信任 PR 代码来绕过此边界。

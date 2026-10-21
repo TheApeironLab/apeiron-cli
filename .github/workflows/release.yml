@@ -16,11 +16,19 @@ jobs:
   checks:
     runs-on: ubuntu-22.04
     steps:
+      - name: Require private submodule read credential
+        env:
+          ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+        run: |
+          if [ -z "$ZYGOS_READ_TOKEN" ]; then
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli and TheApeironLab/zygos. The default GITHUB_TOKEN cannot read the private Zygos submodule.'
+            exit 1
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           # Fine-grained read-only token with access to Apeiron and private Zygos.
-          token: ${{ secrets.ZYGOS_READ_TOKEN || github.token }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -64,11 +72,19 @@ jobs:
             triple: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
+      - name: Require private submodule read credential
+        env:
+          ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+        run: |
+          if [ -z "$ZYGOS_READ_TOKEN" ]; then
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli and TheApeironLab/zygos. The default GITHUB_TOKEN cannot read the private Zygos submodule.'
+            exit 1
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           # Fine-grained read-only token with access to Apeiron and private Zygos.
-          token: ${{ secrets.ZYGOS_READ_TOKEN || github.token }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -104,11 +120,19 @@ jobs:
     needs: build
     runs-on: ubuntu-22.04
     steps:
+      - name: Require private submodule read credential
+        env:
+          ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+        run: |
+          if [ -z "$ZYGOS_READ_TOKEN" ]; then
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli and TheApeironLab/zygos. The default GITHUB_TOKEN cannot read the private Zygos submodule.'
+            exit 1
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           # Fine-grained read-only token with access to Apeiron and private Zygos.
-          token: ${{ secrets.ZYGOS_READ_TOKEN || github.token }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -137,11 +161,19 @@ jobs:
       contents: write
       id-token: write
     steps:
+      - name: Require private submodule read credential
+        env:
+          ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+        run: |
+          if [ -z "$ZYGOS_READ_TOKEN" ]; then
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli and TheApeironLab/zygos. The default GITHUB_TOKEN cannot read the private Zygos submodule.'
+            exit 1
+          fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
           # Fine-grained read-only token with access to Apeiron and private Zygos.
-          token: ${{ secrets.ZYGOS_READ_TOKEN || github.token }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
