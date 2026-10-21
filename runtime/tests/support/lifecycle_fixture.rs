@@ -1,7 +1,7 @@
 // Shared by unit and several independent integration-test crates.
 #![allow(dead_code)]
 use serde_json::{json, Value};
-fn identity(value: &Value) -> String {
+pub fn identity(value: &Value) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(serde_json::to_vec(value).unwrap()))
 }
