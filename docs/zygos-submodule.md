@@ -21,6 +21,10 @@ Apeiron 的 JavaScript 源码检查跳过确切的 `third_party/zygos` 路径，
 限定为本仓库的 `test/`。Zygos monorepo 内的 TypeScript 与测试由上游独立验证，
 不纳入宿主的语言限制或 Bun 测试；嵌入集成仍由 Apeiron 的 Rust 测试覆盖。
 
+Cargo 会合并共享依赖的 features。Zygos 所需的 `serde_json/arbitrary_precision`
+必须保留；Apeiron 输出 YAML 时先经 JSON 文本转换为原生 YAML 值，避免高精度
+数字的私有 Serde 表示泄漏为配置对象。数值、嵌套值与字符串边界有回归测试。
+
 `zygos_cli::run_with_command` 由 Zygos 提供，Apeiron 只负责子命令分发与运行时/取消。
 最终产物仍是单个静态链接的 `apeiron`；运行者不需要 Git、子模块、独立 Zygos CLI、
 Rust 或 Node。Zygos API 服务仍须单独部署。
