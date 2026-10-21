@@ -32,6 +32,73 @@ cargo install --path runtime --locked
 apeiron --help
 ```
 
+## 统一 SSO 与 Task
+
+```sh
+apeiron sso login --server https://apeiron.example.internal
+apeiron sso status --json
+apeiron task workspace list --json
+apeiron task project list --workspace <ID> --json
+apeiron sso logout
+```
+
+`login` 显示设备授权链接并打开浏览器；浏览器复用已有 Keycloak SSO 会话，用户确认后 CLI
+保存自己的平台登录。无桌面环境加 `--no-open`。后续 Task 命令从平台发现 API 地址，使用 SSO
+凭据请求后端交换 Task 专用短期 token，不需要 Task 单独登录或逐 App 配置环境变量。
+
+在 Apeiron agent／有执行超时的容器中使用两步登录，不让命令等待浏览器：
+
+```sh
+apeiron sso login --server https://apeiron.example.internal --no-open --no-wait --json
+# 在自己的浏览器打开 verificationUri 并输入 userCode（链接已带 code 时无需重填），确认授权后：
+apeiron sso login --complete --json
+apeiron task workspace list --json
+```
+
+第一步立即返回 `authorizationPending: true`、授权链接和 `nextCommand`，它不表示登录已完成。
+`--complete` 每次至多轮询一次；未确认或未到轮询间隔时返回 pending 和 `retryAfterMs`，稍后再执行。
+设备授权状态和 PKCE verifier 保存在原容器的 0600 私有文件；不需要后台进程或复制 token。
+网络故障导致换票结果不确定时要求重新发起登录，不重放可能已经消费的设备授权。
+已有登录在新身份验证成功之前保留；`sso logout` 同时清理待完成的授权。
+
+SSO refresh grant 只保存在当前用户的私有缓存，和网页的 refresh grant 分开；CLI 自动续期，
+并发命令共用凭据锁。后端保管机密客户端密钥，只返回 App access token。刷新结果不确定时要求
+重新登录，不反复提交可能已被消费的 refresh token。`logout` 只撤销当前 CLI 登录并清除派生缓存。
+
+平台需要部署支持 `/sso/config`、`/sso/session`、`/sso/token` 的 Apeiron Backend 和 Chentu 的
+public `apeiron-cli` 设备客户端。显式 SSO 登录后优先使用该会话；尚未登录的 agent 继续读取平台提供的外部凭据文件，不改写它。
+旧的 `apeiron task auth login` 仅用于独立 Task 实例的兼容登录，不是平台 SSO 的前置步骤。
+Task 是内置 Rust 模块，使用时不依赖 Node/Bun 或外部 Task 可执行文件。
+
+### Task 项目、状态和子任务
+
+先从 `apeiron task project list --workspace <工作区ID> --json` 获取项目的 `id`，不要传项目名称或 slug。
+
+```sh
+apeiron task project columns <项目ID> --json
+apeiron task project fields <项目ID> --json
+apeiron task create --project <项目ID> --title "任务" --status <列的slug> --json
+apeiron task create --project <项目ID> --title "发布范围确定" --status <列的slug> --due 2026-10-26 --json
+apeiron task update <任务ID> --due 2026-11-12T12:00:00+08:00 --json
+apeiron task update <任务ID> --clear-due --json
+apeiron task fields <任务ID> --json
+apeiron task relation create --source <父任务ID> --target <子任务ID> --relation-type subtask --json
+apeiron task relation list --task <任务ID> --json
+apeiron task relation delete <关系ID> --json
+apeiron task project archive <项目ID> --json
+apeiron task project delete <项目ID> --confirm --json
+```
+
+`task columns --project <项目ID>` 也可查询列。`project fields` 返回字段定义，`task fields` 返回任务字段值；
+创建任务时通过 `--field <字段ID>=<值>` 提交自定义字段。状态使用列的 `slug`，优先级使用
+`no-priority/low/medium/high/urgent`。项目删除会永久删除项目内容，须显式传 `--confirm`。
+创建和更新均支持 `--due`，写入原生 `dueDate` 字段。
+`YYYY-MM-DD` 按当天 UTC 零点保存；精确时间必须带时区，例如 `2026-11-12T12:00:00+08:00`。
+创建用 `--file` 时也可填写 `dueDate`。更新每次只改一个字段，`--clear-due` 清除截止日期。
+子任务通过已有任务之间的 `subtask` 关系表达，父任务是 source，子任务是 target；创建任务与建关系是两个独立操作。
+服务端当前没有独立的 milestone 模型，因此 CLI 不提供 `--milestone`，也不会把自定义字段伪装成原生里程碑。
+这些新命令需要同时升级支持关系和项目删除的 Task Bearer 接口白名单；工作区权限仍由服务端检查。
+
 ## 浏览器部署向导
 
 ```sh
@@ -294,3 +361,17 @@ The target machine starts the existing loopback wizard and connects outbound ove
 The command prints a connection-file path under `~/.apeiron/gateway/`. Reconnect with `apeiron register --connection <path>`. That file contains a private agent token and has mode 0600; do not share it. Ctrl+C disconnects and stops the wizard, including any active deployment. Automatic systemd installation is not implemented in this initial version.
 
 Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.1` for local development. A localhost gateway URL works only when the CLI runs on the same machine. Production also needs gateway DNS/HTTPS and isolated setup subdomains. Application ingress provisioning remains separate from opening the deployment wizard.
+
+### IAM CLI 与统一 SSO
+
+`apeiron sso login --server <APEIRON_URL>` 后，`apeiron iam` 直接调用该平台的 `/api/organization`。IAM 网页和 CLI 共用同一组织 API 与 `apeiron-app` audience，不创建 IAM 换票 broker，不把 Keycloak Admin API 的服务账号凭据交给 CLI。服务端每次请求读取当前账号状态、组织归属和管理角色；`iam-user` 入口资格不授予成员管理权限。
+
+```bash
+apeiron iam organization get --json
+apeiron iam member list --offset 0 --json
+apeiron iam app list --json
+apeiron iam operation list --json
+apeiron iam member update <SUBJECT> --file access.json --idempotency-key <UUID> --json
+```
+
+`member create`、`member update`、`member reset-password` 的 JSON 文件沿用组织 API 契约，`--file -` 可从 stdin 读取。密码不通过命令参数传递。所有写命令必须指定 UUID 幂等键；未知结果先查询操作记录，再使用原幂等键与原输入重试，不自动生成新操作。开户的邮箱核验声明仍须基于真实组织核验。CLI 不接受任意 API URL 或租户参数，组织由 SSO 身份决定。

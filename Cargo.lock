@@ -84,12 +84,13 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apeiron"
-version = "0.2.1"
+version = "0.261018.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "chrono",
  "clap",
+ "filetime",
  "flate2",
  "futures-util",
  "hickory-resolver",
@@ -106,6 +107,7 @@ dependencies = [
  "tiny_http",
  "tokio",
  "tokio-tungstenite",
+ "url",
  "x509-parser",
 ]
 
