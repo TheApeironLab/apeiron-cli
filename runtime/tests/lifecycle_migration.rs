@@ -31,7 +31,8 @@ fn collect_migrate_preserves_legacy_and_secrets_and_never_accepts_unknown_invent
     use std::os::unix::fs::PermissionsExt;
     let t = Temp::new();
     t.write("manifest", &json!({"schemaVersion":1,"kind":"chentu-release","release":"0.1.0-dev.20261016.1","components":{"apeiron":{},"postgres":{}}}));
-    // Actual legacy generation: no installationId, generation or clusterUid.
+    // Compatibility fixture for missing identity fields; the fixed 044199d producer
+    // already writes clusterUid, covered separately below.
     let legacy = json!({"schemaVersion":1,"checkpoint":"bootstrap-complete","commandActive":false,"environment":{"secret":"legacy-private-value"}});
     t.write("legacy", &legacy);
     t.write("configuration", &json!({"password":"configuration-private-value"}));
@@ -156,6 +157,25 @@ fn collect_migrate_preserves_legacy_and_secrets_and_never_accepts_unknown_invent
     // A legacy UID must not be rebound to a different collected cluster even
     // when the file digests themselves match the new collection.
     t.write("configuration", &json!({"password":"configuration-private-value"}));
+    let original_collection: Value = serde_json::from_str(&data).unwrap();
+    let mut identified = legacy.clone();
+    identified["clusterUid"] = json!("cluster-one");
+    identified["configHash"] = original_collection["resumeConfigurationSha256"].clone();
+    identified["ownerPid"] = json!(7);
+    identified["cliSha256"] = json!("a".repeat(64));
+    t.write("legacy", &identified);
+    let mut identified_collect = collect.to_vec();
+    *identified_collect.last_mut().unwrap() = "identified-collection";
+    assert!(t.cli(&identified_collect).status.success());
+    let mut identified_migrate = migrate.to_vec();
+    let collection_at = identified_migrate.iter().position(|s| *s == "--collection").unwrap();
+    identified_migrate[collection_at + 1] = "identified-collection";
+    *identified_migrate.last_mut().unwrap() = "identified-migration";
+    assert!(t.cli(&identified_migrate).status.success());
+    let imported: Value = serde_json::from_slice(&fs::read(t.0.join("identified-migration")).unwrap()).unwrap();
+    assert_eq!(imported["legacyClusterUidPresent"], true);
+    assert_eq!(imported["status"], "review-required");
+    assert_eq!(imported["executionAllowed"], false);
     t.write(
         "legacy",
         &json!({"schemaVersion":1,"checkpoint":"bootstrap-complete",

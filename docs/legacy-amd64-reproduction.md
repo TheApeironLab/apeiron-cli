@@ -27,8 +27,15 @@
 `/root/repos/lifecycle-validation/amd64-repro/`。新增 CLI 集成用例冻结同样的两类拒绝行为。
 
 本轮没有部署旧版本或修改任何集群。未复现完整业务首装、断网闭包或升级成功；PR 评论中另一交付
-工作区的 upgrade-attempt-1620/report.md 未在当前工作区找到，不将其作为本轮新增验收证据。
+工作区的 upgrade-attempt-1620/report.md 本轮未取得，不将其作为本轮新增验收证据。
 
 处理建议：现存 multi-k3s 现场应通过只读采集确认实际旧基线，不能一概认定旧版 AMD64 全部不可安装。
 如需实验室复现 single-k3s/single-k3d 源线，须发布新的不可变补丁版本、补齐资源和拓扑实测；不覆盖旧包，
 也不在本次 PR 中擅自扩大旧版支持矩阵。外网 single-k3s 应按其实际来源包单独核实，不能沿用内网结论。
+
+## 旧检查点格式的核对
+
+固定旧 CLI `044199d` 的 resume.rs/checkpoint() 已写入 clusterUid、configHash 和 commandActive，
+但没有 installationId/generation。评论中的“无 clusterUid”样本不能代表该提交所有正常检查点；
+本轮没有取得该样本完整报告，不推断缺失原因。迁移测试分别覆盖有 UID/configHash 的旧生成器格式、
+缺 UID 的兼容输入，以及已有 UID 与采集集群不符的拒绝。两类导入结果均保持待审，不执行原检查点。

@@ -35,7 +35,8 @@ apeiron lifecycle migrate-record --collection /external/evidence/collection-new.
 ```
 
 支持 `schemaVersion=1/checkpoint=bootstrap-complete/commandActive=false` 的旧代检查点，包括没有
-installationId/generation/clusterUid 的记录。若旧记录已有 UID/configHash，必须匹配采集；四个输入文件
+installationId/generation/clusterUid 的兼容记录。固定旧 CLI 044199d 已写入 clusterUid/configHash，
+不能把无 UID 样本概括为该版本所有检查点；若旧记录已有 UID/configHash，必须匹配采集。四个输入文件
 按原始字节绑定，configHash 单独按旧 resume 的规范 JSON 算法比较。不沿用旧目录、PID、environment
 或命令，不修改原检查点，也不放宽原首装 resume 校验。
 

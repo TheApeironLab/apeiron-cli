@@ -21,7 +21,7 @@ const KINDS: &[&str] = &[
     "control-plane",
 ];
 fn invalid() -> Error {
-    fail("生命周期输入不符合 v1 契约；未执行任何集群操作。", 400)
+    fail("生命周期输入不符合 v1 契约；未执行任何集群变更。", 400)
 }
 fn decode<T: DeserializeOwned>(value: &Value) -> Result<T> {
     serde_json::from_value(value.clone()).map_err(|_| invalid())
