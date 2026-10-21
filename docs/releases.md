@@ -53,12 +53,13 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 手动构建当前平台（固定 Rust 工具链 + Bun 1.3.14，仅开发和发行脚本需要 Bun）：
 
 ```sh
+git submodule update --init --recursive
 bun run build:release /absolute/external/output
 # 收集四个平台的构建产物后再生成汇总元数据：
 bun scripts/finalize-release.js /absolute/external/output
 ```
 
-构建要求已提交且干净的 Git 工作树，包括未追踪文件；编译前后提交、tree、Cargo.lock 与工具链摘要必须保持一致。apeiron --build-info 显示编译时注入的确切提交、是否 clean、Rust 编译器和目标平台。每个归档含 build-provenance.json，对应 .provenance.json sidecar 还绑定归档摘要。封版逐个平台读取归档中的实际二进制并复核来源、工具链、target 与二进制/归档摘要；拒绝用当前 HEAD 重新标记旧产物。
+构建要求已提交且干净的 Git 工作树，包括未追踪文件；Zygos 子模块必须已初始化、与 gitlink 一致且无本地改动（私有仓库 CI 权限见 [子模块说明](zygos-submodule.md)）；编译前后提交、tree、Cargo.lock 与工具链摘要必须保持一致。apeiron --build-info 显示编译时注入的确切提交、是否 clean、Rust 编译器和目标平台。每个归档含 build-provenance.json，对应 .provenance.json sidecar 还绑定归档摘要。封版逐个平台读取归档中的实际二进制并复核来源、工具链、target 与二进制/归档摘要；拒绝用当前 HEAD 重新标记旧产物。
 
 每个发行目录包含四个归档、安装脚本、`SHA256SUMS` 和记录版本/源提交/构建器/文件摘要的 `release.json`。版本路径不可覆盖；网络失败重跑仅接受相同摘要，已有不同文件时停止。不要修改已发布版本，应增加新版本号。
 

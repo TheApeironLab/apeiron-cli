@@ -66,3 +66,22 @@ test('finalization reads archive binary and rejects forged sidecars and symlinks
   await rm(join(f.root, 'apeiron')); await symlink('README.md', join(f.root, 'apeiron')); f.tar(); await f.seal();
   await expect(inspectReleaseArtifact(f.archive, f.source, '0.2.0', 'darwin-arm64')).rejects.toThrow('regular files');
 });
+
+test('release rejects missing, dirty and moved submodules even with ignore configured', async () => {
+  const { root } = await fixture();
+  const child = await fixture();
+  git(root, '-c', 'protocol.file.allow=always', 'submodule', 'add', child.root, 'third_party/zygos');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'pin submodule');
+  await sourceSnapshot(root);
+  git(root, 'config', 'submodule.third_party/zygos.ignore', 'all');
+  const checkout = join(root, 'third_party/zygos');
+  await writeFile(join(checkout, 'untracked.rs'), 'untracked build input');
+  await expect(sourceSnapshot(root)).rejects.toThrow('clean committed');
+  await rm(join(checkout, 'untracked.rs'));
+  await writeFile(join(checkout, 'Cargo.lock'), 'modified source');
+  await expect(sourceSnapshot(root)).rejects.toThrow('clean committed');
+  git(checkout, 'add', '.'); git(checkout, 'commit', '-qm', 'unreviewed pointer');
+  await expect(sourceSnapshot(root)).rejects.toThrow('clean committed');
+  git(root, 'submodule', 'deinit', '-f', 'third_party/zygos');
+  await expect(sourceSnapshot(root)).rejects.toThrow('submodules must be initialized');
+});

@@ -266,7 +266,7 @@ bun run test:ui
 apeiron verify
 ```
 
-开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；仓库不包含 TypeScript。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
+开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；Apeiron 自身不包含 TypeScript，独立的 Zygos 子模块不受此语言限制。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
 
 首次浏览器验证需先运行 `bunx playwright install chromium`。`test:ui` 从临时目录启动编译后的二进制，
 用隔离的部署替身验证首屏入口、八步配置、场景组合、共存预检与摘要、必选项、失败/重试、刷新恢复、部署后进入访问配置、系统授权取消/重试的页面状态、凭据读取／隐藏／复制／下载、连接检查失败与重试、完成退出、桌面/手机布局以及没有外部网络请求。授权测试使用隔离替身，不弹出真实管理员授权或修改开发机信任库。它不对真实集群执行 sync。
@@ -377,3 +377,19 @@ apeiron iam member update <SUBJECT> --file access.json --idempotency-key <UUID> 
 `member create`、`member update`、`member reset-password` 的 JSON 文件沿用组织 API 契约，`--file -` 可从 stdin 读取。密码不通过命令参数传递。所有写命令必须指定 UUID 幂等键；未知结果先查询操作记录，再使用原幂等键与原输入重试，不自动生成新操作。开户的邮箱核验声明仍须基于真实组织核验。CLI 不接受任意 API URL 或租户参数，组织由 SSO 身份决定。
 
 Zygos 可在安装向导中选择，需使用包含其 API、Web、Worker、EvalScope 四个镜像的新版 Chentu 安装包。旧版在线包不包含 Zygos，因此当前默认应用选择保持兼容；使用新版包时显式勾选 Zygos。GPU 节点与模型权重单独配置。
+
+## Zygos 内置子命令
+
+`apeiron zygos` 静态链接 Zygos Rust CLI，单个 apeiron 文件即可使用；
+不需要外部 zygos 可执行文件，也不读取 `APEIRON_ZYGOS_BIN`。
+
+```sh
+apeiron zygos --help
+export ZYGOS_API_BASE_URL=http://127.0.0.1:8000
+apeiron zygos model list
+```
+
+连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
+源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
+`apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
+克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。

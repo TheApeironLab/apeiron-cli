@@ -1,0 +1,3 @@
+[test]
+# Keep Apeiron's test discovery out of the independently tested Zygos monorepo.
+root = "./test"

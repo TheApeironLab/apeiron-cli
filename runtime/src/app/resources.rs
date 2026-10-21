@@ -46,9 +46,14 @@ pub fn yaml(path: &Path) -> Result<Value> {
     serde_yaml_ng::from_slice(&read(path, 2 * 1024 * 1024)?).map_err(|_| fail("环境文件必须是有效的普通 YAML。", 400))
 }
 pub fn write_yaml(path: &Path, value: &Value) -> Result<()> {
+    // serde_json's arbitrary_precision feature is shared with the embedded CLI.
+    // Its Number serializer uses a private map protocol that YAML does not know.
+    // Parse the JSON text as YAML first so numbers remain scalar YAML values.
+    let yaml: serde_yaml_ng::Value =
+        serde_yaml_ng::from_str(&value.to_string()).map_err(|_| fail("无法生成 YAML 配置。", 400))?;
     private_write(
         path,
-        serde_yaml_ng::to_string(value)
+        serde_yaml_ng::to_string(&yaml)
             .map_err(|_| fail("无法生成 YAML 配置。", 400))?
             .as_bytes(),
     )
@@ -713,6 +718,26 @@ pub fn prepare_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn yaml_output_preserves_numeric_scalars_with_embedded_json_features() {
+        let temp = crate::app::contracts::Temp::new();
+        let path = temp.0.join("environment.yaml");
+        let value = json!({
+            "port": 54320,
+            "delay": 1500,
+            "negative": -17,
+            "max": u64::MAX,
+            "nested": [0, 0.125, true, null, "1500"]
+        });
+        write_yaml(&path, &value).unwrap();
+        assert_eq!(yaml(&path).unwrap(), value);
+        let native: serde_yaml_ng::Value = serde_yaml_ng::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(native["port"].as_u64(), Some(54320));
+        assert_eq!(native["max"].as_u64(), Some(u64::MAX));
+        assert_eq!(native["nested"][1].as_f64(), Some(0.125));
+        assert_eq!(native["nested"][4].as_str(), Some("1500"));
+    }
 
     #[test]
     fn offline_missing_report_lists_every_artifact_name_version_architecture_and_repository() {
