@@ -390,4 +390,6 @@ apeiron zygos model list
 ```
 
 连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
-精确的上游源码版本和同步方式记录在 `vendor/zygos-cli/UPSTREAM.md`。
+源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
+`apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
+克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。

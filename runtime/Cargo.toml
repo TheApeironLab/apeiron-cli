@@ -35,4 +35,4 @@ hickory-resolver = "0.25.2"
 filetime = "=0.2.29"
 url = "=2.5.8"
 
-zygos-cli = { path = "../vendor/zygos-cli" }
+zygos-cli = { path = "../third_party/zygos/apps/cli" }

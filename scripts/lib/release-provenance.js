@@ -13,8 +13,11 @@ function output(args, root) {
   return result.stdout.toString().trim();
 }
 export async function sourceSnapshot(root) {
-  if (output(['git', 'status', '--porcelain', '--untracked-files=all'], root))
+  if (output(['git', 'status', '--porcelain', '--untracked-files=all', '--ignore-submodules=none'], root))
     throw new Error('Release builds require a clean committed checkout (including untracked files)');
+  const submodules = Bun.spawnSync(['git', 'submodule', 'status', '--recursive'], { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  if (submodules.exitCode !== 0 || submodules.stdout.toString().split('\n').filter(Boolean).some(line => !line.startsWith(' ')))
+    throw new Error('Release submodules must be initialized at their pinned commits; run git submodule update --init --recursive');
   const revision = output(['git', 'rev-parse', 'HEAD'], root);
   const tree = output(['git', 'rev-parse', 'HEAD^{tree}'], root);
   if (!/^[a-f0-9]{40}$/.test(revision) || !/^[a-f0-9]{40}$/.test(tree))

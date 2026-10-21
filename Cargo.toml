@@ -1,6 +1,6 @@
 [workspace]
 members = ["runtime"]
-exclude = ["vendor/zygos-cli"]
+exclude = ["third_party/zygos"]
 resolver = "2"
 
 [workspace.package]
