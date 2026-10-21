@@ -273,7 +273,7 @@ try {
     assert.equal(await page.getByRole('button', { name: '开始安装', exact: true }).count(), 0);
     const required = ['Nexus', 'Vasi', 'Limani', 'Apeiron'];
     const defaults = ['Task', 'Corpus', 'Chat', 'Files', '邮件'];
-    const optional = ['Gateway', 'Filer', '代码仓库', 'GPUStack', 'Langfuse', 'Grafana', 'Browser', 'CI'];
+    const optional = ['Zygos', 'Gateway', 'Filer', '代码仓库', 'GPUStack', 'Langfuse', 'Grafana', 'Browser', 'CI'];
     const app = (name) => page.getByRole('checkbox', { name: new RegExp('^' + name + ' ') });
     assert.deepEqual(await page.locator('.app-copy strong').allTextContents(), [...required, ...defaults, ...optional]);
     for (const name of required) {
@@ -290,7 +290,7 @@ try {
     await page.locator('[data-scenario=required]').click();
     assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
     await page.locator('[data-scenario=full]').click();
-    assert.equal(await page.locator('#selected-count').textContent(), '已选择 17 个应用（4 个必选）');
+    assert.equal(await page.locator('#selected-count').textContent(), '已选择 18 个应用（4 个必选）');
     await page.locator('[data-scenario=core]').click();
     await app('CI').check();
     assert.equal(await app('代码仓库').isChecked(), true, 'CI enables its Git dependency');
@@ -434,7 +434,7 @@ try {
     assert.equal(saved.slug, 'example-team');
     assert.equal(saved.deployment.installation.entryIp, '127.0.0.1');
     assert.equal(saved.llm, undefined);
-    assert.deepEqual(saved.apps, ['nexus', 'vasi', 'ontology', 'apeiron', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']);
+    assert.deepEqual(saved.apps, ['nexus', 'vasi', 'ontology', 'apeiron', 'zygos', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']);
     assert.equal((await stat(path)).mode & 0o777, 0o600);
     const installCatalogPath = join(setup.root, 'setup/install.json');
     const installCatalog = JSON.parse(await readFile(installCatalogPath, 'utf8'));

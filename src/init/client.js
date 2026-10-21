@@ -45,7 +45,7 @@ export function initWizard(supportsK3sHost) {
     let preflightSerial = 0;
     let preflightPending = Promise.resolve();
     // Rough per-application memory estimate (GiB) for the budget step; the base platform is counted once.
-    const MEMORY_ESTIMATE = { base: 6, task: 0.5, corpus: 1, matrix: 1, files: 0.5, stalwart: 0.5, gateway: 0.5, filer: 0.5, git: 1, gpustack: 2, langfuse: 1.5, kps: 2, browser: 1, ci: 1 };
+    const MEMORY_ESTIMATE = { base: 6, task: 0.5, corpus: 1, zygos: 3, matrix: 1, files: 0.5, stalwart: 0.5, gateway: 0.5, filer: 0.5, git: 1, gpustack: 2, langfuse: 1.5, kps: 2, browser: 1, ci: 1 };
     const SCENARIOS = { required: [], core: ['task', 'corpus', 'matrix', 'files', 'stalwart'], full: null };
     const modelProvider = get('model-provider');
     const modelUrl = get('model-url'), modelKey = get('model-key');
