@@ -232,7 +232,7 @@ fn source_package(
         if new.is_null() {
             return Err(fail(format!("Package has no release {name}"), 2));
         }
-        if values["releases"][name].is_null() || values["releases"][name]["enabled"] != true {
+        if !values["releases"][name]["values"].is_object() {
             values["releases"][name] = new.clone();
         } else {
             replace_images(&mut values["releases"][name]["values"], &new["values"]);
