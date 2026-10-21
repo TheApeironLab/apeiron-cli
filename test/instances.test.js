@@ -141,7 +141,8 @@ test('api/preflight validates like deploy, reports warnings or a blocking reason
 test('application catalog: browser and ci are optional, ci requires git, unknown apps are refused by name', async () => {
     const { post, config, body } = await fixture();
     const snapshot = await config();
-    expect(snapshot.apps.map(a => a.id)).toEqual(['nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']);
+    expect(snapshot.apps.map(a => a.id)).toEqual(['nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'zygos', 'matrix', 'files', 'stalwart', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']);
+    expect(snapshot.apps.find(a => a.id === 'zygos')).toMatchObject({ selected: false, required: false });
     expect(snapshot.apps.find(a => a.id === 'ci')).toMatchObject({ selected: false, required: false, requires: ['git'], releases: ['woodpecker'] });
     expect(snapshot.apps.find(a => a.id === 'browser')).toMatchObject({ selected: false, required: false, releases: ['chrome-headless'] });
     let response = await post('config', { ...body(), apps: [...requiredApps, 'ci'] });

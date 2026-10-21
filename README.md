@@ -122,7 +122,7 @@ apeiron init
 | --- | --- |
 | 必选，不可取消 | Nexus、Vasi、Limani、Apeiron（含 Ops） |
 | 默认选中，可取消 | Task、Corpus、Chat（团队聊天）、Files、邮件 |
-| 默认不选 | Gateway、Filer、代码仓库、GPUStack、Langfuse、Grafana、Browser（chrome-headless）、CI（woodpecker，需代码仓库） |
+| 默认不选 | Zygos、Gateway、Filer、代码仓库、GPUStack、Langfuse、Grafana、Browser（chrome-headless）、CI（woodpecker，需代码仓库） |
 
 默认选中 9 项，其中 4 项必选。页面按上表分三组、按表内顺序展示。重新打开保留可选应用选择；旧配置中缺少的必选应用会自动勾选，提交时才写入。可选应用仍受发行包声明的部署依赖约束。
 
@@ -375,3 +375,5 @@ apeiron iam member update <SUBJECT> --file access.json --idempotency-key <UUID> 
 ```
 
 `member create`、`member update`、`member reset-password` 的 JSON 文件沿用组织 API 契约，`--file -` 可从 stdin 读取。密码不通过命令参数传递。所有写命令必须指定 UUID 幂等键；未知结果先查询操作记录，再使用原幂等键与原输入重试，不自动生成新操作。开户的邮箱核验声明仍须基于真实组织核验。CLI 不接受任意 API URL 或租户参数，组织由 SSO 身份决定。
+
+Zygos 可在安装向导中选择，需使用包含其 API、Web、Worker、EvalScope 四个镜像的新版 Chentu 安装包。旧版在线包不包含 Zygos，因此当前默认应用选择保持兼容；使用新版包时显式勾选 Zygos。GPU 节点与模型权重单独配置。
