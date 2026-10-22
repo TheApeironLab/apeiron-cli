@@ -1,0 +1,7 @@
+self-hosted-runner:
+  labels:
+    - apeiron-release
+    - k3d-darwin-arm64
+    - k3d-linux-arm64
+    - k3s-single-amd64
+    - k3s-multi-amd64
