@@ -46,13 +46,22 @@ try {
     if (!image) {
         image = basePlan.target.toolboxImageId;
         assert.match(image, /^sha256:[a-f0-9]{64}$/);
-        const existing = Bun.spawnSync(['docker', 'image', 'inspect', image], { stdout: 'ignore', stderr: 'ignore' });
-        if (existing.exitCode !== 0) {
-            const file = basePlan.files.find(file => file.path === basePlan.target.toolboxArchive);
-            assert.ok(file, 'Default package must declare a verified toolbox archive');
-            const archive = join(directory, 'toolbox.tar');
-            await download(file.url, archive, file.sha256, file.size);
-            await run(['docker', 'load', '--input', archive]);
+        const file = basePlan.files.find(file => file.path === basePlan.target.toolboxArchive);
+        assert.ok(file, 'Default package must declare a verified toolbox archive');
+        const archive = join(directory, 'toolbox.tar');
+        await download(file.url, archive, file.sha256, file.size);
+        await run(['docker', 'load', '--input', archive]);
+        // The test container must work with both classic and containerd stores.
+        // The legacy catalog pins an OCI digest, while classic Docker exposes
+        // the config digest. Derive that identity only from the verified archive.
+        if (Bun.spawnSync(['docker', 'image', 'inspect', image], { stdout: 'ignore', stderr: 'ignore' }).exitCode !== 0) {
+            const manifest = JSON.parse(await run(['tar', '-xOf', archive, 'manifest.json']));
+            assert.equal(manifest.length, 1, 'Expected one toolbox image');
+            assert.match(manifest[0].Config, /^(?:blobs\/sha256\/[a-f0-9]{64}|[a-f0-9]{64}\.json)$/);
+            const config = await run(['tar', '-xOf', archive, manifest[0].Config]);
+            assert.equal(JSON.parse(config).os, 'linux');
+            assert.equal(JSON.parse(config).architecture, target.slice(4));
+            image = `sha256:${createHash('sha256').update(config).digest('hex')}`;
         }
         assert.equal((await run(['docker', 'image', 'inspect', image, '--format', '{{.Id}}'])).trim(), image);
     }
