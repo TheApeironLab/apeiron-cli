@@ -18,7 +18,7 @@ HTTPS 使用 Let’s Encrypt。`Downloads HTTPS certificate` 工作流每天北�
 
 续期使用专用 RAM 角色 `apeiron-downloads-tls`，通过 GitHub OIDC 获取临时凭据。仓库变量 `DOWNLOADS_TLS_ROLE_ARN` 指向该角色，并复用 `OSS_OIDC_PROVIDER_ARN`。`DOWNLOADS_ACME_ACCOUNT` 是 GitHub Actions 加密 secret，仅保存复用签发账户所需的 ACME 账户资料；证书私钥只保留在权限受限的临时目录并通过 OSS API 上传，不写入 Git、公开对象或 Actions artifacts。工作流结束时删除临时目录。
 
-可在 Actions 手动运行工作流检查续期；证书尚有 30 天以上有效期时不会重复签发。失败通过 GitHub Actions 通知维护者。更换仓库、分支或 OIDC subject 时，需要同步更新角色信任策略。证书客户端依赖固定在 `scripts/downloads-tls-requirements.txt`。
+可在 Actions 手动运行工作流检查续期；证书尚有 30 天以上有效期时不会重复签发。`force_renewal` 仅用于故障恢复或完整验证，避免反复使用触发 CA 签发限额。失败通过 GitHub Actions 通知维护者。更换仓库、分支或 OIDC subject 时，需要同步更新角色信任策略。证书客户端依赖固定在 `scripts/downloads-tls-requirements.txt`。
 
 首次使用新域名发布前，确认 `/apeiron-cli/install.sh`、`/apeiron-cli/latest.txt` 及其指向版本的 `SHA256SUMS`、归档均可通过新域名下载。CLI 发布脚本和资源发布脚本使用新域名回读校验，上传目标仍为原 OSS bucket。域名未就绪时不能发布。
 

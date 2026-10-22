@@ -9,11 +9,6 @@ on:
         description: 'Force issuance once for recovery or validating the renewal path'
         type: boolean
         default: false
-  push:
-    branches: [codex/downloads-domain]
-    paths:
-      - '.github/workflows/downloads-tls.yml'
-      - 'scripts/downloads-tls*'
 
 permissions:
   contents: read
