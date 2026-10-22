@@ -23,7 +23,7 @@ pub fn resolve(base: &str, override_version: Option<&str>) -> Result<String, &'s
     let year: u32 = date[..4].parse().unwrap();
     let month: usize = date[4..6].parse().unwrap();
     let day: u32 = date[6..].parse().unwrap();
-    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
     let days = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     if !(1..=12).contains(&month) || day == 0 || day > days[month - 1] {
         return Err("Invalid nightly date");
