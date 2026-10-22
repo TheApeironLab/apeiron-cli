@@ -20,6 +20,10 @@ K3s 资源需包含兼容的系统包、K3s 二进制／安装脚本／airgap �
 
 离线目录包含 `chentu/` 部署程序及其 `setup/install.json`，资源位于目录下的清单相对路径。目录选择授权使用其中的部署程序，应来自受信任的发布方。离线资源准备不调用网络下载，支持选择 K3d 并使用本地完整安装包。选择的文件被复制到独立工作目录，再次校验并生成本次专用 `SHA256SUMS`，因此清单不得自行列入 `SHA256SUMS`。
 
+应用的启用状态必须与资源组件闭包一致：用户选择的应用及其传递依赖才会启用，不能沿用旧包基础环境中默认开启的可选应用。组件的具体 values 和基础设施配置保留；Grafana、Browser、CI 等应用使用目录声明的 Helm release 别名。此规则兼容默认开启全栈的旧目录，也兼容默认关闭、由组件 values 开启的新目录。
+
+发布流水线在 Linux ARM64 构建中运行 `bun scripts/test-install-plan.js`：下载并校验运行时固定的公开 Chentu 源码包与工具箱，验证“仅四项必选”、Task、Langfuse 和 Grafana 四种选择。测试调用真实 Helmfile 和包内 `check.py`，工具箱没有网络、Docker socket 或 kubeconfig。它验证配置和依赖，不代表真实集群部署成功。本地可传入已校验的包与工具箱：`bun scripts/test-install-plan.js /path/to/chentu sha256:<toolbox-image-id>`。
+
 安装顺序：
 
 1. 校验应用资源闭包与目标平台，检查管理机工具和目标节点；K3s 还检查管理机到平台入口的泛解析。

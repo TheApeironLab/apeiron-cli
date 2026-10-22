@@ -50,3 +50,10 @@ export function nightlyVersion(base, date, sequence) {
   resolveReleaseVersion(base, '', version);
   return version;
 }
+
+// A stable tag is a coordinated release, not just a new host executable.
+export function assertStableAlignment(version, apeiron, chentu) {
+  if (parseReleaseVersion(version).channel !== 'stable') return;
+  if (apeiron !== version || chentu !== version)
+    throw new Error(`Stable ${version} requires Apeiron and Chentu ${version}; pinned Apeiron=${apeiron}, Chentu=${chentu}`);
+}
