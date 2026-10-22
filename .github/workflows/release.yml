@@ -5,15 +5,35 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      candidate:
+        description: Build coordinated nightly image candidates without publishing
+        type: boolean
+        default: false
+      apeiron_revision:
+        description: Full Apeiron source commit for the candidate
+        type: string
+      chentu_revision:
+        description: Full Chentu source commit for the candidate
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: standalone-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  candidate-images:
+    if: github.event_name == 'workflow_dispatch' && inputs.candidate && !startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/candidate-images.yml
+    with:
+      apeiron_revision: ${{ inputs.apeiron_revision }}
+      chentu_revision: ${{ inputs.chentu_revision }}
+    secrets: inherit
+
   release-contracts:
     runs-on: ubuntu-22.04
     steps:
