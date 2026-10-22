@@ -1,5 +1,6 @@
 //! Pure snapshot planning; the separate opt-in collector only issues fixed GETs.
 //! Planning never authorizes execution, including when all input checks pass.
+mod baseline;
 mod collection;
 mod model;
 mod remediation;
@@ -761,11 +762,19 @@ pub fn run(args: &[String]) -> Result<()> {
     }
     let (pos, options) = parse(
         args,
-        &["installation", "observation", "intent", "manifest", "backup", "out"],
+        &[
+            "installation",
+            "observation",
+            "intent",
+            "manifest",
+            "backup",
+            "baseline",
+            "out",
+        ],
         &["help"],
     )?;
     if options.contains_key("help") {
-        println!("apeiron lifecycle validate-manifest --manifest FILE\napeiron lifecycle validate-record --installation FILE\napeiron lifecycle plan --installation FILE --observation FILE --intent FILE [--manifest FILE] [--backup FILE] [--out NEW_FILE]\nUse lifecycle collect --help and lifecycle migrate-record --help for legacy discovery.\nRead-only snapshot planning; all execution operations are blocked.");
+        println!("apeiron lifecycle validate-manifest --manifest FILE\napeiron lifecycle validate-record --installation FILE\napeiron lifecycle inspect-component-baseline --baseline FILE\napeiron lifecycle plan --installation FILE --observation FILE --intent FILE [--manifest FILE] [--backup FILE] [--out NEW_FILE]\nUse lifecycle collect --help and lifecycle migrate-record --help for legacy discovery.\nRead-only snapshot planning; all execution operations are blocked.");
         return Ok(());
     }
     if pos == ["validate-manifest"] {
@@ -790,12 +799,19 @@ pub fn run(args: &[String]) -> Result<()> {
         );
         return Ok(());
     }
+    if pos == ["inspect-component-baseline"] {
+        check(options.keys().all(|k| k == "baseline"))?;
+        let value = resources::json_file(Path::new(required(&options, "baseline")?), LIMIT)?;
+        println!("{}", baseline::inspect(&value)?);
+        return Ok(());
+    }
     if pos != ["plan"] {
         return Err(fail(
             "未实现或未验收的升级、扩容、备份及恢复执行均被阻断；仅支持 plan、validate-record 和 validate-manifest。",
             409,
         ));
     }
+    check(!options.contains_key("baseline"))?;
     let mut input = json!({});
     for key in ["installation", "observation", "intent"] {
         input[key] = resources::json_file(Path::new(required(&options, key)?), LIMIT)?;

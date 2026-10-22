@@ -91,3 +91,19 @@ apeiron lifecycle inspect-source --root /external/source/chentu \
 路径由操作员独立核实后传入；来源文件匹配仅标记 `sourceProvenance=operator-supplied-manifest-match`，
 候选仍为 review-required、liveVerified=false、executionAllowed=false。
 没有显式来源文件时标记 sourceProvenance=unverified，不能仅凭旧目录存在而验收来源版本。
+
+## 逐组件观察件检查
+
+Chentu 的 `lifecycle_baseline.collect` 从真实 Helm 记录、工作负载、配置摘要及运行镜像产生
+`chentu-component-baseline-observation`，保留未托管组件和用户 PVC。使用独立开发工具采集时，
+工具放在另一个带摘要的目录，不能覆盖已发布候选包。
+
+```sh
+apeiron lifecycle inspect-component-baseline --baseline /external/evidence/observation.json
+```
+
+此命令只检查格式及排序 JSON 摘要，输出计数和六项待审要求，不读集群、不生成安装记录。
+观察件可被重算摘要，因而不是签名或可信验收；不能把 storedValuesSha256 当成有效运行配置
+已验证，也不能用镜像 tag、目录名或单个 resume 的版本覆盖混合组件来源。
+来源、schema、数据归属、配置及实时状态核验后，仍需完整保护和恢复演练。
+首次隔离演练负责生成真实升级证据；生产发布跨度在证据生成并核验后登记，生产执行门禁保持阻断。
