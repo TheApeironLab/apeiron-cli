@@ -9,7 +9,7 @@ use std::{
 const VERSION: &str = "0.1.0-rc.5";
 const REVISION: &str = "f109f8567b9df0cf1eeb1b6d6cbd7092be5f99c3";
 const DIGEST: &str = "f45a9a370a15e01697ba82d8ad1101853c040a3b1bbf1c0e1f557164d4706021";
-const HOST: &str = "apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com";
+const HOST: &str = "downloads.apeironlab.cn";
 const ENTRIES: [&str; 5] = [
     "deploy/helmfile/run.sh",
     "deploy/helmfile/helmfile.yaml.gotmpl",

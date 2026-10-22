@@ -1,0 +1,62 @@
+name: Downloads HTTPS certificate
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      force_renewal:
+        description: 'Force issuance once for recovery or validating the renewal path'
+        type: boolean
+        default: false
+  push:
+    branches: [codex/downloads-domain]
+    paths:
+      - '.github/workflows/downloads-tls.yml'
+      - 'scripts/downloads-tls*'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: downloads-https-certificate
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test challenge and renewal guardrails
+        run: python3 scripts/test-downloads-tls.py
+      - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.OSS_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.DOWNLOADS_TLS_ROLE_ARN }}
+          role-session-name: apeiron-downloads-tls
+      - uses: aliyun/setup-aliyun-cli-action@09a5f86915bb556e27bf050e9a5e339aeb073df5
+        with:
+          version: 3.3.23
+      - name: Install certificate client
+        run: |
+          python3 -m venv "$RUNNER_TEMP/tls-venv"
+          "$RUNNER_TEMP/tls-venv/bin/pip" install -r scripts/downloads-tls-requirements.txt
+      - name: Renew when fewer than 30 days remain and update OSS
+        env:
+          DOWNLOADS_ACME_ACCOUNT: ${{ secrets.DOWNLOADS_ACME_ACCOUNT }}
+          ALIBABA_CLOUD_REGION_ID: cn-beijing
+          ALIBABA_CLOUD_IGNORE_PROFILE: 'TRUE'
+          FORCE_RENEWAL: ${{ inputs.force_renewal }}
+        run: |
+          test -n "$DOWNLOADS_ACME_ACCOUNT"
+          force=()
+          if [ "$FORCE_RENEWAL" = true ]; then force=(--force); fi
+          "$RUNNER_TEMP/tls-venv/bin/python" scripts/downloads-tls.py renew --config-dir "$RUNNER_TEMP/downloads-certbot" "${force[@]}"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 10 --max-time 30 --output /dev/null https://downloads.apeironlab.cn/apeiron-cli/install.sh
+      - name: Remove private certificate files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/downloads-certbot"

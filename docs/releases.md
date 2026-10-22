@@ -1,11 +1,33 @@
 # 发布与安装
 
-主分发渠道为公开 OSS；GitHub Releases 保存相同文件和发行记录。GitHub 仓库仍为私有，用户从 OSS 安装无需 GitHub 账号。
+主分发渠道为公开 OSS，统一下载入口为 `https://downloads.apeironlab.cn`；GitHub Releases 保存相同文件和发行记录。GitHub 仓库仍为私有，用户从 OSS 安装无需 GitHub 账号。
+
+## 下载域名配置
+
+`downloads.apeironlab.cn` 绑定到北京 OSS bucket `apeiron-bj-cli-downloads`，所有对象路径保持不变：
+
+```text
+类型：CNAME
+主机记录：downloads
+记录值：apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com
+```
+
+DNS 记录值不包含 `https://` 或路径。还需在 OSS 的自定义域名设置中绑定 `downloads.apeironlab.cn`，并配置覆盖该域名的有效 HTTPS 证书。仅添加 DNS 记录不足以完成 HTTPS 访问；证书续期后也需更新 OSS 绑定。
+
+HTTPS 使用 Let’s Encrypt。`Downloads HTTPS certificate` 工作流每天北京时间 11:17 检查 OSS 中的证书，剩余不足 30 天时通过 HTTP-01 重新签发并更新绑定。验证文件只写入 `.well-known/acme-challenge/`，验证后删除。工作流单独运行，不依赖 CLI 构建或私有子模块。
+
+续期使用专用 RAM 角色 `apeiron-downloads-tls`，通过 GitHub OIDC 获取临时凭据。仓库变量 `DOWNLOADS_TLS_ROLE_ARN` 指向该角色，并复用 `OSS_OIDC_PROVIDER_ARN`。`DOWNLOADS_ACME_ACCOUNT` 是 GitHub Actions 加密 secret，仅保存复用签发账户所需的 ACME 账户资料；证书私钥只保留在权限受限的临时目录并通过 OSS API 上传，不写入 Git、公开对象或 Actions artifacts。工作流结束时删除临时目录。
+
+可在 Actions 手动运行工作流检查续期；证书尚有 30 天以上有效期时不会重复签发。失败通过 GitHub Actions 通知维护者。更换仓库、分支或 OIDC subject 时，需要同步更新角色信任策略。证书客户端依赖固定在 `scripts/downloads-tls-requirements.txt`。
+
+首次使用新域名发布前，确认 `/apeiron-cli/install.sh`、`/apeiron-cli/latest.txt` 及其指向版本的 `SHA256SUMS`、归档均可通过新域名下载。CLI 发布脚本和资源发布脚本使用新域名回读校验，上传目标仍为原 OSS bucket。域名未就绪时不能发布。
+
+保留原 OSS 域名的访问能力，兼容已安装的 CLI 和已发布清单中的旧地址；不要改写已有发行版的清单或摘要。新 CLI 的部署程序下载地址和新生成的资源清单使用统一域名。
 
 ## 用户安装与更新
 
 ```sh
-curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh | sh
+curl -fsSL https://downloads.apeironlab.cn/apeiron-cli/install.sh | sh
 apeiron init
 ```
 
@@ -18,7 +40,7 @@ apeiron init
 再次运行安装命令更新 CLI；不会修改安装配置、创建集群或升级已经部署的应用。指定版本：
 
 ```sh
-curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh -o /tmp/apeiron-install.sh
+curl -fsSL https://downloads.apeironlab.cn/apeiron-cli/install.sh -o /tmp/apeiron-install.sh
 sh /tmp/apeiron-install.sh --version 0.1.0-rc.4
 ```
 
