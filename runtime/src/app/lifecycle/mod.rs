@@ -6,6 +6,7 @@ mod model;
 mod remediation;
 #[cfg(test)]
 mod tests;
+mod upgrade;
 use super::*;
 use model::*;
 use serde::{de::DeserializeOwned, Serialize};
@@ -754,6 +755,9 @@ pub(super) fn plan(input: &Value) -> Result<Value> {
 }
 
 pub fn run(args: &[String]) -> Result<()> {
+    if args.first().is_some_and(|s| s == "upgrade") {
+        return upgrade::run(&args[1..]);
+    }
     if args
         .first()
         .is_some_and(|s| ["collect", "migrate-record", "inspect-source"].contains(&s.as_str()))
@@ -774,7 +778,7 @@ pub fn run(args: &[String]) -> Result<()> {
         &["help"],
     )?;
     if options.contains_key("help") {
-        println!("apeiron lifecycle validate-manifest --manifest FILE\napeiron lifecycle validate-record --installation FILE\napeiron lifecycle inspect-component-baseline --baseline FILE\napeiron lifecycle plan --installation FILE --observation FILE --intent FILE [--manifest FILE] [--backup FILE] [--out NEW_FILE]\nUse lifecycle collect --help and lifecycle migrate-record --help for legacy discovery.\nRead-only snapshot planning; all execution operations are blocked.");
+        println!("apeiron lifecycle validate-manifest --manifest FILE\napeiron lifecycle validate-record --installation FILE\napeiron lifecycle inspect-component-baseline --baseline FILE\napeiron lifecycle plan --installation FILE --observation FILE --intent FILE [--manifest FILE] [--backup FILE] [--out NEW_FILE]\nUse lifecycle collect --help and lifecycle migrate-record --help for legacy discovery.\nSnapshot plans do not authorize execution. See lifecycle upgrade --help for the isolated-clone driver; production execution remains blocked.");
         return Ok(());
     }
     if pos == ["validate-manifest"] {

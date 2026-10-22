@@ -16,7 +16,7 @@ apeiron lifecycle plan --installation /external/installation.json \
 
 `planningStatus=ready` 只说明快照内部满足已实现的规划检查。输出永远 `readOnly=true`、`executionAllowed=false`，执行器、实时复检和真实验收仍是执行阻断项。`validate-record` 的 valid 只代表格式/引用合法，`liveVerified=false`；手工填入 evidence 或 healthy 不能代替现场采集和验收。
 
-未实现的 lifecycle upgrade/expand/backup/restore/execute 命令明确失败，不转发到插件。向导显式携带生命周期 intent/planId 的执行请求也返回 409，不能被解释成旧首装请求。
+未实现的 lifecycle expand/backup/restore/execute 命令明确失败，不转发到插件。`lifecycle upgrade` 新增固定包内的隔离副本开发入口，见 [隔离升级入口](isolated-upgrade-entry.md)；不提供生产执行授权。向导显式携带生命周期 intent/planId 的执行请求也返回 409，不能被解释成旧首装请求。
 
 ## 发布与现场分离
 
