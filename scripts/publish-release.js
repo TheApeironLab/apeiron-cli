@@ -8,7 +8,7 @@ const repo = 'TheApeironLab/apeiron-cli';
 const tag = `v${version}`;
 const prefix = 'apeiron-cli';
 const bucket = 'apeiron-bj-cli-downloads';
-const base = `https://${bucket}.oss-cn-beijing.aliyuncs.com/${prefix}`;
+const base = `https://downloads.apeironlab.cn/${prefix}`;
 if (!out || !isAbsolute(out) || process.env.GITHUB_REF !== `refs/tags/${tag}`)
     throw new Error('Publication requires a matching version tag and absolute artifact directory');
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');

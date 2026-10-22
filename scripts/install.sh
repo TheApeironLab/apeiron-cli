@@ -5,7 +5,7 @@ set -eu
 main() {
   version=${APEIRON_VERSION:-}
   install_dir=${APEIRON_INSTALL_DIR:-}
-  base=${APEIRON_DOWNLOAD_BASE:-https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli}
+  base=${APEIRON_DOWNLOAD_BASE:-https://downloads.apeironlab.cn/apeiron-cli}
   modify_path=1
   while [ "$#" -gt 0 ]; do
     case "$1" in
