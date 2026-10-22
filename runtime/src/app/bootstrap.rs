@@ -202,7 +202,7 @@ fn check_offline_operator(target: &Value, c: &Context) -> Result<()> {
         .map_err(|_| fail(format!("管理机离线依赖预检未通过，请查看日志。若缺少工具，可在 CLI 主机显式运行 sudo python3 {} --bundle {} --install 后重试。",
             quote(&helper.to_string_lossy()), quote(&bundle.to_string_lossy())), 400))
 }
-fn replace(v: &mut Value, entries: &[(&str, String)]) -> Result<()> {
+pub(crate) fn replace(v: &mut Value, entries: &[(&str, String)]) -> Result<()> {
     match v {
         Value::String(s) => {
             for (k, value) in entries {
