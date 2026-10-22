@@ -3,6 +3,7 @@
 set -euo pipefail
 root=$1
 out=$2
+checks=$(cd "$(dirname "$0")" && pwd)
 cd "$root"
 test "$(git rev-parse HEAD)" = "$APEIRON_REVISION"
 test -z "$(git status --porcelain)"
@@ -38,6 +39,11 @@ if [ "$COMPONENT" = scode ]; then
   args+=(--build-arg AGENT_BASE_IMAGE=apeiron/candidate-agent-base --build-arg "RUST_IMAGE=$RUST_IMAGE")
 fi
 docker build "${args[@]}" -f "deploy/images/$COMPONENT.Dockerfile" -t "$image" .
+case "$COMPONENT" in
+  app|ops) python3 "$checks/test-candidate-frontend.py" "$image" "$out/frontend-contract.json" ;;
+  backend) test "$(docker run --rm --entrypoint cat "$image" /app/VERSION)" = "$RELEASE_VERSION" ;;
+  scode) docker run --rm --entrypoint /usr/local/bin/apeiron "$image" --version | grep -Fx "apeiron $RELEASE_VERSION" ;;
+esac
 docker image inspect "$image" > "$out/image-inspect.json"
 docker save "$image" | gzip -1 > "$out/$COMPONENT-$ARCHITECTURE.tar.gz"
 python3 - "$out" "$root" <<'PY'
