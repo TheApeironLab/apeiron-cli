@@ -16,6 +16,12 @@ on:
       chentu_revision:
         description: Full Chentu source commit for the candidate
         type: string
+      candidate_version:
+        description: Build unpublished CLI artifacts for an existing nightly candidate version
+        type: string
+
+env:
+  APEIRON_BUILD_VERSION: ${{ inputs.candidate_version || '' }}
 
 permissions:
   contents: read
@@ -43,6 +49,12 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: 1.3.14
+      - name: Validate unpublished CLI candidate request
+        if: inputs.candidate_version != ''
+        env:
+          CANDIDATE_IMAGES: ${{ inputs.candidate }}
+        run: |
+          bun -e 'import {channel} from "./scripts/version.js"; if (channel !== "nightly" || process.env.CANDIDATE_IMAGES === "true" || process.env.GITHUB_REF.startsWith("refs/tags/")) throw new Error("CLI candidates require an existing nightly version on a branch; image preparation is a separate run")'
       - name: Release and installer contracts without cloud credentials
         run: bun test test/distribution.test.js test/release-version.test.js test/nightly-release.test.js test/release-publication.test.js test/release-provenance.test.js test/installer.test.js
       - name: Build version validation
@@ -52,7 +64,7 @@ jobs:
 
   checks:
     needs: release-contracts
-    if: github.event_name != 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name != 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || inputs.candidate_version != ''
     runs-on: ubuntu-22.04
     steps:
       - name: Require private submodule read credential
