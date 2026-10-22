@@ -174,6 +174,7 @@ fn migrate(options: &BTreeMap<String, String>) -> Result<Value> {
             "collection",
             "manifest",
             "legacy",
+            "legacy-manifest",
             "configuration",
             "installation-id",
             "out",
@@ -211,6 +212,21 @@ fn migrate(options: &BTreeMap<String, String>) -> Result<Value> {
     )?;
     let (legacy, legacy_hash) = read(required(options, "legacy")?)?;
     let (manifest, manifest_hash) = read(required(options, "manifest")?)?;
+    // Explicit operator input only: never follow paths imported from a checkpoint.
+    // Matching these bytes is provenance evidence, not live installation acceptance.
+    let legacy_manifest_hash = if let Some(path) = options.get("legacy-manifest") {
+        let (source, hash) = read(path)?;
+        check(source["schemaVersion"] == 1 && source["kind"] == "chentu-release")?;
+        if hash != manifest_hash {
+            return Err(fail(
+                "旧检查点来源清单与指定来源清单不一致；请核对实际组件与来源版本。未执行任何集群变更。",
+                409,
+            ));
+        }
+        Some(hash)
+    } else {
+        None
+    };
     let (configuration, configuration_hash) = read(required(options, "configuration")?)?;
     let installation_id = required(options, "installation-id")?;
     check(
@@ -267,6 +283,8 @@ fn migrate(options: &BTreeMap<String, String>) -> Result<Value> {
         "executionAllowed":false,"status":"review-required","liveVerified":false,
         "installationCandidate":record,"observationCandidate":observation,"collectionSha256":collection_hash,"legacySha256":legacy_hash,
         "unknownDigestSentinel":"0".repeat(64),"legacyClusterUidPresent":legacy["clusterUid"].is_string(),
+        "legacyManifestSha256":legacy_manifest_hash,
+        "sourceProvenance":if legacy_manifest_hash.is_some() {"operator-supplied-manifest-match"} else {"unverified"},
         "gaps":UNVERIFIED,"remediation":remediation::guidance("BASELINE_UNVERIFIED"),
         "preserveLegacyCheckpoint":true,"resumeCompatible":false,
         "warning":"候选记录不是已验收基线；未知组件不能推断为已安装或缺席。需独立核实后验收，生产执行保持阻断。"}),
@@ -318,6 +336,7 @@ pub(super) fn run(args: &[String]) -> Result<()> {
             "context",
             "manifest",
             "legacy",
+            "legacy-manifest",
             "configuration",
             "topology",
             "network",
@@ -330,7 +349,7 @@ pub(super) fn run(args: &[String]) -> Result<()> {
         &["help"],
     )?;
     if options.contains_key("help") {
-        println!("apeiron lifecycle collect --kubectl ABS_FILE --kubeconfig ABS_FILE --context NAME --manifest SOURCE --legacy FILE --configuration FILE --topology TOPOLOGY --network offline|online --out NEW_FILE\napeiron lifecycle migrate-record --collection FILE --manifest SOURCE --legacy FILE --configuration FILE --installation-id ID --out NEW_FILE\napeiron lifecycle inspect-source --root DIR --manifest SOURCE --architecture amd64 --out NEW_FILE\nCollection performs fixed GETs only; migration produces an unaccepted candidate and never resumes installation.");
+        println!("apeiron lifecycle collect --kubectl ABS_FILE --kubeconfig ABS_FILE --context NAME --manifest SOURCE --legacy FILE --configuration FILE --topology TOPOLOGY --network offline|online --out NEW_FILE\napeiron lifecycle migrate-record --collection FILE --manifest SOURCE --legacy FILE [--legacy-manifest CHECKPOINT_SOURCE] --configuration FILE --installation-id ID --out NEW_FILE\napeiron lifecycle inspect-source --root DIR --manifest SOURCE --architecture amd64 --out NEW_FILE\nCollection performs fixed GETs only; migration produces an unaccepted candidate and never resumes installation.");
         return Ok(());
     }
     check(pos.len() == 1)?;

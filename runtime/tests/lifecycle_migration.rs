@@ -109,6 +109,27 @@ fn collect_migrate_preserves_legacy_and_secrets_and_never_accepts_unknown_invent
     assert_eq!(migration["status"], "review-required");
     assert_eq!(migration["executionAllowed"], false);
     assert_eq!(migration["legacyClusterUidPresent"], false);
+    assert_eq!(migration["sourceProvenance"], "unverified");
+    assert_eq!(migration["legacyManifestSha256"], Value::Null);
+    let mut source_checked = migrate.to_vec();
+    *source_checked.last_mut().unwrap() = "source-checked-migration";
+    source_checked.extend(["--legacy-manifest", "manifest"]);
+    assert!(t.cli(&source_checked).status.success());
+    let checked: Value = serde_json::from_slice(&fs::read(t.0.join("source-checked-migration")).unwrap()).unwrap();
+    assert_eq!(checked["sourceProvenance"], "operator-supplied-manifest-match");
+    assert_eq!(checked["status"], "review-required");
+    assert_eq!(checked["executionAllowed"], false);
+    let mut different_source: Value = serde_json::from_slice(&fs::read(t.0.join("manifest")).unwrap()).unwrap();
+    different_source["release"] = json!("different-source-release");
+    t.write("different-source", &different_source);
+    let mut conflict = migrate.to_vec();
+    *conflict.last_mut().unwrap() = "source-conflict-migration";
+    conflict.extend(["--legacy-manifest", "different-source"]);
+    let rejected = t.cli(&conflict);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("来源清单与指定来源清单不一致"));
+    assert!(!t.0.join("source-conflict-migration").exists());
+    assert_eq!(fs::read_to_string(t.0.join("commands")).unwrap(), commands);
     t.write("record-candidate", &migration["installationCandidate"]);
     t.write("observation-candidate", &migration["observationCandidate"]);
     t.write(

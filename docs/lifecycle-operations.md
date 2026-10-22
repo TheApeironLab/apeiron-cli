@@ -82,3 +82,12 @@ apeiron lifecycle inspect-source --root /external/source/chentu \
 只读取发布清单和安装 catalog，分别报告 single-k3s、multi-k3s、single-k3d 的声明范围及 catalog 解析。
 这不是安装、离线闭包或运行验收，`installationVerified=false`。不改旧包支持矩阵或补写架构制品。
 真实 20261016.1 的诊断与证据边界见 [旧版 AMD64 复现](legacy-amd64-reproduction.md)。
+
+## 旧检查点来源的显式对勘（副本演练补充）
+
+安装目录名、发行包目录及真实 resume 绑定清单可能不同。使用 `migrate-record` 时可显式提供
+`--legacy-manifest CHECKPOINT_SOURCE`，与 `--manifest SOURCE` 按原始文件 SHA-256 比较。
+两者不一致时拒绝生成迁移候选，不回显导入内容、不读取 checkpoint 中的路径或运行命令。
+路径由操作员独立核实后传入；来源文件匹配仅标记 `sourceProvenance=operator-supplied-manifest-match`，
+候选仍为 review-required、liveVerified=false、executionAllowed=false。
+没有显式来源文件时标记 sourceProvenance=unverified，不能仅凭旧目录存在而验收来源版本。

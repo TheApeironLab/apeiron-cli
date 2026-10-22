@@ -466,13 +466,10 @@ fn j6_expansion_is_a_separate_stage_and_every_execution_door_stays_shut() {
 // public image references only — no passwords, keys or site credentials. Every
 // journey re-verifies the pinned bytes before planning against them.
 
-const SOURCE_MANIFEST_SHA256: &str =
-    "6462e76c3baf4f474919020d455722a6f494444b3f6b737b65c69572dba948c4";
-const TARGET_MANIFEST_SHA256: &str =
-    "d60e618f297d0927e1a91510e9be9f6728d6c083a0e013e81ced69ef40bc45c6";
+const SOURCE_MANIFEST_SHA256: &str = "6462e76c3baf4f474919020d455722a6f494444b3f6b737b65c69572dba948c4";
+const TARGET_MANIFEST_SHA256: &str = "d60e618f297d0927e1a91510e9be9f6728d6c083a0e013e81ced69ef40bc45c6";
 /// The site record pins exactly this compact-JSON identity of the source manifest.
-const SOURCE_MANIFEST_IDENTITY: &str =
-    "d5d6efdd365e566b54b7b60bea1c6d0f2ec9403c5875cd5bafab044efcc4b091";
+const SOURCE_MANIFEST_IDENTITY: &str = "d5d6efdd365e566b54b7b60bea1c6d0f2ec9403c5875cd5bafab044efcc4b091";
 
 fn pinned_manifest(name: &str, sha256: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data").join(name);
@@ -513,8 +510,7 @@ fn real_pair_fixture() -> (Value, Value, Value) {
     let source = pinned_manifest("manifest-20261016.json", SOURCE_MANIFEST_SHA256);
     let target = pinned_manifest("manifest-20261020.json", TARGET_MANIFEST_SHA256);
     assert_eq!(fixtures::identity(&source), SOURCE_MANIFEST_IDENTITY);
-    let ids: Vec<String> =
-        source["components"].as_object().unwrap().keys().cloned().collect();
+    let ids: Vec<String> = source["components"].as_object().unwrap().keys().cloned().collect();
     let mut components = json!({});
     for id in &ids {
         components[id] = json!({"status":"installed","version":"1.0.0",
@@ -572,8 +568,12 @@ fn j7_real_version_pair_plans_blocked_with_owner_per_blocker() {
         .unwrap();
         assert_eq!(file_digest(&path), sha, "{name}");
         let output = cli(
-            &["lifecycle".into(), "validate-manifest".into(),
-              "--manifest".into(), path.to_string_lossy().into_owned()],
+            &[
+                "lifecycle".into(),
+                "validate-manifest".into(),
+                "--manifest".into(),
+                path.to_string_lossy().into_owned(),
+            ],
             temp.path(),
         );
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -745,8 +745,7 @@ fn j8_legacy_checkpoint_is_rejected_then_migrated_into_an_unaccepted_candidate()
     assert_eq!(migration["preserveLegacyCheckpoint"], true);
     assert_eq!(migration["legacyClusterUidPresent"], true);
     assert_eq!(
-        migration["installationCandidate"]["release"]["version"],
-        source["release"],
+        migration["installationCandidate"]["release"]["version"], source["release"],
         "the candidate keeps the installed legacy release identity"
     );
     for field in ["owner", "action"] {
