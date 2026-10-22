@@ -18,8 +18,15 @@ CLI 仓库负责固定交付组合、四平台二进制、安装验收和下载�
 7. 复用已有不可变 OSS/GitHub 上传、下载回读、串行发布和防止版本回退逻辑。
    stable 更新 stable/latest/install.sh；nightly 只更新 nightly。
 
-**尚未实现自动构建 Apeiron 镜像、自动构建/上传 Chentu 包及自动创建固定引用 PR。**
-上游构建的生产部署副作用、ARM64/AMD64 材料闭包，以及 CLI 构建工具与最终 CLI 的来源分离必须先接通；
+手动运行 `Standalone CLI` 并设置 `candidate=true`、Apeiron 和 Chentu 的完整提交，
+会调用 `candidate-images.yml` 构建 backend/app/ops/scode 的 AMD64、ARM64 镜像。
+`prepare-candidate.js` 根据原始 workflow 创建时间与 run ID 生成唯一 nightly 版本；
+重跑沿用该版本。产物包含源码、配方、镜像与归档摘要，并保存在 Actions artifacts。
+backend 和 scode 实际执行版本检查；app/ops 启动容器，检查两组站点 OIDC 参数、
+运行配置响应和未被改写的前端资源。该入口只产生候选镜像，不发布下载通道。
+
+**尚未接通自动构建/上传 Chentu 包及自动创建固定引用 PR。**
+ARM64/AMD64 材料闭包，以及 CLI 构建工具与最终 CLI 的来源分离仍须接通；
 不能把本工作流称为“三仓库从源码一键构建”。目前也没有可用的正式 `0.2.1` 原生部署包，
 因此不提交虚假的 `distribution-input.json`，不启用环境就绪变量，不创建正式标签或触发发布。
 
