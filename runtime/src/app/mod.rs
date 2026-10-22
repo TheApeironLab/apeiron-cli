@@ -210,14 +210,15 @@ pub fn run() -> Option<i32> {
         "--build-info" => {
             println!(
                 "{}",
-                json!({"schemaVersion":1,"version":env!("CARGO_PKG_VERSION"),
+                json!({"schemaVersion":1,"version":env!("APEIRON_VERSION"),"baseVersion":env!("CARGO_PKG_VERSION"),
+                "releaseChannel":if env!("APEIRON_VERSION").contains("-nightly.") { "nightly" } else { "stable" },
                 "revision":env!("APEIRON_SOURCE_REVISION"),"clean":env!("APEIRON_SOURCE_CLEAN") == "true",
                 "rustc":env!("APEIRON_BUILD_RUSTC"),"platform":std::env::consts::OS,"architecture":std::env::consts::ARCH})
             );
             Ok(())
         }
         "--version" => {
-            println!("{}", env!("CARGO_PKG_VERSION"));
+            println!("{}", env!("APEIRON_VERSION"));
             Ok(())
         }
         "--help" | "-h" | "describe" => {

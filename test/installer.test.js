@@ -16,7 +16,7 @@ async function fixture(fn) {
         const executable = async (name, text) => writeFile(join(commands, name), `#!/bin/sh\n${text}\n`, { mode: 0o755 });
         await executable('uname', 'if [ "$1" = -s ]; then echo Linux; else echo aarch64; fi');
         // Simulate an HTTPS download while retaining the real archive/checksum/install operations.
-        await executable('curl', 'while [ "$#" -gt 0 ]; do case "$1" in --output) output=$2; shift 2;; https://*) url=$1; shift;; *) shift;; esac; done\ncp "$FIXTURE/${url##*/}" "$output"');
+        await executable('curl', 'while [ "$#" -gt 0 ]; do case "$1" in --output) output=$2; shift 2;; https://*) url=$1; shift;; *) shift;; esac; done\nprintf "%s\\n" "$url" >> "$FIXTURE/requests"\ncp "$FIXTURE/${url##*/}" "$output"');
         const archive = join(directory, 'apeiron-1.2.3-linux-arm64.tar.gz');
         const checksums = join(directory, 'SHA256SUMS');
         await writeFile(join(directory, 'source/apeiron'), '#!/bin/sh\necho 1.2.3\n', { mode: 0o755 });
@@ -24,17 +24,67 @@ async function fixture(fn) {
         const digest = createHash('sha256').update(await readFile(archive)).digest('hex');
         await writeFile(checksums, `${digest}  apeiron-1.2.3-linux-arm64.tar.gz\n`);
         await writeFile(join(directory, 'latest.txt'), '1.2.3\n');
+        await writeFile(join(directory, 'stable.txt'), '1.2.3\n');
         const environment = {
             PATH: `${commands}:${directory}/home/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: join(directory, 'home'), SHELL: '/bin/zsh', FIXTURE: directory,
         };
         const run = (...args) => spawnSync('/bin/sh', [installer, ...args], { encoding: 'utf8', env: environment });
         const shell = (script, env = {}) => spawnSync('/bin/sh', ['-c', script, 'installer-test', installer], { encoding: 'utf8', env: { ...environment, ...env } });
-        await fn({ directory, run, shell, archive, checksums, binary });
+        const addVersion = async version => {
+            await writeFile(join(directory, 'source/apeiron'), `#!/bin/sh\necho ${version}\n`, { mode: 0o755 });
+            const path = join(directory, `apeiron-${version}-linux-arm64.tar.gz`);
+            assert.equal(spawnSync('tar', ['-czf', path, '-C', join(directory, 'source'), 'apeiron']).status, 0);
+            const sha = createHash('sha256').update(await readFile(path)).digest('hex');
+            await writeFile(checksums, `${sha}  apeiron-${version}-linux-arm64.tar.gz\n`);
+        };
+        await fn({ directory, run, shell, archive, checksums, binary, addVersion });
     }
     finally {
         await rm(directory, { recursive: true, force: true });
     }
 }
+test('default installation follows stable even when latest or nightly points elsewhere', () => fixture(async ({ directory, run, binary }) => {
+    await writeFile(join(directory, 'latest.txt'), '9.9.9-nightly.20261022.1\n');
+    await writeFile(join(directory, 'nightly.txt'), '9.9.9-nightly.20261022.1\n');
+    assert.equal(run().status, 0);
+    assert.equal(spawnSync(binary, ['--version'], { encoding: 'utf8' }).stdout.trim(), '1.2.3');
+    const requests = await readFile(join(directory, 'requests'), 'utf8');
+    assert.match(requests, /\/channels\/stable\.txt/);
+    assert.doesNotMatch(requests, /latest\.txt|nightly\.txt/);
+}));
+test('nightly is explicit and fixed versions bypass channel discovery', () => fixture(async ({ directory, run, binary, addVersion }) => {
+    const version = '1.3.0-nightly.20261022.12';
+    await addVersion(version);
+    await writeFile(join(directory, 'nightly.txt'), `${version}\n`);
+    const nightly = run('--channel', 'nightly');
+    assert.equal(nightly.status, 0, nightly.stderr);
+    assert.equal(spawnSync(binary, ['--version'], { encoding: 'utf8' }).stdout.trim(), version);
+    assert.match(await readFile(join(directory, 'requests'), 'utf8'), /\/channels\/nightly\.txt/);
+    await writeFile(join(directory, 'requests'), '');
+    await rm(join(directory, 'nightly.txt'));
+    assert.equal(run('--version', version).status, 0);
+    assert.doesNotMatch(await readFile(join(directory, 'requests'), 'utf8'), /channels|latest\.txt/);
+}));
+test('missing or crossed channel pointers preserve the installation and never fall back', () => fixture(async ({ directory, run, binary }) => {
+    assert.equal(run().status, 0);
+    const original = await readFile(binary);
+    await rm(join(directory, 'stable.txt'));
+    assert.notEqual(run().status, 0);
+    assert.notEqual(run('--channel', 'nightly').status, 0);
+    await writeFile(join(directory, 'stable.txt'), '1.3.0-nightly.20261022.1\n');
+    assert.notEqual(run().status, 0);
+    await writeFile(join(directory, 'nightly.txt'), '1.2.3\n');
+    assert.notEqual(run('--channel', 'nightly').status, 0);
+    assert.deepEqual(await readFile(binary), original);
+    assert.doesNotMatch(await readFile(join(directory, 'requests'), 'utf8'), /latest\.txt/);
+}));
+test('installer rejects conflicting and unknown channels before any download', () => fixture(async ({ directory, run, shell }) => {
+    for (const args of [['--version', '1.2.3', '--channel', 'stable'], ['--channel', 'latest'], ['--channel', '../nightly'], ['--channel'], ['--version', '']]) {
+        assert.equal(run(...args).status, 2);
+    }
+    assert.equal(shell('/bin/sh "$1" --version 1.2.3', { APEIRON_CHANNEL: 'nightly' }).status, 2);
+    assert.equal(await Bun.file(join(directory, 'requests')).exists(), false);
+}));
 test('installer selects a standard bin already in PATH and works in the same parent shell', () => fixture(async ({ directory, shell, binary }) => {
     for (let i = 0; i < 2; i++) {
         const result = shell('/bin/sh "$1" && apeiron --version');
