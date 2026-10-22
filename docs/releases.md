@@ -79,11 +79,21 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 
 ### 版本与通道
 
-根 `Cargo.toml` 保存目标基础版本，当前为 `0.2.1`，同步维护 `Cargo.lock` 中宿主 crate 的版本。补丁版本（如 `0.2.1`）保持兼容；`0.x` 期间不兼容变更放到次版本并说明迁移方法。CLI 与部署应用独立编号，CLI 更新不会自动升级已有部署。
+根 `Cargo.toml` 保存目标基础版本，当前为 `0.2.1`，同步维护 `Cargo.lock` 中宿主 crate 的版本。补丁版本（如 `0.2.1`）保持兼容；`0.x` 期间不兼容变更放到次版本并说明迁移方法。apeiron、apeiron-cli 与 Chentu 的正式发行基础版本对齐为 `0.2.1`；CLI 更新不会自动升级已有部署。
 
 - stable：标签 `v0.2.1`，版本必须与 Cargo 基础版本完全一致。
 - nightly：标签 `v0.2.1-nightly.YYYYMMDD.RUN_ID`；日期使用北京时间，流水号使用 GitHub Actions run ID。同一基础版本下 nightly 排在 stable 之前。
 - latest：与 stable 同步的默认别名，不是第三个通道。本轮暂不支持 beta/rc 发布。
+
+三个仓库使用相同 nightly 规则；各仓库 run ID 独立，配套关系固定在发行清单与源码引用中。
+CLI 始终锁定 Chentu 的版本、提交和 SHA-256；部署包锁定 Apeiron 镜像摘要，安装时不查询各自最新
+nightly 拼装。正式发行需验证三者的兼容组合；nightly 不靠改名或取消 prerelease 标志晋级。
+Apeiron 历史 `0.YYMMDD.N` 日期版本保留，转入 `0.2.1` 是编号规则迁移，不以旧标签的数字大小决定默认版本。
+
+当前修复分支仍引用 Chentu `0.1.0-rc.5`，因此还不具备三者 `0.2.1` 正式发布条件；
+必须先发布包含账户修复的 Chentu `0.2.1` 并更新固定引用，再完成整套安装与登录验收。
+正式 tag 的构建配置会检查 Apeiron 子模块基础版本及 Chentu 固定版本，任一未对齐即拒绝构建。
+nightly 允许验证尚未正式发行的固定组合，但不会因此被视为正式配套验收通过。
 
 JS 发布工具从 Cargo 基础版本及标签解析实际版本，通过 `APEIRON_BUILD_VERSION` 注入 Rust 构建；本地无覆盖参数时使用基础版本。`--version`、`--build-info`、归档、provenance 和发行清单必须一致。nightly 不改写 Cargo 文件，仍要求源码提交与工作树干净。
 

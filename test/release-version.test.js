@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { parseReleaseVersion, resolveReleaseVersion, compareReleaseVersions, mayAdvanceChannel, nightlyVersion } from '../scripts/lib/release-version';
+import { assertStableAlignment, parseReleaseVersion, resolveReleaseVersion, compareReleaseVersions, mayAdvanceChannel, nightlyVersion } from '../scripts/lib/release-version';
 import { planNightly } from '../scripts/lib/nightly-release';
 
 test('release version binds tags and overrides to the Cargo base', () => {
@@ -42,4 +42,13 @@ test('nightly skips successful unchanged source and already stable targets, but 
   expect(planNightly({ ...input, stable: '0.2.0' }).skip).toContain('already stable');
   expect(planNightly({ ...input, stable: '0.3.0' }).skip).toBeDefined();
   expect(() => planNightly({ ...input, previous: { ...previous, revision: 'invalid' } })).toThrow();
+});
+
+
+test('stable requires aligned Apeiron and Chentu while nightly can test pinned development combinations', () => {
+  expect(() => assertStableAlignment('0.2.1', '0.2.1', '0.2.1')).not.toThrow();
+  expect(() => assertStableAlignment('0.2.1', '0.261021.1', '0.2.1')).toThrow('pinned Apeiron');
+  expect(() => assertStableAlignment('0.2.1', '0.2.1', '0.1.0-rc.5')).toThrow('pinned Apeiron');
+  expect(() => assertStableAlignment('0.2.1', '0.2.1', undefined)).toThrow();
+  expect(() => assertStableAlignment('0.2.1-nightly.20261022.123', '0.261021.1', '0.1.0-rc.5')).not.toThrow();
 });
