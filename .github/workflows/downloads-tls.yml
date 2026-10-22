@@ -33,6 +33,9 @@ jobs:
           persist-credentials: false
       - name: Test challenge and renewal guardrails
         run: python3 scripts/test-downloads-tls.py
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
       - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
         with:
           oidc-provider-arn: ${{ vars.OSS_OIDC_PROVIDER_ARN }}

@@ -12,7 +12,7 @@ josepy==2.2.0
 parsedatetime==2.6
 pycparser==3.11
 pyopenssl==26.4.0
-pyrfc3339==2.1.1
+pyrfc3339==2.1.0
 requests==2.34.2
 typing-extensions==4.16.0
 urllib3==2.8.0
