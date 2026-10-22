@@ -7,6 +7,11 @@ fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     let result = match args.first().map(String::as_str) {
         Some("catalog") if args.len() == 2 => app::resources::catalog(std::path::Path::new(&args[1]), ""),
+        Some("plan") if args.len() == 4 => (|| {
+            let catalog = app::resources::catalog(std::path::Path::new(&args[1]), &args[2])?;
+            let apps = serde_json::from_str(&args[3]).map_err(|_| app::fail("Invalid apps JSON", 2))?;
+            app::resources::plan(&catalog, &args[2], &app::config::components(&apps))
+        })(),
         Some("environment") if args.len() == 3 => (|| {
             let config = app::resources::json_file(std::path::Path::new(&args[1]), 1024 * 1024)?;
             let values = app::resources::yaml(std::path::Path::new(&args[2]))?;
@@ -35,7 +40,7 @@ fn main() {
             Ok(serde_json::Value::Null)
         })(),
         _ => Err(app::fail(
-            "Usage: build-support catalog ROOT | environment CONFIG VALUES | prepare-files PLAN BASE MODE | validate-release CHENTU_ROOT RESOURCE_ROOT PROFILE TOPOLOGY APPS_JSON",
+            "Usage: build-support catalog ROOT | plan ROOT TARGET APPS_JSON | environment CONFIG VALUES | prepare-files PLAN BASE MODE | validate-release CHENTU_ROOT RESOURCE_ROOT PROFILE TOPOLOGY APPS_JSON",
             2,
         )),
     };

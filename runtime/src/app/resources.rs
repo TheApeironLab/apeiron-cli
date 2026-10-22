@@ -556,6 +556,36 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
             }
         }
     }
+    // Legacy catalogs contain a full-stack environment even when only a subset
+    // of its artifacts was selected. Application flags must follow the same
+    // component closure as downloads, including transitively required apps and
+    // aliases such as kps -> kps/loki/promtail. Preserve the package's values and
+    // infrastructure settings; inherited optional-app flags are not selections.
+    if env["releases"].is_null() {
+        env["releases"] = json!({});
+    }
+    if !env["releases"].is_object() {
+        return Err(fail("安装包 releases 必须是对象。", 400));
+    }
+    for app in config::apps().as_array().unwrap() {
+        let names = app["releases"]
+            .as_array()
+            .cloned()
+            .unwrap_or_else(|| vec![app["id"].clone()]);
+        for name in names {
+            let key = name.as_str().unwrap();
+            let release = &mut env["releases"][key];
+            if release.is_null() {
+                *release = json!({});
+            }
+            if !release.is_object() {
+                return Err(fail("安装包应用配置必须是对象。", 400));
+            }
+            release["enabled"] = json!(done
+                .iter()
+                .any(|component| component == app["id"].as_str().unwrap() || component == key));
+        }
+    }
     let arch = target.rsplit('-').next().unwrap();
     if env.get("profile").is_some() || env.get("architecture").is_some_and(|a| a != "__ARCH__" && a != arch) {
         return Err(fail("资源架构或 profile 配置不匹配。", 400));

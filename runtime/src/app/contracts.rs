@@ -212,6 +212,85 @@ fn resource_closure_excludes_unselected_apps_and_rejects_missing_or_cyclic_depen
         .message
         .contains("循环"));
 }
+
+#[test]
+fn fresh_install_ignores_legacy_optional_defaults_but_keeps_selected_dependencies() {
+    let mut c = catalog();
+    for name in [
+        "nexus",
+        "vasi",
+        "apeiron",
+        "gateway",
+        "stalwart",
+        "clickhouse",
+        "langfuse",
+        "kps",
+        "chrome-headless",
+        "woodpecker",
+        "git",
+    ] {
+        c["components"][name] = json!({"requires":["core"],"files":[]});
+    }
+    c["components"]["task"]["requires"] = json!(["core", "stalwart"]);
+    c["components"]["langfuse"] = json!({"requires":["clickhouse"],"files":["optional.bin"],"values":{"releases":{"clickhouse":{"enabled":true}}}});
+    c["components"]["woodpecker"]["requires"] = json!(["core", "git"]);
+    let releases = json!({
+        "postgres":{"enabled":true,"values":{"storage":"10Gi"}},
+        "task":{"enabled":true},"stalwart":{"enabled":true},
+        "langfuse":{"enabled":true,"values":{"replicas":1}},"clickhouse":{"enabled":false},
+        "kps":{"enabled":true},"loki":{"enabled":true},"promtail":{"enabled":true},
+        "chrome-headless":{"enabled":true},"woodpecker":{"enabled":true},"git":{"enabled":true}
+    });
+    c["targets"]["k3s-amd64"]["environment"]["releases"] = releases;
+    for (extra, expected) in [
+        (vec![], vec![]),
+        (vec!["task"], vec!["task", "stalwart"]),
+        (vec!["langfuse"], vec!["langfuse", "clickhouse"]),
+        (vec!["kps"], vec!["kps", "loki", "promtail"]),
+        (vec!["browser"], vec!["chrome-headless"]),
+        (vec!["ci", "git"], vec!["woodpecker", "git"]),
+    ] {
+        let mut config = input(install("single-k3s"), false);
+        config["apps"]
+            .as_array_mut()
+            .unwrap()
+            .extend(extra.into_iter().map(|s| json!(s)));
+        let plan = resources::plan(&c, "k3s-amd64", &config::components(&config["apps"])).unwrap();
+        let values = deploy::environment_for(&config, plan["environment"].clone()).unwrap();
+        for name in [
+            "task",
+            "stalwart",
+            "langfuse",
+            "clickhouse",
+            "kps",
+            "loki",
+            "promtail",
+            "chrome-headless",
+            "woodpecker",
+            "git",
+        ] {
+            assert_eq!(
+                values["releases"][name]["enabled"],
+                expected.contains(&name),
+                "{name}: {}",
+                config["apps"]
+            );
+        }
+        assert_eq!(
+            values["releases"]["postgres"],
+            json!({"enabled":true,"values":{"storage":"10Gi"}})
+        );
+        assert_eq!(values["releases"]["langfuse"]["values"]["replicas"], 1);
+        assert_eq!(
+            plan["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["path"] == "optional.bin"),
+            expected.contains(&"langfuse")
+        );
+    }
+}
 #[test]
 fn isolated_target_catalogs_keep_identical_paths_separate() {
     let dir = Temp::new();

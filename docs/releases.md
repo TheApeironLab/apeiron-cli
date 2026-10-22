@@ -79,10 +79,10 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 
 ### 版本与通道
 
-根 `Cargo.toml` 保存目标基础版本，当前为 `0.2.0`，同步维护 `Cargo.lock` 中宿主 crate 的版本。补丁版本（如 `0.2.1`）保持兼容；`0.x` 期间不兼容变更放到次版本并说明迁移方法。CLI 与部署应用独立编号，CLI 更新不会自动升级已有部署。
+根 `Cargo.toml` 保存目标基础版本，当前为 `0.2.1`，同步维护 `Cargo.lock` 中宿主 crate 的版本。补丁版本（如 `0.2.1`）保持兼容；`0.x` 期间不兼容变更放到次版本并说明迁移方法。CLI 与部署应用独立编号，CLI 更新不会自动升级已有部署。
 
-- stable：标签 `v0.2.0`，版本必须与 Cargo 基础版本完全一致。
-- nightly：标签 `v0.2.0-nightly.YYYYMMDD.RUN_ID`；日期使用北京时间，流水号使用 GitHub Actions run ID。同一基础版本下 nightly 排在 stable 之前。
+- stable：标签 `v0.2.1`，版本必须与 Cargo 基础版本完全一致。
+- nightly：标签 `v0.2.1-nightly.YYYYMMDD.RUN_ID`；日期使用北京时间，流水号使用 GitHub Actions run ID。同一基础版本下 nightly 排在 stable 之前。
 - latest：与 stable 同步的默认别名，不是第三个通道。本轮暂不支持 beta/rc 发布。
 
 JS 发布工具从 Cargo 基础版本及标签解析实际版本，通过 `APEIRON_BUILD_VERSION` 注入 Rust 构建；本地无覆盖参数时使用基础版本。`--version`、`--build-info`、归档、provenance 和发行清单必须一致。nightly 不改写 Cargo 文件，仍要求源码提交与工作树干净。
@@ -95,7 +95,7 @@ JS 发布工具从 Cargo 基础版本及标签解析实际版本，通过 `APEIR
 
 1. 更新根 `Cargo.toml` 的 `workspace.package.version`（基础版本唯一来源）及 `Cargo.lock`。Chentu 更新时先发布并验证安装包，再同步更新 `runtime/src/app/resources.rs` 的版本、提交、URL 与 SHA-256。
 2. 运行 README 中的 Rust、等价性和浏览器验证，提交推送代码。
-3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.2.0`、`git push origin v0.2.0`。不要求自动合并 PR。
+3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.2.1`、`git push origin v0.2.1`。不要求自动合并 PR。
 4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（musl 静态链接）。四个平台均在对应原生 runner 构建并测试；Linux 额外在 Ubuntu 22.04 容器内验证。另在隔离 Ubuntu 容器内，从非管理员 shell 验证权限不足会失败、sudo 安装后同一 shell 可直接运行、重复更新和文件所有者/权限。
 5. 两个通道都必须通过完整检查和四个平台的独立启动、版本/构建信息、页面、favicon、配置 API 测试。发布 job 将相同产物保存到 OSS 与 GitHub Releases，逐文件下载校验后才推进通道。stable 更新 `channels/stable.txt`、公共 `install.sh`、`latest.txt`，nightly 仅更新 `channels/nightly.txt`。nightly 的 GitHub Release 标记为 prerelease，且不会成为 GitHub Latest。
 
