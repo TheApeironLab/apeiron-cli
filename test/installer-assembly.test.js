@@ -26,6 +26,59 @@ test('default profiles reject model API credentials before they can enter proven
     expect(() => checkProfile(value)).not.toThrow();
   }
 });
+function singleProfile(topology) {
+  const value = profile('hosted-first');
+  value.config.deployment.runner = topology === 'single-k3d' ? 'docker' : 'native';
+  value.config.deployment.installation = { topology, nodes: [] };
+  if (topology === 'single-k3d') Object.assign(value.config.deployment.installation, { entryIp: '127.0.0.1', httpPort: 54320, httpsPort: 54321 });
+  return value;
+}
+test('hosted-first single-host profiles keep runner and local endpoint contracts', () => {
+  for (const topology of ['single-k3s', 'single-k3d']) {
+    const value = singleProfile(topology);
+    expect(checkProfile(value)).toBe(value);
+    value.config.deployment.runner = topology === 'single-k3d' ? 'native' : 'docker';
+    expect(() => checkProfile(value)).toThrow('Runner');
+    const remote = singleProfile(topology);
+    remote.config.deployment.installation.nodes = [{ host: '192.0.2.1', address: '192.0.2.1', role: 'server' }];
+    expect(() => checkProfile(remote)).toThrow('remote nodes');
+    const missing = singleProfile(topology); delete missing.config.deployment.installation.nodes;
+    expect(() => checkProfile(missing)).toThrow('nodes');
+  }
+  for (const field of ['entryIp', 'httpPort', 'httpsPort']) {
+    const value = singleProfile('single-k3d');
+    value.config.deployment.installation[field] = field === 'entryIp' ? '192.0.2.1' : 443;
+    expect(() => checkProfile(value)).toThrow('loopback');
+  }
+  const native = singleProfile('single-k3s'); native.config.deployment.installation.entryIp = '192.0.2.1';
+  expect(() => checkProfile(native)).toThrow('live addresses');
+});
+test('all hosted topologies reject SSH and model credentials in default profiles', () => {
+  for (const topology of ['single-k3s', 'single-k3d', 'multi-k3s']) {
+    const make = () => topology === 'multi-k3s' ? profile('hosted-first') : singleProfile(topology);
+    for (const key of ['sshKey', 'sshUser']) {
+      const value = make(); value.config.deployment.installation[key] = 'private-fixture';
+      expect(() => checkProfile(value)).toThrow('credentials');
+    }
+    for (const key of ['models', 'llm']) {
+      const value = make(); value.config[key] = { apiKey: 'private-fixture' };
+      expect(() => checkProfile(value)).toThrow('API credentials');
+    }
+  }
+});
+test('legacy topology restrictions and offline-only defaults remain enforced', () => {
+  for (const topology of ['single-k3s', 'single-k3d']) {
+    const value = singleProfile(topology); value.contract = 'legacy-native';
+    expect(() => checkProfile(value)).toThrow('offline');
+  }
+  for (const topology of ['single-k3s', 'single-k3d', 'multi-k3s']) {
+    for (const offline of [false, 'true']) {
+      const value = topology === 'multi-k3s' ? profile('hosted-first') : singleProfile(topology);
+      value.config.deployment.offline = offline;
+      expect(() => checkProfile(value)).toThrow('offline');
+    }
+  }
+});
 test('inventory rejects traversal, symlinks and unlisted resources', async () => {
   for (const p of ['/abs', '../evil', 'x/../evil', 'x\\evil', 'a\nb']) expect(() => safePath(p)).toThrow();
   const root = await fixture();

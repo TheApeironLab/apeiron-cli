@@ -116,12 +116,10 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
         || !supported.contains(topology)
         || !matches!(
             (key, topology),
-            ("k3d-arm64" | "k3d-amd64", "single-k3d") | ("k3s-amd64", "multi-k3s")
+            ("k3d-arm64" | "k3d-amd64", "single-k3d") | ("k3s-amd64", "multi-k3s" | "single-k3s")
         )
     {
-        return Err(invalid(
-            "此包不支持所选架构或部署拓扑；当前 Nexus 分发支持 K3d ARM64/AMD64 或 Ubuntu 22.04 AMD64 三节点",
-        ));
+        return Err(invalid("此包未声明支持所选架构或部署拓扑；K3d 与原生 K3s 目标不能混用"));
     }
     if key == "k3s-amd64"
         && plan["target"]["hostPlatform"]
@@ -367,8 +365,12 @@ fn validate_management_platform(
             plan["target"]["nexusFirst"]["supportedTopologies"] == json!(["single-k3d"])
                 && machine["os"]["name"].as_str().is_some_and(|name| !name.is_empty())
         }
-        ("linux", "amd64", "amd64", "k3s-amd64", "multi-k3s") => {
+        ("linux", "amd64", "amd64", "k3s-amd64", "multi-k3s" | "single-k3s") => {
             plan["target"]["hostPlatform"] == json!({"os":"ubuntu","version":"22.04","architecture":"amd64"})
+                && (topology != "single-k3s"
+                    || plan["target"]["nexusFirst"]["supportedTopologies"]
+                        .as_array()
+                        .is_some_and(|items| items.contains(&json!("single-k3s"))))
                 && discovery::validate_platform(
                     &plan["target"],
                     &[json!({"os":machine["os"]["name"],"version":machine["os"]["version"],"architecture":arch})],
@@ -378,7 +380,7 @@ fn validate_management_platform(
         _ => false,
     };
     if !supported {
-        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 或 Linux AMD64 / single-k3d，或 Ubuntu 22.04 AMD64 / multi-k3s"));
+        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 或 Linux AMD64 / single-k3d，或包明确声明的 Ubuntu 22.04 AMD64 原生拓扑"));
     }
     Ok(())
 }
@@ -808,6 +810,26 @@ mod tests {
         assert!(validate(&manifest, &catalog, &mut plan, "k3s-amd64", "single-k3s").is_err());
         plan["target"]["hostPlatform"]["version"] = json!("24.04");
         assert!(validate(&manifest, &catalog, &mut plan, "k3s-amd64", "multi-k3s").is_err());
+    }
+    #[test]
+    fn declared_single_native_is_accepted_without_relaxing_old_multi_only_packages() {
+        let (mut manifest, mut catalog, mut plan) = native_fixture();
+        let supported = json!(["single-k3s", "multi-k3s"]);
+        manifest["profiles"]["k3s-amd64"]["supportedTopologies"] = supported.clone();
+        catalog["targets"]["k3s-amd64"]["nexusFirst"]["supportedTopologies"] = supported;
+        plan["target"] = catalog["targets"]["k3s-amd64"].clone();
+        validate(&manifest, &catalog, &mut plan, "k3s-amd64", "single-k3s").unwrap();
+        let machine = management_machine("Ubuntu", "22.04", "amd64", "amd64");
+        validate_management_platform(&plan, "k3s-amd64", "single-k3s", "linux", &machine).unwrap();
+        let mut undeclared = plan.clone();
+        undeclared["target"]["nexusFirst"]["supportedTopologies"] = json!(["multi-k3s"]);
+        assert!(validate_management_platform(&undeclared, "k3s-amd64", "single-k3s", "linux", &machine).is_err());
+        assert!(validate(&manifest, &catalog, &mut undeclared, "k3s-amd64", "single-k3s").is_err());
+        assert!(validate(&manifest, &catalog, &mut plan, "k3s-amd64", "single-k3d").is_err());
+        let wrong_os = management_machine("Ubuntu", "24.04", "amd64", "amd64");
+        assert!(validate_management_platform(&plan, "k3s-amd64", "single-k3s", "linux", &wrong_os).is_err());
+        let wrong_arch = management_machine("Ubuntu", "22.04", "arm64", "arm64");
+        assert!(validate_management_platform(&plan, "k3s-amd64", "single-k3s", "linux", &wrong_arch).is_err());
     }
     #[test]
     fn unsupported_topology_architecture_and_incomplete_bootstrap_fail_closed() {

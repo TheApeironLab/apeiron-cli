@@ -10,22 +10,44 @@ use std::{collections::BTreeSet, path::Path};
 
 fn policy(config: &Value, hosted: bool) -> app::Result<()> {
     let installation = &config["deployment"]["installation"];
+    let topology = installation["topology"].as_str().unwrap_or("");
     let nodes = installation["nodes"]
         .as_array()
         .ok_or_else(|| app::fail("Missing nodes", 2))?;
     let servers = nodes.iter().filter(|n| n["role"] == "server").count();
     let agents = nodes.iter().filter(|n| n["role"] == "agent").count();
-    if config["deployment"]["offline"] != true
-        || installation["topology"] != "multi-k3s"
-        || nodes.len() != 3
-        || if hosted {
-            servers != 3 || agents != 0 || installation["ha"] != true
-        } else {
-            servers != 1 || agents != 2 || installation["ha"] != false
+    let runner = &config["deployment"]["runner"];
+    let private_defaults = !installation["sshKey"].as_str().unwrap_or("").is_empty()
+        || !installation["sshUser"].as_str().unwrap_or("").is_empty()
+        || !config["models"]["apiKey"].as_str().unwrap_or("").is_empty()
+        || !config["llm"]["apiKey"].as_str().unwrap_or("").is_empty();
+    let placeholders = nodes.iter().all(|node| {
+        app::config::matches(r"^192\.0\.2\.[0-9]+$", node["host"].as_str().unwrap_or(""))
+            && node["address"] == node["host"]
+    });
+    let shape = match (hosted, topology) {
+        (false, "multi-k3s") => {
+            nodes.len() == 3 && servers == 1 && agents == 2 && installation["ha"] == false && runner == "native"
         }
-    {
+        (true, "multi-k3s") => {
+            nodes.len() == 3 && servers == 3 && agents == 0 && installation["ha"] == true && runner == "native"
+        }
+        (true, "single-k3s") => {
+            nodes.is_empty() && installation["ha"] == false && runner == "native" && installation["entryIp"] == ""
+        }
+        (true, "single-k3d") => {
+            nodes.is_empty()
+                && installation["ha"] == false
+                && runner == "docker"
+                && installation["entryIp"] == "127.0.0.1"
+                && installation["httpPort"] == 54320
+                && installation["httpsPort"] == 54321
+        }
+        _ => false,
+    };
+    if config["deployment"]["offline"] != true || !shape || private_defaults || !placeholders {
         return Err(app::fail(
-            "Installer contract requires offline multi-k3s with legacy 1 server + 2 agents or hosted 3 servers",
+            "Installer requires an offline profile with matching topology, runner and node roles",
             2,
         ));
     }
@@ -74,12 +96,18 @@ fn validate(bundle: &Path, config_path: &Path) -> app::Result<Value> {
     let raw = app::resources::json_file(config_path, 1024 * 1024)?;
     let config = app::config::validate(raw.get("config").unwrap_or(&raw), &Value::Null)?;
     let root = bundle.join("chentu");
-    let profile = "k3s-amd64";
+    let topology = config["deployment"]["installation"]["topology"].as_str().unwrap_or("");
+    let profile = if topology == "single-k3d" {
+        "k3d-amd64"
+    } else {
+        "k3s-amd64"
+    };
+    let native = profile == "k3s-amd64";
     let catalog = app::resources::catalog(&root, profile)?;
-    let mut plan = app::resources::plan(&catalog, profile, &config["apps"])?;
+    let mut plan = app::resources::plan(&catalog, profile, &app::config::components(&config["apps"]))?;
     let hosted = plan["target"].get("nexusFirst").is_some();
     policy(&config, hosted)?;
-    if plan["target"]["hostPlatform"] != json!({"os":"ubuntu","version":"22.04","architecture":"amd64"}) {
+    if native && plan["target"]["hostPlatform"] != json!({"os":"ubuntu","version":"22.04","architecture":"amd64"}) {
         return Err(app::fail(
             "Installer requires declared Ubuntu 22.04 AMD64 hostPlatform",
             2,
@@ -94,7 +122,7 @@ fn validate(bundle: &Path, config_path: &Path) -> app::Result<Value> {
         &catalog,
         &mut plan,
         profile,
-        "multi-k3s",
+        topology,
         app::distribution::Preparation {
             offline: true,
             cancel: &Default::default(),
@@ -126,16 +154,20 @@ fn validate(bundle: &Path, config_path: &Path) -> app::Result<Value> {
         .iter()
         .filter(|p| app::config::matches(r"^python/cpython-3\.12[.-][a-zA-Z0-9._-]+\.tar\.gz$", p))
         .collect::<Vec<_>>();
-    let mut tools = vec![
-        "bin/uv",
-        "bin/helm",
-        "bin/helmfile",
-        "bin/age",
-        "bin/age-keygen",
-        "bin/s5cmd",
-        "k3s/k3s",
-    ];
-    if hosted {
+    let mut tools = if native {
+        vec![
+            "bin/uv",
+            "bin/helm",
+            "bin/helmfile",
+            "bin/age",
+            "bin/age-keygen",
+            "bin/s5cmd",
+            "k3s/k3s",
+        ]
+    } else {
+        vec![]
+    };
+    if hosted && native {
         tools.push("bin/crane");
     }
     if python.len() != 1 || tools.iter().any(|p| !tool_paths.contains(p)) {
@@ -145,18 +177,21 @@ fn validate(bundle: &Path, config_path: &Path) -> app::Result<Value> {
         ));
     }
     tools.push(python[0]);
-    let requirements = app::resources::read(&root.join("bootstrap/requirements.txt"), 1024 * 1024)?;
-    let requirements = String::from_utf8(requirements).map_err(|_| app::fail("Invalid operator requirements", 2))?;
-    pinned_ansible(&requirements, &tool_paths)?;
-    for pattern in [r"^cli/ansible_core-[^/]+\.whl$", r"^cli/chentu-[^/]+\.whl$"] {
-        let matches = tool_paths
-            .iter()
-            .filter(|p| app::config::matches(pattern, p))
-            .collect::<Vec<_>>();
-        if matches.is_empty() {
-            return Err(app::fail("Missing operator wheel", 2));
+    if native {
+        let requirements = app::resources::read(&root.join("bootstrap/requirements.txt"), 1024 * 1024)?;
+        let requirements =
+            String::from_utf8(requirements).map_err(|_| app::fail("Invalid operator requirements", 2))?;
+        pinned_ansible(&requirements, &tool_paths)?;
+        for pattern in [r"^cli/ansible_core-[^/]+\.whl$", r"^cli/chentu-[^/]+\.whl$"] {
+            let matches = tool_paths
+                .iter()
+                .filter(|p| app::config::matches(pattern, p))
+                .collect::<Vec<_>>();
+            if matches.is_empty() {
+                return Err(app::fail("Missing operator wheel", 2));
+            }
+            tools.extend(matches.into_iter().copied());
         }
-        tools.extend(matches.into_iter().copied());
     }
     let prefix = catalog["resourceDirectory"].as_str().unwrap_or("");
     let mut files = plan["files"].clone();
@@ -170,7 +205,7 @@ fn validate(bundle: &Path, config_path: &Path) -> app::Result<Value> {
     Ok(json!({
         "schemaVersion":1,
         "contract":if hosted {"hosted-first"} else {"legacy-native"},
-        "profile":profile,"topology":"multi-k3s",
+        "profile":profile,"topology":topology,
         "target":{"os":"ubuntu","ubuntu":"jammy","arch":"amd64"},
         "hostPlatform":plan["target"]["hostPlatform"],
         "applications":config["apps"],"baseComponents":plan["target"]["base"],
@@ -207,7 +242,14 @@ fn main() {
 mod tests {
     use super::*;
     fn config(hosted: bool) -> Value {
-        json!({"apps":["nexus","vasi","ontology","apeiron","task","corpus","stalwart"],"deployment":{"offline":true,"installation":{"topology":"multi-k3s","ha":hosted,"nodes":[{"role":"server"},{"role":if hosted {"server"} else {"agent"}},{"role":if hosted {"server"} else {"agent"}}]}}})
+        let nodes = [1, 2, 3].map(|i| {
+            json!({
+                "host":format!("192.0.2.{i}"),
+                "address":format!("192.0.2.{i}"),
+                "role":if hosted || i == 1 {"server"} else {"agent"}
+            })
+        });
+        json!({"apps":["nexus","vasi","ontology","apeiron","task","corpus","stalwart"],"deployment":{"offline":true,"runner":"native","installation":{"topology":"multi-k3s","ha":hosted,"nodes":nodes}}})
     }
     #[test]
     fn pinned_wheel_allows_other_declared_versions() {
@@ -231,5 +273,28 @@ mod tests {
         value = config(false);
         value["apps"] = json!(["apeiron"]);
         assert!(policy(&value, false).is_err());
+    }
+    #[test]
+    fn hosted_single_profiles_require_local_shape_without_credentials() {
+        for topology in ["single-k3s", "single-k3d"] {
+            let docker = topology == "single-k3d";
+            let mut value = config(true);
+            value["deployment"]["runner"] = json!(if docker { "docker" } else { "native" });
+            value["deployment"]["installation"] = json!({"topology":topology,"nodes":[],"ha":false,
+                "entryIp":if docker {"127.0.0.1"} else {""},"httpPort":if docker {54320} else {80},
+                "httpsPort":if docker {54321} else {443}});
+            assert!(policy(&value, true).is_ok());
+            assert!(policy(&value, false).is_err());
+            for field in ["sshKey", "sshUser"] {
+                let mut private = value.clone();
+                private["deployment"]["installation"][field] = json!("private-fixture");
+                assert!(policy(&private, true).is_err());
+            }
+            let mut remote = value.clone();
+            remote["deployment"]["installation"]["nodes"] = config(true)["deployment"]["installation"]["nodes"].clone();
+            assert!(policy(&remote, true).is_err());
+            value["deployment"]["offline"] = json!(false);
+            assert!(policy(&value, true).is_err());
+        }
     }
 }
