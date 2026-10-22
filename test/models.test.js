@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { startInitServer } from './rust-server';
 const models = { provider: 'bigmodel', baseUrl: 'https://models.example.internal/v1', apiKey: 'test-model-secret', fast: 'fast-model', deep: 'reasoning-model' };
 const deployment = { runner: 'native', root: '', environment: '/tmp/environment.yaml', kubeconfig: '/tmp/kubeconfig', workDir: '', image: '', offline: true, bundleDir: '/tmp/bundle' };
-const input = { slug: 'example', apps: ['nexus', 'vasi', 'ontology', 'apeiron'], deployment, models };
+const input = { slug: 'example', apps: ['nexus', 'vasi', 'apeiron', 'gateway'], deployment, models };
 test('model discovery and both inference tests use the exact endpoint, bound output and never expose upstream errors', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'models-request-'));
     const server = await startInitServer({ path: join(dir, 'config.json') });
@@ -85,4 +85,36 @@ test('wizard model HTTP boundary preserves responses, redacts errors, and cancel
         await server.stop();
         await rm(dir, { recursive: true, force: true });
     }
+});
+
+test('base installation rejects missing models before saving; Bailian key is private and retained only for the same endpoint', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'base-model-contract-'));
+    const path = join(dir, 'config.json');
+    const server = await startInitServer({ path });
+    const post = (route, body) => fetch(server.url + 'api/' + route, {
+        method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    try {
+        const missing = await post('deploy', { slug: 'example', apps: input.apps, revision: null,
+            deployment: { offline: false, installation: { topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1', httpPort: 54320, httpsPort: 54321, ha: false, nodes: [] } } });
+        expect(missing.status).toBe(400);
+        expect((await missing.json()).error).toContain('必须配置模型');
+        expect(await Bun.file(path).exists()).toBe(false);
+        const configured = { ...input, revision: null, models: { ...models, provider: 'bailian', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', fast: 'qwen-plus', deep: 'qwen-plus' } };
+        expect((await post('config', { ...configured, models: { ...configured.models, apiKey: '' } })).status).toBe(400);
+        const saved = await post('config', configured);
+        expect(saved.status).toBe(200);
+        const first = await saved.json();
+        expect(JSON.stringify(first)).not.toContain(models.apiKey);
+        expect(first.config.models.hasApiKey).toBe(true);
+        expect((await stat(path)).mode & 0o777).toBe(0o600);
+        const withoutKey = { ...configured.models }; delete withoutKey.apiKey;
+        const retained = await post('config', { ...configured, revision: first.revision, models: withoutKey });
+        expect(retained.status).toBe(200);
+        const second = await retained.json();
+        expect((await Bun.file(path).json()).models.apiKey).toBe(models.apiKey);
+        const moved = await post('config', { ...configured, revision: second.revision, models: { ...withoutKey, baseUrl: 'https://other.example.internal/v1' } });
+        expect(moved.status).toBe(400);
+        expect(JSON.stringify(await moved.json())).not.toContain(models.apiKey);
+    } finally { await server.stop(); await rm(dir, { recursive: true, force: true }); }
 });

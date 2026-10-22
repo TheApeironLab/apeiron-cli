@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { localInstallation as installationDefaults } from './support';
 const access = { domain: 'example.internal', entryIp: '127.0.0.1' };
 import { startInitServer } from './rust-server';
-import { deploymentFixture, freshInstallFixture, requiredApps } from './fixtures';
+import { deploymentFixture, fixtureModels, freshInstallFixture, requiredApps } from './fixtures';
 test('credential endpoint requires a successful deployment, same-origin POST and no parameters; general responses/logs never contain passwords', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'apeiron-verification-api-'));
     const setup = await deploymentFixture(dir);
@@ -19,7 +19,7 @@ test('credential endpoint requires a successful deployment, same-origin POST and
         expect((await fetch(server.url + 'api/credentials')).status).toBe(404);
         expect((await post('credentials', {}, 'https://untrusted.example')).status).toBe(403);
         expect((await post('verification')).status).toBe(409);
-        expect((await post('deploy', { slug: 'fixture', apps: requiredApps, revision: null, deployment: { offline: false,
+        expect((await post('deploy', { slug: 'fixture', apps: requiredApps, models: fixtureModels, revision: null, deployment: { offline: false,
                 installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: access.domain, entryIp: access.entryIp } } })).status).toBe(202);
         for (let i = 0; i < 400 && server.result.phase !== 'succeeded' && server.result.phase !== 'failed'; i++)
             await Bun.sleep(10);

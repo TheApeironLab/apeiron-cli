@@ -46,7 +46,7 @@ test('Rust registration keeps credentials local and enforces gateway slug throug
         const altered = await call('api/config', 'POST', { slug: 'different', apps: ['apeiron'], revision: null });
         expect(altered.status).toBe(400);
         expect(altered.body).toContain('组织标识');
-        const accepted = await call('api/config', 'POST', { slug: 'assigned', apps: ['nexus', 'vasi', 'ontology', 'apeiron'], revision: snapshot.revision, deployment: { runner: 'native', root: '', environment: '/tmp/fixture-environment.yaml', kubeconfig: '/tmp/fixture-kubeconfig', workDir: '', image: '', offline: false, bundleDir: '' } });
+        const accepted = await call('api/config', 'POST', { slug: 'assigned', apps: ['nexus', 'vasi', 'apeiron', 'gateway'], revision: snapshot.revision, deployment: { runner: 'native', root: '', environment: '/tmp/fixture-environment.yaml', kubeconfig: '/tmp/fixture-kubeconfig', workDir: '', image: '', offline: false, bundleDir: '' } });
         expect(accepted.status).toBe(200);
 
         const page = await call('');

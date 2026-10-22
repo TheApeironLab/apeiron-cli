@@ -1,3 +1,4 @@
+import { fixtureModels } from './fixtures';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -29,7 +30,7 @@ test('occupied port is rejected before saving, downloading or creating a deploym
     const server = await startInitServer({ path: f.path, env: { APEIRON_CHENTU_ROOT: setup.root } });
     cleanup.push(server.stop);
     const response = await fetch(server.url + 'api/deploy', { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revision: null, slug: 'team', apps: requiredApps, deployment: { offline: false, installation: { ...f.installation, httpPort: occupied.port, httpsPort: occupied.port === 54321 ? 54323 : 54321 } } }) });
+        body: JSON.stringify({ revision: null, slug: 'team', apps: requiredApps, models: fixtureModels, deployment: { offline: false, installation: { ...f.installation, httpPort: occupied.port, httpsPort: occupied.port === 54321 ? 54323 : 54321 } } }) });
     expect(response.status).toBe(409);
     expect((await response.json()).error).toContain(`${occupied.port} 端口已被占用`);
     expect(server.result.phase).toBe('idle');
@@ -48,7 +49,7 @@ test('owned cluster enters redeployment immediately, preserving the saved identi
     const server = await startInitServer({ path: f.path, env: { APEIRON_CHENTU_ROOT: setup.root } });
     cleanup.push(server.stop);
     const response = await fetch(server.url + 'api/deploy', { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ revision: null, slug: 'team', apps: requiredApps, deployment: { offline: false, installation: f.installation } }) });
+        body: JSON.stringify({ revision: null, slug: 'team', apps: requiredApps, models: fixtureModels, deployment: { offline: false, installation: f.installation } }) });
     expect(response.status).toBe(202);
     for (let count = 0; count < 100 && !server.result.events.some(event => event.includes('复用集群重新部署')); count++)
         await Bun.sleep(10);

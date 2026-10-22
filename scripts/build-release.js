@@ -30,7 +30,7 @@ for (const target of selected) {
         const triple = triples[target];
         const build = Bun.spawn(['cargo', 'build', '--release', '--locked', '--target', triple], {
             cwd: root, stdout: 'inherit', stderr: 'inherit',
-            env: { ...process.env, APEIRON_RELEASE_SOURCE_REVISION: source.revision },
+            env: { ...process.env, APEIRON_BUILD_VERSION: version, APEIRON_RELEASE_SOURCE_REVISION: source.revision },
         });
         if (await build.exited !== 0)
             throw new Error(`Build failed for ${target}`);

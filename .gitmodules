@@ -1,0 +1,9 @@
+[submodule "third_party/zygos"]
+	path = third_party/zygos
+	url = https://github.com/TheApeironLab/zygos.git
+[submodule "third_party/apeiron"]
+	path = third_party/apeiron
+	url = https://github.com/TheApeironLab/apeiron.git
+[submodule "third_party/apeiron-iam"]
+	path = third_party/apeiron-iam
+	url = https://github.com/TheApeironLab/apeiron-iam.git

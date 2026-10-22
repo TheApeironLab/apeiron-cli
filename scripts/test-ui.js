@@ -100,6 +100,20 @@ try {
         }
         await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ result: verificationResult }) });
     });
+    // The new base contract requires model configuration; never call a real provider.
+    await page.route('**/api/models/list', route => route.fulfill({ json: { models: ['qwen-plus'] } }));
+    await page.route('**/api/models/test', route => route.fulfill({ json: { results: [
+        { mode: 'fast', elapsedMs: 1 }, { mode: 'deep', elapsedMs: 1 }
+    ] } }));
+    async function configureModels() {
+        assert.equal(await page.getByRole('checkbox', { name: /稍后配置/ }).count(), 0);
+        await page.getByLabel(/^API Key/).fill('fixture-only-key');
+        await page.getByRole('button', { name: '获取模型列表', exact: true }).click();
+        await page.getByRole('combobox', { name: '快速 · apeiron-flash' }).selectOption('qwen-plus');
+        await page.getByRole('combobox', { name: '深度思考 · apeiron-pro' }).selectOption('qwen-plus');
+        await page.getByRole('button', { name: '测试两种模式', exact: true }).click();
+        await page.getByText(/快速：通过/).waitFor();
+    }
     await page.goto(url);
     // Landing: two entries. The unregistered --config path can be configured directly.
     await page.getByRole('heading', { name: '选择要进行的操作', exact: true }).waitFor();
@@ -163,7 +177,8 @@ try {
     probeReply = 'normal';
     await page.getByRole('button', { name: '重新检测', exact: true }).click();
     await page.getByText('部分探测点可连接', { exact: true }).waitFor();
-    assert.equal(await page.getByLabel('Base URL', { exact: true }).count(), 0);
+    assert.equal(await page.getByLabel('Base URL', { exact: true }).count(), 1);
+    assert.equal(await page.getByLabel('Base URL', { exact: true }).isVisible(), false, 'Model setup belongs to step 4');
     const slug = page.getByLabel('Slug name', { exact: true });
     assert.equal(await slug.isVisible(), false, 'Organization belongs to step 4');
     assert.equal(await page.locator('#environment').count(), 0, 'Fresh installs do not ask for an existing values file');
@@ -271,22 +286,22 @@ try {
     await page.getByRole('heading', { name: '选择应用与场景', exact: true }).waitFor();
     assert.equal(await page.locator('#deployment-options').isVisible(), false);
     assert.equal(await page.getByRole('button', { name: '开始安装', exact: true }).count(), 0);
-    const required = ['Nexus', 'Vasi', 'Limani', 'Apeiron'];
+    const required = ['Nexus', 'Vasi', 'Apeiron', 'Gateway'];
     const defaults = ['Task', 'Corpus', 'Chat', 'Files', '邮件'];
-    const optional = ['Zygos', 'Gateway', 'Filer', '代码仓库', 'GPUStack', 'Langfuse', 'Grafana', 'Browser', 'CI'];
+    const optional = ['Limani', 'Zygos', 'Filer', '代码仓库', 'GPUStack', 'Langfuse', 'Grafana', 'Browser', 'CI'];
     const app = (name) => page.getByRole('checkbox', { name: new RegExp('^' + name + ' ') });
-    assert.deepEqual(await page.locator('.app-copy strong').allTextContents(), [...required, ...defaults, ...optional]);
+    assert.deepEqual(await page.locator('.app-copy strong').allTextContents(), [...required, 'Limani', ...defaults, ...optional.slice(1)]);
     for (const name of required) {
         assert.equal(await app(name).isChecked(), true);
         assert.equal(await app(name).isDisabled(), true);
     }
     for (const name of [...defaults, ...optional]) {
-        assert.equal(await app(name).isChecked(), defaults.includes(name));
+        assert.equal(await app(name).isChecked(), false);
         assert.equal(await app(name).isEnabled(), true);
     }
-    assert.equal(await page.locator('#selected-count').textContent(), '已选择 9 个应用（4 个必选）');
-    assert.deepEqual(await page.locator('.app-group').allTextContents(), ['必选应用', '可选应用 · 默认选中', '其他可选应用 · 默认不选']);
-    assert.equal(await page.locator('[data-scenario=core]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
+    assert.deepEqual(await page.locator('.app-group').allTextContents(), ['必选应用', '其他可选应用 · 默认不选']);
+    assert.equal(await page.getByRole('button', { name: '仅必选', exact: true }).getAttribute('aria-pressed'), 'true');
     await page.locator('[data-scenario=required]').click();
     assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
     await page.locator('[data-scenario=full]').click();
@@ -346,15 +361,15 @@ try {
     await page.setViewportSize({ width: 1280, height: 920 });
     await page.screenshot({ path: join(dir, 'step-4-domain-access.png'), fullPage: true });
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    assert.match(await page.locator('#error').innerText(), /请先测试/);
-    await page.getByRole('checkbox', { name: '稍后配置（安装后暂时无法对话）' }).check();
+    assert.equal(await page.getByText('请先配置并测试快速和深度思考模型。', { exact: true }).isVisible(), true);
+    await configureModels();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
     assert.match(await page.locator('#summary-topology').innerText(), /单机 K3d/);
     assert.equal(await page.locator('#summary-domain').innerText(), 'example.internal');
     assert.equal(await page.locator('#summary-ports').innerText(), 'HTTP 54320 / HTTPS 54321');
-    assert.match(await page.locator('#summary-apps').innerText(), /Nexus、Vasi、Limani、Apeiron、Task/);
-    assert.equal(await page.locator('#summary-models').innerText(), '稍后配置');
+    assert.equal(await page.locator('#summary-apps').innerText(), 'Nexus、Vasi、Apeiron、Gateway、Task、Corpus、Chat、Files、邮件');
+    assert.equal(await page.locator('#summary-models').innerText(), 'bailian · https://dashscope.aliyuncs.com/compatible-mode/v1 · qwen-plus / qwen-plus');
     await page.waitForFunction(() => /预检/.test(document.querySelector('#summary-preflight')?.textContent || '') && !/正在预检/.test(document.querySelector('#summary-preflight')?.textContent || ''));
     await page.screenshot({ path: join(dir, 'step-5-summary.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -471,7 +486,7 @@ try {
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '域名、访问方式与模型', exact: true }).waitFor();
-    await page.getByRole('checkbox', { name: '稍后配置（安装后暂时无法对话）' }).check();
+    await configureModels();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
     await freshInstallFixture(dir, setup, 0);

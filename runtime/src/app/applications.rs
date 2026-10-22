@@ -231,7 +231,7 @@ fn source_package(
             ("__BUNDLE__", mounted_bundle.clone()),
             ("__ARCH__", previous["architecture"].as_str().unwrap().into()),
         ],
-    );
+    )?;
     // Preserve operator values. Only package-owned image fields and Chart pins
     // advance for selected releases; newly selected apps use package defaults.
     for name in &req.releases {
@@ -565,7 +565,7 @@ pub fn run(args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     fn current() -> Value {
-        json!({"schemaVersion":2,"slug":"example-team","apps":["nexus","vasi","ontology","apeiron","zygos","git","ci"]})
+        json!({"schemaVersion":2,"slug":"example-team","apps":["nexus","vasi","ontology","apeiron","zygos","gateway","git","ci"]})
     }
     #[test]
     fn catalog_drives_application_release_mapping_and_dependencies() {
@@ -590,9 +590,14 @@ mod tests {
     }
     #[test]
     fn required_unknown_and_missing_updates_fail_without_dropping_other_apps() {
-        for app in ["nexus", "vasi", "ontology", "apeiron"] {
+        for app in ["nexus", "vasi", "gateway", "apeiron"] {
             assert!(request("uninstall", app, &current()).is_err());
         }
+        let (_, without_ontology) = request("uninstall", "ontology", &current()).unwrap();
+        assert_eq!(
+            without_ontology["apps"],
+            json!(["nexus", "vasi", "apeiron", "zygos", "gateway", "git", "ci"])
+        );
         for app in ["unknown", "--all", "zygos;echo x"] {
             assert!(request("install", app, &current()).is_err());
         }
@@ -600,7 +605,7 @@ mod tests {
         let (_, removed) = request("uninstall", "zygos", &current()).unwrap();
         assert_eq!(
             removed["apps"],
-            json!(["nexus", "vasi", "ontology", "apeiron", "git", "ci"])
+            json!(["nexus", "vasi", "ontology", "apeiron", "gateway", "git", "ci"])
         );
         let (_, added) = request("install", "zygos", &removed).unwrap();
         assert_eq!(added["apps"], current()["apps"]);

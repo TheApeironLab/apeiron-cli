@@ -106,3 +106,51 @@ pub fn values(model: &Value) -> Value {
     }
     json!({"providers":[{"id":model["provider"],"baseUrl":model["baseUrl"],"apiKeyEnv":"MODEL_API_KEY_SETUP"}],"models":[{"id":"apeiron-flash","provider":model["provider"],"model":model["fast"],"label":"apeiron-flash"},{"id":"apeiron-pro","provider":model["provider"],"model":model["deep"],"label":"apeiron-pro"}],"modes":{"fast":"apeiron-flash","deep":"apeiron-pro"},"queues":queue.iter().map(|m|json!({"provider":model["provider"],"model":m,"maxConcurrency":4,"maxPending":16})).collect::<Vec<_>>()})
 }
+
+/// New installations use Gateway virtual keys; upstream credentials never enter values.
+pub fn gateway_values(model: &Value) -> Value {
+    let mut upstream = model.clone();
+    upstream["provider"] = json!("gw");
+    upstream["baseUrl"] = json!("http://gateway.gateway.svc:4000/v1");
+    let mut result = values(&upstream);
+    result["providers"][0]["apiKeyEnv"] = json!("MODEL_API_KEY_GW");
+    result
+}
+
+pub fn routes(model: &Value) -> Value {
+    let mut names = vec![model["fast"].clone()];
+    if model["deep"] != model["fast"] {
+        names.push(model["deep"].clone());
+    }
+    json!(names
+        .iter()
+        .map(|name| json!({"name":name,"upstream":"external",
+        "model":format!("openai/{}", name.as_str().unwrap()),
+        "apiBase":model["baseUrl"],"keyEnv":"PROVIDER_KEY_SETUP"}))
+        .collect::<Vec<_>>())
+}
+
+pub fn require_for_installation(config: &Value) -> Result<()> {
+    if config["deployment"]["installation"].is_object() {
+        if !config["models"].is_object() {
+            return Err(fail(
+                "基础安装必须配置模型服务，请填写 Base URL、API Key 并选择模型。",
+                400,
+            ));
+        }
+        if !config["apps"]
+            .as_array()
+            .is_some_and(|apps| apps.contains(&json!("gateway")))
+        {
+            return Err(fail("基础安装必须启用 Gateway。", 400));
+        }
+    }
+    Ok(())
+}
+
+pub fn uses_gateway(config: &Value) -> bool {
+    config["deployment"]["installation"].is_object()
+        && config["apps"]
+            .as_array()
+            .is_some_and(|apps| apps.contains(&json!("gateway")))
+}

@@ -1,3 +1,4 @@
+import { fixtureModels } from './fixtures';
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, stat, symlink, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -57,7 +58,7 @@ test('wizard serves the eight-step setup including model configuration without w
         'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci',
     ]);
     expect(snapshot.apps.filter((a) => a.required).map((a) => a.id)).toEqual(requiredApps);
-    expect(snapshot.apps.filter((a) => a.selected).map((a) => a.id)).toEqual([...requiredApps, 'task', 'corpus', 'matrix', 'files', 'stalwart']);
+    expect(snapshot.apps.filter((a) => a.selected).map((a) => a.id)).toEqual(requiredApps);
     expect((await fetch(server.origin + '/')).status).toBe(404);
 });
 test('configuration round trip requires deployment settings and private permissions', async () => {
@@ -145,8 +146,9 @@ test('deploy generates exact app flags, preserves base values, runs sync once an
     expect(records[0].values.tenantSlug).toBe(input.slug);
     expect(records[0].values.releases.apeiron.values.models).toEqual({ keep: true });
     expect(records[0].values.releases.postgres).toEqual({ enabled: true, values: { storage: '10Gi' } });
-    for (const name of ['task', 'corpus', 'matrix', 'files', 'stalwart', 'zygos', 'gateway'])
+    for (const name of ['task', 'corpus', 'matrix', 'files', 'stalwart', 'zygos', 'ontology'])
         expect(records[0].values.releases[name].enabled).toBe(false);
+    expect(records[0].values.releases.gateway.enabled).toBe(true);
     expect(records[0].values.releases.nexus.enabled).toBe(true);
     expect(records[0].values.releases.nexus.values.publicProxies).toBe(true);
     for (const name of ['kps', 'loki', 'promtail'])
@@ -292,7 +294,7 @@ test('cancelling resource preparation aborts the download before sync and allows
     const server = await startInitServer({ path: join(dir, 'config.json'), env: { PATH: setup.bin + ':' + process.env.PATH, APEIRON_CHENTU_ROOT: setup.root, SSL_CERT_FILE: remote.ca } });
     cleanups.push(server.stop);
     const post = (endpoint, body) => fetch(server.url + 'api/' + endpoint, { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const firstResponse = await post('deploy', { slug: 'fixture', apps: requiredApps, revision: null, deployment: { installation: localInstallation(), offline: false } });
+    const firstResponse = await post('deploy', { slug: 'fixture', apps: requiredApps, models: fixtureModels, revision: null, deployment: { installation: localInstallation(), offline: false } });
     expect(firstResponse.status).toBe(202);
     const first = await firstResponse.json();
     await until(async () => waiting, Boolean);

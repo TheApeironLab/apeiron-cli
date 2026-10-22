@@ -3,13 +3,23 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { version } from './version';
+import { version, baseVersion, channel } from './version';
 const binary = process.argv[2] && resolve(process.argv[2]);
 if (!binary)
     throw new Error('Usage: bun run test:release /path/to/apeiron');
 const check = Bun.spawn([binary, '--version'], { stdout: 'pipe', stderr: 'pipe' });
 assert.equal((await new Response(check.stdout).text()).trim(), version);
 assert.equal(await check.exited, 0);
+const info = Bun.spawnSync([binary, '--build-info']);
+assert.equal(info.exitCode, 0);
+const build = JSON.parse(info.stdout.toString());
+assert.equal(build.version, version);
+assert.equal(build.baseVersion, baseVersion);
+assert.equal(build.releaseChannel, channel);
+assert.equal(build.clean, true);
+const revision = Bun.spawnSync(['git', 'rev-parse', 'HEAD']);
+assert.equal(revision.exitCode, 0);
+assert.equal(build.revision, revision.stdout.toString().trim());
 const directory = await mkdtemp(join(tmpdir(), 'apeiron-release-smoke-'));
 const child = spawn(binary, ['init', '--no-open', '--config', join(directory, 'config.json')], {
     env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'],

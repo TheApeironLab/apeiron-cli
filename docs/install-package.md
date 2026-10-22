@@ -10,7 +10,7 @@ CLI 固定下载 OSS `0.1.0-rc.5`，提供新版 `deploymentTopology` / `cluster
 
 每个 target 必须声明 `deploymentTopology: true`，其环境与部署入口使用 `topology`，不接受旧 `profile`。Vasi 必选，因此目标还必须声明 `clusterOidc: true`，资源依赖包含 `cluster-access`，部署程序包含 `cli/src/chentu/cluster_oidc.py` 和 `bootstrap/oidc.yaml`。这些标记代表发行包实际实现的能力，不能仅修改清单跳过检查。
 
-环境字符串可使用 `__DOMAIN__`、`__REGISTRY__`、`__NODE__`、`__WORK__`、`__BUNDLE__`、`__ARCH__`。这些值在 CLI 生成外部 YAML 时替换。具体应用镜像、模型默认声明、skills bundle 等必须由发行方提供可部署值；占位版本或 `unset` 应被宸途检查器拒绝。模型配置可以通过发行包显式声明延后，这不代表模型对话已经可用。
+环境字符串可使用 `__DOMAIN__`、`__REGISTRY__`、`__NODE__`、`__WORK__`、`__BUNDLE__`、`__ARCH__`。这些值在 CLI 生成外部 YAML 时替换，覆盖所有层级的对象键、字符串值及数组成员；例如 `imagePins` 的 `__REGISTRY__/busybox:1.36` 键必须与实际注册表镜像名称一致。替换产生重复对象键时拒绝安装，不能静默覆盖镜像 digest（回归：#28）。具体应用镜像、模型默认声明、skills bundle 等必须由发行方提供可部署值；占位版本或 `unset` 应被宸途检查器拒绝。模型配置可以通过发行包显式声明延后，这不代表模型对话已经可用。
 
 K3s 目标还必须声明 `hostPlatform: {os: "ubuntu", version: "22.04" | "24.04", architecture: "amd64" | "arm64"}`，当前支持的原生组合为 Ubuntu 22.04 / AMD64 和 Ubuntu 24.04 / ARM64，必须与每一台节点的实际系统及架构匹配。缺失或不匹配时在创建集群之前拒绝。发布工具从已校验的 `bundle.yaml` 的 `ubuntu`（jammy / noble）和 `arch` 生成此字段，并将该文件列入资源校验清单。不能只修改架构标签后复用另一系统版本的 Deb 包。
 

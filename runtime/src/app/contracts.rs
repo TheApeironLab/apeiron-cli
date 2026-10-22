@@ -42,7 +42,7 @@ fn install(topology: &str) -> Value {
     i
 }
 fn input(i: Value, offline: bool) -> Value {
-    json!({"slug":"example","apps":["nexus","vasi","ontology","apeiron"],"deployment":{"installation":i,"offline":offline,"bundleDir":if offline{"/opt/fixture-bundle"}else{""}}})
+    json!({"slug":"example","apps":["nexus","vasi","apeiron","gateway"],"deployment":{"installation":i,"offline":offline,"bundleDir":if offline{"/opt/fixture-bundle"}else{""}}})
 }
 fn valid(v: &Value) -> Value {
     config::validate(v, &Value::Null).unwrap()
@@ -368,6 +368,7 @@ fn model_keys_are_private_redacted_preserved_for_same_endpoint_and_explicitly_cl
 #[test]
 fn model_deployment_replaces_deferred_modes_and_queues_without_keys_in_values() {
     let mut v = input(install("single-k3d"), false);
+    v["apps"] = json!(["nexus", "vasi", "apeiron"]);
     v["models"] = json!({"provider":"bigmodel","baseUrl":"https://models.example.internal/v1","apiKey":"test-model-secret","fast":"fast-model","deep":"reasoning-model"});
     let c = valid(&v);
     let out = deploy::environment_for(
@@ -431,6 +432,79 @@ impl Temp {
             ("CAPTURE".into(), self.0.join("capture").to_string_lossy().into_owned()),
         ])
     }
+}
+
+#[test]
+fn base_models_use_gateway_with_no_upstream_secret_in_values() {
+    let mut c = input(install("single-k3d"), false);
+    c["models"] = json!({"provider":"bailian","baseUrl":"https://dashscope.aliyuncs.com/compatible-mode/v1","apiKey":"fixture-only-key","fast":"qwen-plus","deep":"qwen-plus"});
+    let c = valid(&c);
+    models::require_for_installation(&c).unwrap();
+    let out = deploy::environment_for(&c, json!({"releases":{}})).unwrap();
+    assert!(!out.to_string().contains("fixture-only-key"));
+    let g = &out["releases"]["gateway"]["values"];
+    assert_eq!(
+        g["routes"],
+        json!([{"name":"qwen-plus","upstream":"external","model":"openai/qwen-plus","apiBase":"https://dashscope.aliyuncs.com/compatible-mode/v1","keyEnv":"PROVIDER_KEY_SETUP"}])
+    );
+    assert_eq!(g["clients"], json!([{"name":"apeiron","routes":["qwen-plus"]}]));
+    assert_eq!(g["replicaCount"], 1);
+    let a = &out["releases"]["apeiron"]["values"]["models"];
+    assert_eq!(
+        a["providers"],
+        json!([{"id":"gw","baseUrl":"http://gateway.gateway.svc:4000/v1","apiKeyEnv":"MODEL_API_KEY_GW"}])
+    );
+    assert_eq!(a["queues"].as_array().unwrap().len(), 1);
+    assert_eq!(a["modes"], json!({"fast":"apeiron-flash","deep":"apeiron-pro"}));
+    assert_eq!(g["egress"]["port"], 443);
+    assert!(g["egress"]["cidrs"][0]["except"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("10.0.0.0/8")));
+    let existing = json!({"releases":{"gateway":{"values":{"egress":{"proxy":{"host":"192.0.2.10","port":3128}}}}}});
+    let kept = deploy::environment_for(&c, existing.clone()).unwrap();
+    assert_eq!(
+        kept["releases"]["gateway"]["values"]["egress"],
+        existing["releases"]["gateway"]["values"]["egress"]
+    );
+    let mut missing = c.clone();
+    missing["models"] = Value::Null;
+    assert!(models::require_for_installation(&missing).is_err());
+    missing = c.clone();
+    missing["apps"] = json!(["nexus", "vasi", "apeiron"]);
+    assert!(models::require_for_installation(&missing).is_err());
+    let mut no_key = c["models"].clone();
+    no_key["apiKey"] = json!("");
+    assert!(config::models(&no_key, &Value::Null).is_err());
+}
+
+#[test]
+#[cfg(unix)]
+fn gateway_upstream_key_is_sent_only_to_gateway_secret_over_stdin() {
+    let dir = Temp::new();
+    dir.tool(
+        "kubectl",
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CAPTURE.args\"\ncat > \"$CAPTURE.stdin\"\n",
+    );
+    let model = json!({"apiKey":"fixture-only-key"});
+    cluster::gateway_model_key(
+        &model,
+        &json!({"runner":"native","kubeconfig":"/tmp/fixture"}),
+        &dir.env(),
+        &process::Cancellation::default(),
+    )
+    .unwrap();
+    let args = fs::read_to_string(dir.0.join("capture.args")).unwrap();
+    assert!(!args.contains("fixture-only-key"));
+    assert!(args.contains("--server-side"));
+    let sent: Value = serde_json::from_slice(&fs::read(dir.0.join("capture.stdin")).unwrap()).unwrap();
+    assert_eq!(sent["items"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        sent["items"][1]["metadata"],
+        json!({"name":"gateway-provider-keys","namespace":"gateway"})
+    );
+    assert!(sent["items"][1]["data"].get("PROVIDER_KEY_SETUP").is_some());
+    assert!(!sent.to_string().contains("last-applied"));
 }
 #[test]
 #[cfg(unix)]

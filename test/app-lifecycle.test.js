@@ -12,7 +12,7 @@ const cli = (...args) => {
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'apeiron-app-')); dirs.push(dir);
   const path = join(dir, 'config.json');
-  const bytes = JSON.stringify({ schemaVersion: 2, slug: 'example-team', apps: ['nexus', 'vasi', 'ontology', 'apeiron', 'zygos', 'git', 'ci'] });
+  const bytes = JSON.stringify({ schemaVersion: 2, slug: 'example-team', apps: ['nexus', 'vasi', 'ontology', 'apeiron', 'zygos', 'gateway', 'git', 'ci'] });
   await writeFile(path, bytes, { mode: 0o600 });
   return { dir, path, bytes };
 }

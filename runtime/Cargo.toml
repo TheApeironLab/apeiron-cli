@@ -23,7 +23,7 @@ tiny_http = "=0.12.0"
 sha2 = "=0.10.9"
 regex = "=1.12.3"
 base64 = "=0.22.1"
-rand = "=0.8.6"
+rand = "=0.8.8"
 libc = "=0.2.189"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 serde_yaml_ng = "=0.10.0"
@@ -34,3 +34,9 @@ hickory-resolver = "0.25.2"
 
 filetime = "=0.2.29"
 url = "=2.5.8"
+
+zygos-cli = { path = "../third_party/zygos/apps/cli" }
+
+apeiron-runtime = { package = "apeiron", path = "../third_party/apeiron/cli" }
+
+apeiron-iam-cli = { path = "../third_party/apeiron-iam/cli" }

@@ -7,11 +7,22 @@
 macOS / Linux，ARM64 或 x64：
 
 ```sh
-curl -fsSL https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/apeiron-cli/install.sh | sh
+curl -fsSL https://downloads.apeironlab.cn/apeiron-cli/install.sh | sh
 apeiron init
 ```
 
 安装器自动选择平台并校验 SHA-256，优先原位更新已能找到的 `apeiron`，否则选择当前 PATH 中的常用 bin 目录。用户目录可直接写入；系统目录不可写时会请求 sudo 授权。安装后当前终端即可直接运行 `apeiron`，无需手动修改 PATH。`apeiron init` 自动打开默认浏览器。重新运行安装命令可升级 CLI，不会重新部署平台或修改配置。独立文件也可从 GitHub Releases（需要仓库权限）或公开 OSS 下载；离线安装和固定版本见 [发布与安装说明](docs/releases.md)。
+
+新版安装器默认选择 `stable`，`latest.txt` 保留为 stable 的兼容入口。主动试用开发版或固定版本：
+
+```sh
+sh install.sh --channel nightly
+sh install.sh --version 0.2.0
+apeiron --version
+apeiron --build-info
+```
+
+其中 `install.sh` 为下载到本地的安装脚本。nightly 按北京时间每日 03:00 检查 `main`，仅在有尚未成功发布的新提交时构建；不改变 stable、latest 或公共安装脚本。通道机制随首次正式发行启用；仓库版本设为 `0.2.0` 不表示线上已经发布。首次 stable 前，可使用某个已发布 nightly 目录内的安装脚本并显式指定版本，见发布文档。
 
 CLI 可运行的平台与 Chentu 安装包支持的部署目标分别校验；当前预览包的全新部署目标为 **K3d ARM64**。Docker 等部署依赖仍需准备。
 
@@ -110,21 +121,24 @@ apeiron init
 1. **拓扑**：依次展示系统配置、网络测试、部署选项；选择在线／离线、单机 K3s／单机 K3d／多机 K3s（发行包为每个目标声明支持的拓扑）。多机时展开节点连接与 SSH 检测。
 2. **应用**：按“仅必选／核心协作／完整”场景组合快速选择，再按需增减；CI 需同时启用代码仓库。
 3. **共存与预算**：只读展示服务端分配的入口端口，执行宿主共存预检（已有 K3s、k3d 容器、路由与 Docker 子网重叠、iptables），给出资源估算。
-4. **域名与访问**：填写 Slug name，自动生成 `<slug>.apeironlab.internal`；可展开使用自定义域名。选择内网访问、公网直连或 ECS 转发（在线单机 K3s），填写入口 IP；配置既有模型服务或选择稍后配置。
+4. **域名与访问**：填写 Slug name，自动生成 `<slug>.apeironlab.internal`；可展开使用自定义域名。选择内网访问、公网直连或 ECS 转发（在线单机 K3s），填写入口 IP；配置必需的模型服务。
 5. **摘要**：核对实例、拓扑、节点、来源、域名、入口、端口、应用、模型与预检结果，点击“开始安装”。
 6. **部署**：完整准备并校验资源，创建集群，再运行宸途 `Helmfile sync`。显示进度、结果和日志入口。
 7. **配置访问**：部署成功后自动进入。在有桌面会话的 Mac 上可点击“一键配置本机访问”；其他电脑使用折叠的手动指引。可以返回查看部署记录，不会再次部署。
 8. **测试**：从访问配置点击“下一步：测试”。展示初始管理员用户名、默认隐藏的密码，提供显示／复制／下载，以及 Apeiron／Ops 登录入口。可以测试三处核心入口的解析和 HTTPS。
 
-模型配置独立成页：填写 Provider 标识（必填，例如 `bigmodel`）、OpenAI 兼容 API 地址和 Key，获取模型列表，分别选择快速与深度思考模型，固定以 `apeiron-flash`（快速）和 `apeiron-pro`（深度思考）作为内部模型 ID，再发送简短请求测试（可能产生少量费用）。测试从 CLI 主机发起，部署后的集群也必须能访问模型服务；离线部署可使用内网模型端点。修改配置后须重新测试，也可明确选择稍后配置，此时安装后暂时无法对话。密钥仅保存于权限 0600 的本地配置及 Kubernetes Secret，不回传浏览器、不进入 Helm values。
+模型配置独立成页：预填百炼 `bailian` 标识和北京 Base URL `https://dashscope.aliyuncs.com/compatible-mode/v1`，填写同地域、同计费方案的 API Key；可修改为业务空间专属 OpenAI 兼容地址，获取模型列表，分别选择快速与深度思考模型，固定以 `apeiron-flash`（快速）和 `apeiron-pro`（深度思考）作为内部模型 ID，再发送简短请求测试（可能产生少量费用）。测试从 CLI 主机发起，部署后的集群也必须能访问模型服务；离线部署可使用内网模型端点。修改配置后须重新测试，基础安装不能跳过模型配置。Apeiron 通过必装的 Gateway 调用，供应商 Key 只写 Gateway Secret，Apeiron 使用网关签发的虚拟 Key。密钥仅保存于权限 0600 的本地配置及 Kubernetes Secret，不回传浏览器、不进入 Helm values。
+
+基础安装的默认出口允许公开 IPv4 HTTPS 并排除私有网段；发行包已有代理或 CIDR 策略时保留它。内网模型或受限出口需在发行环境中声明实际代理/出口。地址依据 [百炼官方 Base URL 文档](https://help.aliyun.com/zh/model-studio/base-url)。需要包含 Gateway 镜像与依赖的新安装包，旧包不被自动补齐或覆盖。
+
+基础模型向导的确定性浏览器验收：`APEIRON_TEST_BIN=/external/target/debug/apeiron bun scripts/test-base-models-ui.js`。测试拦截模型请求，不访问真实供应商。
 
 | 选择规则 | 应用 |
 | --- | --- |
-| 必选，不可取消 | Nexus、Vasi、Limani、Apeiron（含 Ops） |
-| 默认选中，可取消 | Task、Corpus、Chat（团队聊天）、Files、邮件 |
-| 默认不选 | Zygos、Gateway、Filer、代码仓库、GPUStack、Langfuse、Grafana、Browser（chrome-headless）、CI（woodpecker，需代码仓库） |
+| 必选，不可取消 | Nexus、Vasi、Apeiron（含 Ops）、Gateway |
+| 默认不选 | Zygos、Limani、Task、Corpus、Chat、Files、邮件、Filer、代码仓库、GPUStack、Langfuse、Grafana、Browser（chrome-headless）、CI（woodpecker，需代码仓库） |
 
-默认选中 9 项，其中 4 项必选。页面按上表分三组、按表内顺序展示。重新打开保留可选应用选择；旧配置中缺少的必选应用会自动勾选，提交时才写入。可选应用仍受发行包声明的部署依赖约束。
+默认仅选中 4 项必选。Keycloak、数据库和存储由安装包中 Helmfile 的依赖闭包提供。页面按必选和可选分组。重新打开保留可选应用选择；旧配置中缺少的必选应用会自动勾选，提交时才写入。可选应用仍受发行包声明的部署依赖约束。
 
 ### 自动环境探测
 
@@ -171,7 +185,7 @@ Mac 一键配置使用 [AppleScript 系统管理员授权](https://developer.app
 
 **发行状态：CLI 固定使用兼容的 Chentu `0.1.0-rc.5` 预览包。** 包内提供 `deploymentTopology`、`clusterOidc`、自定义入口端口和 `setup/install.json`，按所选应用下载并校验资源。目前提供 `k3d-arm64` 目标，共 50 个资源文件，覆盖默认 9 个应用及可选 Gateway、Filer、代码仓库、Langfuse、Grafana；GPUStack 尚无对应资源，选择后会在修改集群前明确拒绝。
 
-源码基础提交为 `f109f8567b9df0cf1eeb1b6d6cbd7092be5f99c3`，具体修复以包内 `chentu-package.json.sourceOverlay` 的逐文件摘要为准。安装包 SHA-256：`f45a9a370a15e01697ba82d8ad1101853c040a3b1bbf1c0e1f557164d4706021`。来源、验证与限制见 [release.json](https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com/chentu/releases/0.1.0-rc.5/release.json)，消费契约见 [docs/install-package.md](docs/install-package.md)。已验证本机 ARM64 K3d 部署与 Vasi 集群 SSO 权限；原生 Ubuntu、AMD64、多节点和断网安装尚需分别验收。Apeiron 的真实 LLM 可在 setup 的模型步骤配置，开发模型桩不代表真实对话已可用。
+源码基础提交为 `f109f8567b9df0cf1eeb1b6d6cbd7092be5f99c3`，具体修复以包内 `chentu-package.json.sourceOverlay` 的逐文件摘要为准。安装包 SHA-256：`f45a9a370a15e01697ba82d8ad1101853c040a3b1bbf1c0e1f557164d4706021`。来源、验证与限制见 [release.json](https://downloads.apeironlab.cn/chentu/releases/0.1.0-rc.5/release.json)，消费契约见 [docs/install-package.md](docs/install-package.md)。已验证本机 ARM64 K3d 部署与 Vasi 集群 SSO 权限；原生 Ubuntu、AMD64、多节点和断网安装尚需分别验收。Apeiron 的真实 LLM 可在 setup 的模型步骤配置，开发模型桩不代表真实对话已可用。
 
 环境 values、inventory、kubeconfig 由流程生成，不向用户索取。页面不再提供源码路径或开发选项：在线使用匹配版本的发行包，离线使用所选目录中的 `chentu/` 部署程序与应用资源。旧配置中的源码覆盖不会沿用到全新安装。仅 CLI 开发联调可显式设置进程变量 `APEIRON_CHENTU_ROOT`，该变量不写入安装配置，离线模式也不会使用它。
 
@@ -266,7 +280,7 @@ bun run test:ui
 apeiron verify
 ```
 
-开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；仓库不包含 TypeScript。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
+开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；Apeiron 自身不包含 TypeScript，独立的 Zygos 子模块不受此语言限制。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
 
 首次浏览器验证需先运行 `bunx playwright install chromium`。`test:ui` 从临时目录启动编译后的二进制，
 用隔离的部署替身验证首屏入口、八步配置、场景组合、共存预检与摘要、必选项、失败/重试、刷新恢复、部署后进入访问配置、系统授权取消/重试的页面状态、凭据读取／隐藏／复制／下载、连接检查失败与重试、完成退出、桌面/手机布局以及没有外部网络请求。授权测试使用隔离替身，不弹出真实管理员授权或修改开发机信任库。它不对真实集群执行 sync。
@@ -280,7 +294,9 @@ bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
 
-当前尚未发布到 npm registry。`connect` / `status` / `disconnect` 使用 Rust 连接运行时；
+当前尚未发布到 npm registry。`connect` / `status` / `disconnect` / `serve` 使用
+`third_party/apeiron/cli` 的 Rust 连接运行时，通过 Git submodule 锁定上游提交并静态链接，
+不再维护连接运行时的源码副本。SSO、IAM、Task 暂时保留本仓库现有实现；
 `platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
 
 部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）
@@ -364,6 +380,17 @@ Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.
 
 ### IAM CLI 与统一 SSO
 
+IAM 命令及组织 API 客户端由 [apeiron-iam](https://github.com/TheApeironLab/apeiron-iam) 的
+`cli/` Rust crate 维护，通过 `third_party/apeiron-iam` Git submodule 固定源码提交并静态链接。
+本仓库的 `runtime/src/apps/iam.rs` 仅接入统一 SSO、命令执行和通用输出；最终仍为单个
+`apeiron` 二进制，无 Node.js 或外部 IAM CLI 运行依赖。
+
+开发 checkout 需先执行 `git submodule update --init --recursive`。更新 IAM 时先提交上游，
+再更新固定 gitlink 和必要的 Cargo.lock；不要在构建中跟随远端分支。IAM 自身契约测试位于
+`third_party/apeiron-iam/cli/tests`，本仓库保留 SSO 到 IAM 命令的集成测试。
+CI 的 `ZYGOS_READ_TOKEN` 还需具备 `TheApeironLab/apeiron-iam` 的 Contents: read 权限；
+该变更不自动扩大凭据权限。
+
 `apeiron sso login --server <APEIRON_URL>` 后，`apeiron iam` 直接调用该平台的 `/api/organization`。IAM 网页和 CLI 共用同一组织 API 与 `apeiron-app` audience，不创建 IAM 换票 broker，不把 Keycloak Admin API 的服务账号凭据交给 CLI。服务端每次请求读取当前账号状态、组织归属和管理角色；`iam-user` 入口资格不授予成员管理权限。
 
 ```bash
@@ -405,3 +432,25 @@ Nexus-first 的资源导入仍会校验并同步既有证书组件和 Nexus，�
 `--dry-run` 校验资源、目标集群和卸载策略，不修改集群或实例配置，会生成本地预览日志。
 应用选择在操作成功后才保存。失败可能已部分改变集群，不自动回滚数据库；使用完全相同的命令
 和包重试。检查点会拒绝变动资源、错误集群及并发部署。`app list` 展示配置中的选择，不代替服务健康检查。
+
+## Zygos 内置子命令
+
+`apeiron zygos` 静态链接 Zygos Rust CLI，单个 apeiron 文件即可使用；
+不需要外部 zygos 可执行文件，也不读取 `APEIRON_ZYGOS_BIN`。
+
+```sh
+apeiron zygos --help
+export ZYGOS_API_BASE_URL=http://127.0.0.1:8000
+apeiron zygos model list
+```
+
+连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
+本机连接的上游是 `third_party/apeiron`，接收端上报的软件版本来自上游 `VERSION`；
+宿主 `apeiron --version` 仍报告本 CLI 的发行版本。更新时先在 Apeiron 上游验证并合并，
+再更新 gitlink 与 Cargo.lock；不要在构建中追踪浮动分支或复制运行时代码。
+宿主保留真实可执行文件的生命周期集成测试，CI 另外运行 vendor 内的 Rust 检查与测试。
+CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos 与 Apeiron；名称沿用现有配置。
+
+源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
+`apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
+克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。

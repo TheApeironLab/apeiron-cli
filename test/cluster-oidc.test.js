@@ -1,3 +1,4 @@
+import { fixtureModels } from './fixtures';
 import { expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,7 +16,7 @@ test('fresh installation requires OIDC bundle support before any cluster operati
     await writeFile(catalogPath, JSON.stringify(catalog));
     const deployment = new DeploymentClient(join(dir, 'config.json'), setup.root, { PATH: setup.bin + ':' + process.env.PATH });
     try {
-        await deployment.start(({ slug: 'fixture', apps: requiredApps, deployment: {
+        await deployment.start(({ slug: 'fixture', apps: requiredApps, models: fixtureModels, deployment: {
                 offline: false, installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' },
             } }));
         while (deployment.active)
@@ -46,7 +47,7 @@ test('OIDC failure prevents success and credentials; retry finishes OIDC after H
     const oldPath = process.env.PATH;
     process.env.PATH = setup.bin + ':' + oldPath;
     const deployment = new DeploymentClient(join(dir, 'config.json'), setup.root, { PATH: setup.bin + ':' + process.env.PATH });
-    const config = ({ slug: 'fixture', apps: requiredApps, deployment: {
+    const config = ({ slug: 'fixture', apps: requiredApps, models: fixtureModels, deployment: {
             offline: false, installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' },
         } });
     try {
@@ -90,7 +91,7 @@ test('installation can stop during OIDC finalization and retry without reporting
     const oldPath = process.env.PATH;
     process.env.PATH = setup.bin + ':' + oldPath;
     const deployment = new DeploymentClient(join(dir, 'config.json'), setup.root, { PATH: setup.bin + ':' + process.env.PATH });
-    const config = ({ slug: 'fixture', apps: requiredApps, deployment: { offline: false,
+    const config = ({ slug: 'fixture', apps: requiredApps, models: fixtureModels, deployment: { offline: false,
             installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'example.internal', entryIp: '127.0.0.1' },
         } });
     try {

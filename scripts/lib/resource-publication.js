@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildSupport } from './rust';
-export const resourceOrigin = 'https://apeiron-bj-cli-downloads.oss-cn-beijing.aliyuncs.com';
+export const resourceOrigin = 'https://downloads.apeironlab.cn';
 export const blobPrefix = 'apeiron/blobs/sha256';
 export async function digestFile(path) {
     const hash = createHash('sha256');

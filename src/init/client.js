@@ -50,11 +50,11 @@ export function initWizard(supportsK3sHost) {
     const modelProvider = get('model-provider');
     const modelUrl = get('model-url'), modelKey = get('model-key');
     const modelFast = get('model-fast'), modelDeep = get('model-deep');
-    const modelSkip = get('model-skip'), modelClear = get('model-clear-key');
+    const modelClear = get('model-clear-key');
     let savedModelUrl = '', savedModelKey = false, modelPassed = '', modelSerial = 0;
     let modelAbort;
     let modelChoices = [];
-    let preferredFast = '', preferredDeep = '';
+    let preferredFast = 'qwen-plus', preferredDeep = 'qwen-plus';
     const updateModelTest = () => { get('model-test').disabled = !modelChoices.includes(modelFast.value) || !modelChoices.includes(modelDeep.value); };
     function clearModelChoices() {
         modelChoices = [];
@@ -67,13 +67,46 @@ export function initWizard(supportsK3sHost) {
     const modelInput = () => ({ provider: modelProvider.value.trim(), baseUrl: modelUrl.value.trim().replace(/\/+$/, ''), fast: modelFast.value.trim(), deep: modelDeep.value.trim(),
         ...(savedModelKey && savedModelUrl === modelUrl.value.trim().replace(/\/+$/, '') && !modelKey.value && !modelClear.checked ? {} : { apiKey: modelClear.checked ? '' : modelKey.value.trim() }) });
     const modelFingerprint = () => JSON.stringify(modelInput());
-    function invalidateModels() { modelPassed = ''; modelSerial++; modelAbort?.abort(); get('model-list').disabled = false; get('model-status').textContent = ''; get('model-status').className = 'hint'; }
+    function renderModelTest(state, input, results = [], message = '') {
+        const status = get('model-status');
+        status.className = 'model-feedback';
+        status.dataset.state = state;
+        const heading = document.createElement('div'), icon = document.createElement('span'), symbol = document.createElement('span'), title = document.createElement('span');
+        heading.className = 'model-feedback-heading';
+        icon.className = 'model-feedback-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        symbol.textContent = state === 'success' ? '✓' : state === 'error' ? '!' : '…';
+        icon.append(symbol);
+        title.textContent = state === 'success' ? '两种模式均测试通过' : state === 'error' ? '模型测试未通过' : '正在测试两种模式…';
+        heading.append(icon, title);
+        status.replaceChildren(heading);
+        if (state === 'success') {
+            const cards = document.createElement('ul');
+            cards.className = 'model-result-grid';
+            for (const result of results) {
+                const card = document.createElement('li'), label = document.createElement('strong'), model = document.createElement('span'), duration = document.createElement('span');
+                card.className = 'model-result-card';
+                label.textContent = `${result.mode === 'fast' ? '快速' : '深度思考'}：通过`;
+                model.textContent = input[result.mode];
+                duration.textContent = `耗时 ${(result.elapsedMs / 1000).toFixed(1)} 秒`;
+                card.append(label, model, duration);
+                cards.append(card);
+            }
+            status.append(cards);
+        } else {
+            const detail = document.createElement('p');
+            detail.className = 'model-feedback-detail';
+            detail.textContent = state === 'error' ? message : '正在依次发送请求，请稍候。';
+            status.append(detail);
+        }
+        status.scrollIntoView({ block: 'nearest' });
+    }
+    function invalidateModels() { modelPassed = ''; modelSerial++; modelAbort?.abort(); get('model-list').disabled = false; get('model-status').textContent = ''; get('model-status').className = 'hint'; delete get('model-status').dataset.state; }
     for (const input of [modelUrl, modelKey, modelClear])
         input.addEventListener('input', () => { invalidateModels(); clearModelChoices(); });
     for (const select of [modelFast, modelDeep])
         select.addEventListener('change', () => { invalidateModels(); updateModelTest(); });
     modelProvider.addEventListener('input', invalidateModels);
-    modelSkip.addEventListener('change', () => { invalidateModels(); get('model-settings').hidden = modelSkip.checked; });
     async function checkModels(action) {
         invalidateModels();
         const serial = modelSerial;
@@ -99,6 +132,7 @@ export function initWizard(supportsK3sHost) {
         modelAbort = new AbortController();
         get('model-list').disabled = get('model-test').disabled = true;
         get('model-status').textContent = action === 'list' ? '正在获取模型…' : '正在测试快速和深度思考…';
+        if (action === 'test') renderModelTest('pending', input);
         try {
             const response = await fetch(endpoint('models/' + action), { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ revision, models: { ...input, fast: input.fast || 'list', deep: input.deep || 'list' } }), signal: modelAbort.signal });
@@ -121,13 +155,14 @@ export function initWizard(supportsK3sHost) {
             }
             else {
                 modelPassed = fingerprint;
-                get('model-status').textContent = data.results.map((r) => `${r.mode === 'fast' ? '快速' : '深度思考'}：通过（${(r.elapsedMs / 1000).toFixed(1)} 秒）`).join('；');
+                renderModelTest('success', input, data.results);
             }
         }
         catch (cause) {
             if (serial === modelSerial) {
                 get('model-status').className = 'error';
                 get('model-status').textContent = cause instanceof Error ? cause.message : '模型请求失败。';
+                if (action === 'test') renderModelTest('error', input, [], get('model-status').textContent);
             }
         }
         finally {
@@ -763,7 +798,7 @@ export function initWizard(supportsK3sHost) {
         get('summary-entry').textContent = install.publicAccess ? `${install.publicAccess.mode === 'relay' ? 'ECS 转发' : '公网直连'} · ${install.publicAccess.publicIp}` : `内网 · ${install.entryIp || '—'}`;
         get('summary-ports').textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;
         get('summary-apps').textContent = selectedApps().map(id => apps.find(app => app.id === id)?.name ?? id).join('、');
-        get('summary-models').textContent = modelSkip.checked ? '稍后配置' : `${modelProvider.value.trim()} · ${modelUrl.value.trim()} · ${modelFast.value} / ${modelDeep.value}`;
+        get('summary-models').textContent = `${modelProvider.value.trim()} · ${modelUrl.value.trim()} · ${modelFast.value} / ${modelDeep.value}`;
     }
     function renderProgress(active) {
         document.querySelectorAll('[data-step]').forEach((item, index) => {
@@ -802,7 +837,7 @@ export function initWizard(supportsK3sHost) {
         const grid = get('app-grid');
         grid.replaceChildren();
         let previousGroup = '';
-        apps.forEach(app => {
+        [...apps].sort((a, b) => Number(b.required) - Number(a.required) || Number(b.selected) - Number(a.selected)).forEach(app => {
             const group = app.required ? '必选应用' : app.selected ? '可选应用 · 默认选中' : '其他可选应用 · 默认不选';
             if (group !== previousGroup) {
                 const heading = document.createElement('h2');
@@ -920,8 +955,8 @@ export function initWizard(supportsK3sHost) {
                 return false;
             }
         }
-        if (step === 3 && !modelSkip.checked && modelPassed !== modelFingerprint()) {
-            showError('请先测试快速和深度思考模型，或选择稍后配置。');
+        if (step === 3 && modelPassed !== modelFingerprint()) {
+            showError('请先配置并测试快速和深度思考模型。');
             return false;
         }
         return true;
@@ -1428,7 +1463,12 @@ export function initWizard(supportsK3sHost) {
             remove.textContent = '卸载';
             remove.disabled = instance.topology !== 'single-k3d' || instance.k3d === 'running' || instance.id === currentInstance?.id || instance.locked;
             remove.title = instance.topology !== 'single-k3d' ? '仅支持卸载 K3d 实例' : instance.k3d === 'running' ? '集群运行中，请先停止' : instance.id === currentInstance?.id ? '不能卸载当前实例' : '删除已停止的 K3d 集群与实例目录';
-            remove.addEventListener('click', () => { pendingDelete = instance; get('instance-confirm').hidden = false; get('instances-status').textContent = `将卸载实例 ${instance.name}（${instance.id}）。`; });
+            remove.addEventListener('click', () => {
+                pendingDelete = instance;
+                get('instance-confirm-status').textContent = '';
+                get('instance-confirm-target').textContent = `将卸载实例 ${instance.name}（${instance.id}）。`;
+                get('instance-confirm').showModal();
+            });
             actions.append(select, diagnose, remove);
             item.append(header, meta, actions);
             return item;
@@ -1439,7 +1479,7 @@ export function initWizard(supportsK3sHost) {
     async function showInstances() {
         get('home').hidden = true;
         get('instances').hidden = false;
-        get('instance-confirm').hidden = true;
+        get('instance-confirm').close();
         get('instance-list').replaceChildren();
         get('instances-status').textContent = '正在读取实例…';
         await loadInstances();
@@ -1512,28 +1552,35 @@ export function initWizard(supportsK3sHost) {
             get('instances-status').textContent = cause instanceof Error ? cause.message : '无法采集诊断。';
         }
     }
-    get('instance-cancel-delete').addEventListener('click', () => { pendingDelete = null; get('instance-confirm').hidden = true; get('instances-status').textContent = ''; });
+    get('instance-confirm').addEventListener('close', () => { pendingDelete = null; });
+    get('instance-confirm').addEventListener('cancel', event => {
+        if (get('instance-confirm-delete').disabled) event.preventDefault();
+    });
+    get('instance-cancel-delete').addEventListener('click', () => { get('instance-confirm').close(); });
     get('instance-confirm-delete').addEventListener('click', async () => {
         const instance = pendingDelete;
-        if (!instance)
+        if (!instance || get('instance-confirm-delete').disabled)
             return;
         get('instance-confirm-delete').disabled = true;
+        get('instance-cancel-delete').disabled = true;
+        get('instance-confirm-status').textContent = '正在卸载…';
         try {
             const response = await fetch(endpoint('instances/delete'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: instance.id }) });
             const result = await response.json();
             if (!response.ok)
                 throw new Error(result.error || '无法卸载实例。');
             pendingDelete = null;
-            get('instance-confirm').hidden = true;
+            get('instance-confirm').close();
             await loadInstances();
             renderInstances();
             get('instances-status').textContent = `已卸载 ${instance.name}${result.clusterDeleted ? '，并删除其 K3d 集群' : ''}。`;
         }
         catch (cause) {
-            get('instances-status').textContent = cause instanceof Error ? cause.message : '无法卸载实例。';
+            get('instance-confirm-status').textContent = cause instanceof Error ? cause.message : '无法卸载实例。';
         }
         finally {
             get('instance-confirm-delete').disabled = false;
+            get('instance-cancel-delete').disabled = false;
         }
     });
     get('manage-instances').addEventListener('click', () => { void showInstances(); });
@@ -1635,7 +1682,7 @@ export function initWizard(supportsK3sHost) {
         error.hidden = true;
         try {
             const response = await fetch(endpoint('deploy'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelSkip.checked ? null : modelInput(), deployment: target() }) });
+                body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelInput(), deployment: target() }) });
             const result = await response.json();
             if (!response.ok || !result.config)
                 throw new Error(result.error || '启动失败，请检查配置。');
