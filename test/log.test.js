@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startInitServer } from './rust-server';
 import { localInstallation as installationDefaults, until } from './support';
-import { deploymentFixture, freshInstallFixture, requiredApps } from './fixtures';
+import { deploymentFixture, fixtureModels, freshInstallFixture, requiredApps } from './fixtures';
 test('preparation failures and three retries each expose the current log, with token/origin and fixed-path protection', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'apeiron-log-api-'));
     const setup = await deploymentFixture(directory);
@@ -18,7 +18,7 @@ test('preparation failures and three retries each expose the current log, with t
         const logs = [];
         for (let attempt = 0; attempt < 3; attempt++) {
             const response = await fetch(server.url + 'api/deploy', { method: 'POST', headers: { Origin: server.origin, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ revision, slug: 'logs', apps: requiredApps, deployment: { offline: false,
+                body: JSON.stringify({ revision, slug: 'logs', apps: requiredApps, models: fixtureModels, deployment: { offline: false,
                         installation: { ...installationDefaults(), topology: 'single-k3d', httpPort: 54320, httpsPort: 54321, domain: 'logs.example.internal', entryIp: '127.0.0.1' } } }) });
             expect(response.status).toBe(202);
             revision = (await response.json()).revision;
