@@ -21,13 +21,13 @@ jobs:
           ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
         run: |
           if [ -z "$ZYGOS_READ_TOKEN" ]; then
-            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos and TheApeironLab/apeiron. The default GITHUB_TOKEN cannot read the private upstream submodules.'
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos, TheApeironLab/apeiron and TheApeironLab/apeiron-iam. The default GITHUB_TOKEN cannot read the private upstream submodules.'
             exit 1
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
-          # Read-only token for this host and both pinned upstream repositories.
+          # Read-only token for this host and all pinned upstream repositories.
           token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -45,6 +45,12 @@ jobs:
         working-directory: third_party/apeiron/cli
         run: |
           cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+      - name: Vendored IAM CLI checks
+        working-directory: third_party/apeiron-iam/cli
+        run: |
+          cargo fmt --all -- --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
       - run: bun run check
@@ -85,13 +91,13 @@ jobs:
           ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
         run: |
           if [ -z "$ZYGOS_READ_TOKEN" ]; then
-            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos and TheApeironLab/apeiron. The default GITHUB_TOKEN cannot read the private upstream submodules.'
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos, TheApeironLab/apeiron and TheApeironLab/apeiron-iam. The default GITHUB_TOKEN cannot read the private upstream submodules.'
             exit 1
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
-          # Read-only token for this host and both pinned upstream repositories.
+          # Read-only token for this host and all pinned upstream repositories.
           token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -133,13 +139,13 @@ jobs:
           ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
         run: |
           if [ -z "$ZYGOS_READ_TOKEN" ]; then
-            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos and TheApeironLab/apeiron. The default GITHUB_TOKEN cannot read the private upstream submodules.'
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos, TheApeironLab/apeiron and TheApeironLab/apeiron-iam. The default GITHUB_TOKEN cannot read the private upstream submodules.'
             exit 1
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
-          # Read-only token for this host and both pinned upstream repositories.
+          # Read-only token for this host and all pinned upstream repositories.
           token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -174,13 +180,13 @@ jobs:
           ZYGOS_READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
         run: |
           if [ -z "$ZYGOS_READ_TOKEN" ]; then
-            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos and TheApeironLab/apeiron. The default GITHUB_TOKEN cannot read the private upstream submodules.'
+            echo '::error::Configure ZYGOS_READ_TOKEN with Contents: read for TheApeironLab/apeiron-cli, TheApeironLab/zygos, TheApeironLab/apeiron and TheApeironLab/apeiron-iam. The default GITHUB_TOKEN cannot read the private upstream submodules.'
             exit 1
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           submodules: recursive
-          # Read-only token for this host and both pinned upstream repositories.
+          # Read-only token for this host and all pinned upstream repositories.
           token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6

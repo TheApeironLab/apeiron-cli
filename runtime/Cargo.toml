@@ -38,3 +38,5 @@ url = "=2.5.8"
 zygos-cli = { path = "../third_party/zygos/apps/cli" }
 
 apeiron-runtime = { package = "apeiron", path = "../third_party/apeiron/cli" }
+
+apeiron-iam-cli = { path = "../third_party/apeiron-iam/cli" }

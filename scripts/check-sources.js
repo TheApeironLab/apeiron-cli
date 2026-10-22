@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Release/backend logic lives in Rust; JS is confined to browser assets and tooling.
 const root = fileURLToPath(new URL('../', import.meta.url));
-const upstreamSources = new Set(['zygos', 'apeiron'].map(name => join(root, 'third_party', name)));
+const upstreamSources = new Set(['zygos', 'apeiron', 'apeiron-iam'].map(name => join(root, 'third_party', name)));
 const parser = new Bun.Transpiler({ loader: 'js', target: 'bun' });
 let checked = 0;
 async function visit(directory) {

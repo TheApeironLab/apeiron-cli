@@ -369,6 +369,17 @@ Only HTTPS gateways are accepted, except `http://localhost` and `http://127.0.0.
 
 ### IAM CLI 与统一 SSO
 
+IAM 命令及组织 API 客户端由 [apeiron-iam](https://github.com/TheApeironLab/apeiron-iam) 的
+`cli/` Rust crate 维护，通过 `third_party/apeiron-iam` Git submodule 固定源码提交并静态链接。
+本仓库的 `runtime/src/apps/iam.rs` 仅接入统一 SSO、命令执行和通用输出；最终仍为单个
+`apeiron` 二进制，无 Node.js 或外部 IAM CLI 运行依赖。
+
+开发 checkout 需先执行 `git submodule update --init --recursive`。更新 IAM 时先提交上游，
+再更新固定 gitlink 和必要的 Cargo.lock；不要在构建中跟随远端分支。IAM 自身契约测试位于
+`third_party/apeiron-iam/cli/tests`，本仓库保留 SSO 到 IAM 命令的集成测试。
+CI 的 `ZYGOS_READ_TOKEN` 还需具备 `TheApeironLab/apeiron-iam` 的 Contents: read 权限；
+该变更不自动扩大凭据权限。
+
 `apeiron sso login --server <APEIRON_URL>` 后，`apeiron iam` 直接调用该平台的 `/api/organization`。IAM 网页和 CLI 共用同一组织 API 与 `apeiron-app` audience，不创建 IAM 换票 broker，不把 Keycloak Admin API 的服务账号凭据交给 CLI。服务端每次请求读取当前账号状态、组织归属和管理角色；`iam-user` 入口资格不授予成员管理权限。
 
 ```bash
