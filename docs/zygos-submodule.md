@@ -34,16 +34,18 @@ Rust 或 Node。Zygos API 服务仍须单独部署。
 
 ## 私有仓库的 CI 权限
 
-当前 Zygos 为私有仓库，默认 GITHUB_TOKEN 只可读取当前仓库。
-需由维护者在 Apeiron 仓库/组织的 Actions secret 中配置 `ZYGOS_READ_TOKEN`，
-使用对 Apeiron 与 Zygos 两个仓库仅有 Contents: read 权限的 fine-grained token。
+固定子模块 Zygos、Apeiron 和 Apeiron IAM 均为私有仓库，默认 GITHUB_TOKEN 只可读取当前仓库。
+在 `apeiron-cli` 的 Actions secret 中配置 `ZYGOS_READ_TOKEN`（保留历史变量名），
+使用资源所有者为 `TheApeironLab` 的 fine-grained token，仓库范围仅选择
+`apeiron-cli`、`zygos`、`apeiron`、`apeiron-iam`，授予 Contents: read 和自动包含的 Metadata: read。
+不需要 Actions、Workflows、写入或组织管理权限。令牌到期前需重新生成并更新同一个 secret。
 工作流递归检出并关闭凭据持久化；凭据不得加入 Git URL、`.gitmodules` 或日志。
 此代码修改不会创建、扩大或保存任何凭据权限。工作流在 secret 缺失时直接失败并说明
 所需权限，不再回退到没有跨仓库访问权的 GITHUB_TOKEN。
 
 当前 Zygos 仓库禁止 deploy keys（GitHub API 返回 `Deploy keys are disabled for this repository`）。
 不要为此关闭仓库/组织安全策略，也不要复用开发者本机的个人登录 token。维护者需在
-Apeiron Settings → Secrets and variables → Actions 中设置以上专用只读 secret；
+apeiron-cli Settings → Secrets and variables → Actions 中设置以上专用只读 secret；
 完成后重新运行失败的 workflow。
 
 没有该 secret 的 fork PR 无法检出私有子模块，需要有权限的受信任分支执行 CI；

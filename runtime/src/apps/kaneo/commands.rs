@@ -152,7 +152,7 @@ pub fn parser() -> Command {
         .args_override_self(true)
         .about("Manage tasks, projects and workspaces as the current user")
         .after_help("Find resource IDs before operating on tasks:\n  apeiron task workspace list --json\n  apeiron task project list --workspace <ID> --json\n  apeiron task list --project <ID> --json\n  apeiron task project columns <ID> --json\n  apeiron task create --project <ID> --title <TEXT> --status <SLUG> --json")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(env!("APEIRON_VERSION"))
         .propagate_version(true)
         .disable_version_flag(true)
         .arg(

@@ -4,22 +4,33 @@ set -eu
 
 main() {
   version=${APEIRON_VERSION:-}
+  channel=${APEIRON_CHANNEL:-stable}
+  channel_explicit=${APEIRON_CHANNEL:+1}
   install_dir=${APEIRON_INSTALL_DIR:-}
   base=${APEIRON_DOWNLOAD_BASE:-https://downloads.apeironlab.cn/apeiron-cli}
   modify_path=1
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --version|--install-dir)
+      --version|--install-dir|--channel)
         [ "$#" -ge 2 ] || { printf 'Missing value for %s\n' "$1" >&2; return 2; }
-        if [ "$1" = --version ]; then version=$2; else install_dir=$2; fi
+        [ -n "$2" ] || { printf 'Empty value for %s\n' "$1" >&2; return 2; }
+        case "$1" in
+          --version) version=$2 ;;
+          --channel) channel=$2; channel_explicit=1 ;;
+          --install-dir) install_dir=$2 ;;
+        esac
         shift 2 ;;
       --no-modify-path) modify_path=0; shift ;;
       --help)
-        printf '%s\n' 'Usage: sh install.sh [--version VERSION] [--install-dir /absolute/path] [--no-modify-path]'
+        printf '%s\n' 'Usage: sh install.sh [--channel stable|nightly | --version VERSION] [--install-dir /absolute/path] [--no-modify-path]'
         return ;;
       *) printf 'Unknown option: %s\n' "$1" >&2; return 2 ;;
     esac
   done
+  case "$channel" in stable|nightly) ;; *) printf '%s\n' 'Channel must be stable or nightly.' >&2; return 2 ;; esac
+  if [ -n "$version" ] && [ "$channel_explicit" = 1 ]; then
+    printf '%s\n' 'Choose either --version or --channel, not both (including environment variables).' >&2; return 2
+  fi
   case "$base" in https://*) ;; *) printf '%s\n' 'Download base must use HTTPS.' >&2; return 2 ;; esac
   automatic=0
   use_sudo=0
@@ -90,8 +101,20 @@ main() {
       --connect-timeout 15 --max-time 300 --retry 3 --output "$2" "$1"
   }
   if [ -z "$version" ]; then
-    download "${base%/}/latest.txt" "$temporary/latest.txt"
-    version=$(cat "$temporary/latest.txt")
+    if ! download "${base%/}/channels/$channel.txt" "$temporary/channel.txt"; then
+      printf 'Cannot download the %s channel; it may not have a published release yet. Existing installation was not changed.\n' "$channel" >&2
+      return 1
+    fi
+    version=$(cat "$temporary/channel.txt")
+    if ! printf '%s\n' "$version" | LC_ALL=C awk -v channel="$channel" '
+      NR != 1 { exit 1 }
+      { core="(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)";
+        date="[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]";
+        pattern="^" core (channel == "nightly" ? "-nightly\\." date "\\.[1-9][0-9]*" : "") "$";
+        if ($0 ~ pattern) ok=1 }
+      END { if (!ok) exit 1 }'; then
+      printf 'Invalid %s channel version. Existing installation was not changed.\n' "$channel" >&2; return 1
+    fi
   fi
   # Reject traversal, shell fragments and unexpected channel metadata.
   if ! printf '%s\n' "$version" | LC_ALL=C awk 'NR != 1 { exit 1 } /^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9]+([.-][A-Za-z0-9]+)*)?$/ { ok=1 } END { if (!ok) exit 1 }'; then

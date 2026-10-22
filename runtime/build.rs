@@ -1,4 +1,5 @@
 use std::{env, path::PathBuf, process::Command};
+mod build_version;
 fn git(root: &PathBuf, args: &[&str]) -> Option<String> {
     let output = Command::new("git").args(args).current_dir(root).output().ok()?;
     output
@@ -46,7 +47,12 @@ fn main() {
         .output()
         .expect("Cannot identify Rust compiler");
     assert!(compiler.status.success(), "Cannot identify Rust compiler");
-    println!("cargo:rustc-env=APEIRON_VERSION={}", env!("CARGO_PKG_VERSION"));
+    let version = build_version::resolve(
+        env!("CARGO_PKG_VERSION"),
+        env::var("APEIRON_BUILD_VERSION").ok().as_deref(),
+    )
+    .expect("Invalid release build version");
+    println!("cargo:rustc-env=APEIRON_VERSION={version}");
     println!("cargo:rustc-env=APEIRON_SOURCE_REVISION={revision}");
     println!("cargo:rustc-env=APEIRON_SOURCE_CLEAN={clean}");
     println!(
@@ -54,6 +60,10 @@ fn main() {
         String::from_utf8_lossy(&compiler.stdout).trim()
     );
     println!("cargo:rerun-if-env-changed=APEIRON_RELEASE_SOURCE_REVISION");
+    println!("cargo:rerun-if-env-changed=APEIRON_BUILD_VERSION");
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=build_version.rs");
+    println!("cargo:rerun-if-changed=../Cargo.toml");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=../Cargo.lock");
     println!("cargo:rerun-if-changed=../.gitmodules");

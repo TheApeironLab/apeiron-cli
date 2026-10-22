@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { version } from './version';
+import { version, channel, baseVersion } from './version';
 import { sourceSnapshot, assertSourceUnchanged, inspectReleaseArtifact, releaseTargets } from './lib/release-provenance';
 const out = process.argv[2];
 if (!out || !isAbsolute(out))
@@ -26,7 +26,7 @@ for (const name of [...targets.map(target => `apeiron-${version}-${target}.tar.g
 }
 if (files['install.sh'].sha256 !== createHash('sha256').update(await readFile(join(root, 'scripts/install.sh'))).digest('hex'))
     throw new Error('Install script differs from the release source commit');
-const manifest = JSON.stringify({ schemaVersion: 2, version, revision: source.revision, source,
+const manifest = JSON.stringify({ schemaVersion: 2, version, baseVersion, releaseChannel: channel, revision: source.revision, source,
     toolchain: source.channel, targets, builds, files }, null, 2) + '\n';
 assertSourceUnchanged(source, await sourceSnapshot(root));
 await writeFile(join(out, 'release.json'), manifest);

@@ -41,12 +41,23 @@ apeiron init
 
 ```sh
 curl -fsSL https://downloads.apeironlab.cn/apeiron-cli/install.sh -o /tmp/apeiron-install.sh
-sh /tmp/apeiron-install.sh --version 0.1.0-rc.4
+sh /tmp/apeiron-install.sh --version 0.2.0
 ```
 
 安装器自动识别 macOS/Linux、ARM64/x64，下载对应 tar.gz，校验 SHA-256，再验证新二进制能够运行且版本一致，最后替换旧文件。下载或校验失败保留旧安装。显式 `--install-dir /absolute/path` 或 `APEIRON_INSTALL_DIR` 可选择其他目录；自定义目录若不在当前 PATH 中，需自行配置访问方式。`--no-modify-path` 禁止自定义安装补写 shell 配置，`APEIRON_DOWNLOAD_BASE` 可指定具有同样目录结构的 HTTPS 内网镜像。
 
-当前是预览版，`latest.txt` 指向最新通过验证的预览发行版。macOS 文件尚未做 Developer ID 签名和公证；浏览器下载后如被 Gatekeeper 拦截，应在系统设置中核实来源后允许运行，不要求全局关闭 Gatekeeper。
+新版安装器默认读取 `channels/stable.txt`；`--channel nightly` 或 `APEIRON_CHANNEL=nightly` 主动选择开发版。`--version` / `APEIRON_VERSION` 跳过通道发现；与显式通道参数（包括环境变量）同时使用时报错。未知通道、缺少通道或下载失败都会停止，不会回退到另一个通道。
+
+`latest.txt` 是 stable 的兼容入口，不是“最近一次构建”。迁移前线上旧安装器和 `latest.txt` 可能仍指向 `0.1.0-rc.4`；仅合并本次代码不会更新它们。首次 `0.2.0` 正式发布完成后才切换公共安装器与默认入口。首次 stable 前，nightly 不覆盖旧公共安装器，可从不可变版本目录安装：
+
+```sh
+# 将版本替换为已成功发布的 nightly 版本。
+version=0.2.0-nightly.20261022.123
+curl -fsSL "https://downloads.apeironlab.cn/apeiron-cli/releases/$version/install.sh" -o /tmp/apeiron-nightly-install.sh
+sh /tmp/apeiron-nightly-install.sh --version "$version"
+```
+
+macOS 文件尚未做 Developer ID 签名和公证；浏览器下载后如被 Gatekeeper 拦截，应在系统设置中核实来源后允许运行，不要求全局关闭 Gatekeeper。
 
 ## 远程或离线
 
@@ -66,11 +77,31 @@ CLI 二进制不包含平台镜像。离线部署还需要对应目标的完整 
 
 ## 维护者发布
 
-1. 更新根 `Cargo.toml` 的 `workspace.package.version`（唯一版本真源）。Chentu 更新时先发布并验证安装包，再同步更新 `runtime/src/app/resources.rs` 的版本、提交、URL 与 SHA-256。
+### 版本与通道
+
+根 `Cargo.toml` 保存目标基础版本，当前为 `0.2.0`，同步维护 `Cargo.lock` 中宿主 crate 的版本。补丁版本（如 `0.2.1`）保持兼容；`0.x` 期间不兼容变更放到次版本并说明迁移方法。CLI 与部署应用独立编号，CLI 更新不会自动升级已有部署。
+
+- stable：标签 `v0.2.0`，版本必须与 Cargo 基础版本完全一致。
+- nightly：标签 `v0.2.0-nightly.YYYYMMDD.RUN_ID`；日期使用北京时间，流水号使用 GitHub Actions run ID。同一基础版本下 nightly 排在 stable 之前。
+- latest：与 stable 同步的默认别名，不是第三个通道。本轮暂不支持 beta/rc 发布。
+
+JS 发布工具从 Cargo 基础版本及标签解析实际版本，通过 `APEIRON_BUILD_VERSION` 注入 Rust 构建；本地无覆盖参数时使用基础版本。`--version`、`--build-info`、归档、provenance 和发行清单必须一致。nightly 不改写 Cargo 文件，仍要求源码提交与工作树干净。
+
+`Nightly CLI` 工作流每天北京时间 03:00 调度（GitHub 调度可能延迟），也可在 main 手动运行。它读取最近成功发布的 nightly 清单；相同源码提交跳过，失败未发布的提交可重试。基础版本已经进入 stable 时暂停生成该版本的 nightly，维护者在正式发布后将 main 推进到下一目标（例如 `0.3.0`）。
+
+调度器为固定提交创建不可变 nightly 标签，再以该标签 `workflow_dispatch` 触发 `Standalone CLI`。`GITHUB_TOKEN` 创建标签不会自动触发 tag push 工作流，因此必须显式 dispatch；无需额外 PAT，也无需将 OSS 信任范围扩展到 main。手动调度仅允许 main，发布工作流仅允许版本标签进入发布阶段。
+
+### 正式发行步骤
+
+1. 更新根 `Cargo.toml` 的 `workspace.package.version`（基础版本唯一来源）及 `Cargo.lock`。Chentu 更新时先发布并验证安装包，再同步更新 `runtime/src/app/resources.rs` 的版本、提交、URL 与 SHA-256。
 2. 运行 README 中的 Rust、等价性和浏览器验证，提交推送代码。
-3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.1.0-rc.4`、`git push origin v0.1.0-rc.4`。不要求自动合并 PR。
+3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.2.0`、`git push origin v0.2.0`。不要求自动合并 PR。
 4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（musl 静态链接）。四个平台均在对应原生 runner 构建并测试；Linux 额外在 Ubuntu 22.04 容器内验证。另在隔离 Ubuntu 容器内，从非管理员 shell 验证权限不足会失败、sudo 安装后同一 shell 可直接运行、重复更新和文件所有者/权限。
-5. 所有平台必须通过无 Bun 的独立启动、页面、favicon、配置 API 测试。发布 job 将相同产物保存到 OSS 与 GitHub Releases，逐文件下载校验后才更新 `install.sh` 和 `latest.txt`。
+5. 两个通道都必须通过完整检查和四个平台的独立启动、版本/构建信息、页面、favicon、配置 API 测试。发布 job 将相同产物保存到 OSS 与 GitHub Releases，逐文件下载校验后才推进通道。stable 更新 `channels/stable.txt`、公共 `install.sh`、`latest.txt`，nightly 仅更新 `channels/nightly.txt`。nightly 的 GitHub Release 标记为 prerelease，且不会成为 GitHub Latest。
+
+所有标签的 publish job 使用同一个并发组串行执行，并在更新前重新读取通道、按版本数值比较；晚完成的旧版本只能归档，不能倒退指针或公共安装器。三个 stable 入口逐个更新，不能保证跨对象瞬时原子性；中途失败应重跑失败的 publish job，使用已验证的原始 artifacts 修复同版本入口，不能用重新构建的不同字节覆盖旧版本。所有已发布版本先永久保留，不设置自动清理。
+
+独立 `release-contracts` job 不读取私有子模块或云凭据，验证版本、安装与发布行为；完整 Rust/四平台构建仍需 `ZYGOS_READ_TOKEN` 能读取全部固定子模块。凭据缺失或权限不足会阻止两个通道发布，不降低 nightly 的质量门槛。
 
 手动构建当前平台（固定 Rust 工具链 + Bun 1.3.14，仅开发和发行脚本需要 Bun）：
 
@@ -90,6 +121,8 @@ OSS 地址结构：
 ```text
 apeiron-cli/install.sh
 apeiron-cli/latest.txt
+apeiron-cli/channels/stable.txt
+apeiron-cli/channels/nightly.txt
 apeiron-cli/releases/<version>/apeiron-<version>-<os>-<arch>.tar.gz
 apeiron-cli/releases/<version>/SHA256SUMS
 apeiron-cli/releases/<version>/release.json

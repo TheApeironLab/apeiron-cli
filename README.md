@@ -13,6 +13,17 @@ apeiron init
 
 安装器自动选择平台并校验 SHA-256，优先原位更新已能找到的 `apeiron`，否则选择当前 PATH 中的常用 bin 目录。用户目录可直接写入；系统目录不可写时会请求 sudo 授权。安装后当前终端即可直接运行 `apeiron`，无需手动修改 PATH。`apeiron init` 自动打开默认浏览器。重新运行安装命令可升级 CLI，不会重新部署平台或修改配置。独立文件也可从 GitHub Releases（需要仓库权限）或公开 OSS 下载；离线安装和固定版本见 [发布与安装说明](docs/releases.md)。
 
+新版安装器默认选择 `stable`，`latest.txt` 保留为 stable 的兼容入口。主动试用开发版或固定版本：
+
+```sh
+sh install.sh --channel nightly
+sh install.sh --version 0.2.0
+apeiron --version
+apeiron --build-info
+```
+
+其中 `install.sh` 为下载到本地的安装脚本。nightly 按北京时间每日 03:00 检查 `main`，仅在有尚未成功发布的新提交时构建；不改变 stable、latest 或公共安装脚本。通道机制随首次正式发行启用；仓库版本设为 `0.2.0` 不表示线上已经发布。首次 stable 前，可使用某个已发布 nightly 目录内的安装脚本并显式指定版本，见发布文档。
+
 CLI 可运行的平台与 Chentu 安装包支持的部署目标分别校验；当前预览包的全新部署目标为 **K3d ARM64**。Docker 等部署依赖仍需准备。
 
 ### 公网访问（在线单机 K3s）

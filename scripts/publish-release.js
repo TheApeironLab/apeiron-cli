@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { version } from './version';
+import { version, channel, baseVersion } from './version';
+import { mayAdvanceChannel } from './lib/release-version';
 // Publication uses GitHub OIDC credentials scoped to this OSS prefix. Never use root keys in CI.
 const out = process.argv[2];
 const repo = 'TheApeironLab/apeiron-cli';
@@ -19,7 +20,8 @@ async function run(args) {
 }
 const manifest = JSON.parse(await readFile(join(out, 'release.json'), 'utf8'));
 const revision = Bun.spawnSync(['git', 'rev-parse', `${tag}^{commit}`]);
-if (revision.exitCode !== 0 || manifest.version !== version || revision.stdout.toString().trim() !== manifest.revision)
+if (revision.exitCode !== 0 || manifest.version !== version || manifest.baseVersion !== baseVersion
+    || manifest.releaseChannel !== channel || revision.stdout.toString().trim() !== manifest.revision)
     throw new Error('Release source/tag mismatch');
 const required = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'].map(t => `apeiron-${version}-${t}.tar.gz`);
 const names = [...required, 'install.sh', 'release.json', 'SHA256SUMS'];
@@ -62,7 +64,7 @@ for (const name of names)
 const existing = Bun.spawnSync(['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft'], { stdout: 'pipe', stderr: 'pipe' });
 if (existing.exitCode !== 0) {
     const notes = join(out, 'release-notes.md');
-    await writeFile(notes, `Standalone macOS/Linux binaries for ARM64 and x64. No Bun or Node.js is required for apeiron init.\n\nInstall from the public OSS mirror:\n\n\`\`\`sh\ncurl -fsSL ${base}/install.sh | sh\napeiron init\n\`\`\`\n\nPreview: the bundled Chentu catalog currently supports local K3d ARM64. CLI binaries for other platforms can run the wizard but need a matching deployment bundle. GPUStack is not included in this catalog. macOS binaries are not Developer ID notarized.\n\nChecksums: SHA256SUMS. The GitHub source repository and releases remain private; OSS assets are public.\n`);
+    await writeFile(notes, `Apeiron CLI ${version} (${channel}). Standalone macOS/Linux binaries for ARM64 and x64. No Bun or Node.js is required for apeiron init.\n\nInstall this exact version from the public OSS mirror:\n\n\`\`\`sh\ncurl -fsSL ${base}/releases/${version}/install.sh | sh -s -- --version ${version}\napeiron init\n\`\`\`\n\nCLI platform support does not imply a matching deployment bundle exists for every platform. macOS binaries are not Developer ID notarized.\n\nChecksums: SHA256SUMS. The GitHub source repository and releases remain private; OSS assets are public.\n`);
     await run(['gh', 'release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', `Apeiron CLI ${version}`, '--notes-file', notes]);
 }
 // Re-runs can finish a draft/upload interrupted by network failure. Existing assets must match.
@@ -85,9 +87,23 @@ for (const name of names) {
     else
         await run(['gh', 'release', 'upload', tag, join(out, name), '--repo', repo]);
 }
-await run(['gh', 'release', 'edit', tag, '--repo', repo, '--draft=false', `--prerelease=${version.includes('-')}`]);
-// Advance the mutable entry points only after every immutable download is verified.
-await upload('install.sh', 'install.sh', false);
-await writeFile(join(out, 'latest.txt'), `${version}\n`);
-await upload('latest.txt', 'latest.txt', false);
-console.log(`Published ${tag}: ${base}/install.sh`);
+// The workflow serializes ALL publishers, including different tags. Re-read the
+// channel while holding that job-level lock so a late old build cannot move it back.
+const pointer = await publicBytes(`${base}/channels/${channel}.txt`);
+const current = pointer === null ? null : new TextDecoder().decode(pointer).trim();
+const advance = mayAdvanceChannel(version, current, channel);
+await run(['gh', 'release', 'edit', tag, '--repo', repo, '--draft=false',
+    `--prerelease=${channel === 'nightly'}`, `--latest=${channel === 'stable' && advance}`]);
+if (advance) {
+    // All immutable objects are verified first. A same-version retry also repairs
+    // an interrupted stable/install/latest update; nightly never touches those aliases.
+    await writeFile(join(out, 'channel.txt'), `${version}\n`);
+    await upload('channel.txt', `channels/${channel}.txt`, false);
+    if (channel === 'stable') {
+        await upload('install.sh', 'install.sh', false);
+        await upload('channel.txt', 'latest.txt', false);
+    }
+} else {
+    console.log(`Kept newer ${channel} pointer ${current}`);
+}
+console.log(`Published ${tag} (${channel}): ${base}/releases/${version}/`);
