@@ -62,6 +62,8 @@ jobs:
           bunx playwright install --with-deps chromium
           bun scripts/test-ui.js "$PWD/target/debug/apeiron"
           bun scripts/test-deployment-stages.js
+          bun scripts/test-instances-ui.js "$PWD/target/debug/apeiron"
+          bun scripts/test-base-models-ui.js
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/')
         run: bun -e 'import {version} from "./scripts/version.js"; if (process.env.GITHUB_REF !== "refs/tags/v" + version) process.exit(1)'

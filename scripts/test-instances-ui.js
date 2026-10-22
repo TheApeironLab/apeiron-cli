@@ -39,9 +39,9 @@ try {
     const post = (route, body) => fetch(url + 'api/' + route, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify(body) });
     // Save a K3d configuration so the packaged path registers as "default" with its ports.
     const defaults = (await fetch(url + 'api/config').then(r => r.json())).defaults;
-    const saved = await post('config', { slug: 'default', apps: ['nexus', 'vasi', 'ontology', 'apeiron'], revision: null,
+    const saved = await post('config', { slug: 'default', apps: ['nexus', 'vasi', 'ontology', 'apeiron', 'gateway'], revision: null,
         deployment: { ...defaults, offline: false, bundleDir: '', installation: { topology: 'single-k3d', domain: 'default.apeironlab.internal', entryIp: '127.0.0.1', httpPort: 54320, httpsPort: 54321, ha: false, sshUser: '', sshKey: '', sshPort: 22, nodes: [] } } });
-    assert.equal(saved.status, 200);
+    assert.equal(saved.status, 200, await saved.text());
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1280, height: 920 } });
     const errors = [];
@@ -104,12 +104,40 @@ try {
     assert.equal(await page.locator('.instance-card[data-current=true] strong').first().innerText(), 'lab');
     const defaultCard = page.locator('.instance-card').filter({ hasText: 'default' });
     await defaultCard.getByRole('button', { name: '卸载', exact: true }).click();
-    await page.getByRole('button', { name: '确认卸载', exact: true }).waitFor();
-    await page.getByRole('button', { name: '取消', exact: true }).click();
+    const confirmation = page.getByRole('dialog', { name: '卸载实例？', exact: true });
+    await confirmation.waitFor();
+    assert.equal(await confirmation.evaluate(dialog => dialog.matches(':modal')), true, 'Confirmation blocks the background');
+    assert.match(await confirmation.innerText(), /将卸载实例 default/);
+    assert.equal(await page.locator('#instance-cancel-delete').evaluate(button => button === document.activeElement), true);
+    const assertCentered = async () => {
+        const box = await confirmation.boundingBox();
+        const viewport = page.viewportSize();
+        assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height, 'Confirmation fits the viewport');
+        assert.ok(Math.abs(box.y + box.height / 2 - viewport.height / 2) < 2, 'Confirmation stays centered regardless of list height');
+    };
+    await assertCentered();
+    await page.screenshot({ path: join(dir, 'uninstall-dialog.png') });
+    await page.keyboard.press('Escape');
+    await confirmation.waitFor({ state: 'hidden' });
+    assert.equal(await defaultCard.getByRole('button', { name: '卸载', exact: true }).evaluate(button => button === document.activeElement), true, 'Closing restores focus');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await defaultCard.getByRole('button', { name: '卸载', exact: true }).click();
+    await assertCentered();
+    await page.screenshot({ path: join(dir, 'mobile-uninstall-dialog.png') });
+    await confirmation.getByRole('button', { name: '取消', exact: true }).click();
+    await confirmation.waitFor({ state: 'hidden' });
+    await page.setViewportSize({ width: 1280, height: 920 });
     assert.equal(await page.locator('.instance-card').count(), 2, 'Cancel keeps the instance');
     assert.equal(await Bun.file(join(dir, 'k3d.log')).exists(), false);
     await defaultCard.getByRole('button', { name: '卸载', exact: true }).click();
-    await page.getByRole('button', { name: '确认卸载', exact: true }).click();
+    // Failure stays visible in the modal, and retry still targets the same instance.
+    await page.route('**/api/instances/delete', route => route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: '实例暂时无法卸载，请重试。' }) }), { times: 1 });
+    await confirmation.getByRole('button', { name: '确认卸载', exact: true }).click();
+    await confirmation.getByText('实例暂时无法卸载，请重试。', { exact: true }).waitFor();
+    assert.equal(await confirmation.isVisible(), true);
+    assert.equal(await Bun.file(join(dir, 'k3d.log')).exists(), false);
+    await confirmation.getByRole('button', { name: '确认卸载', exact: true }).click();
+    await confirmation.waitFor({ state: 'hidden' });
     await page.getByText(/已卸载 default，并删除其 K3d 集群/).waitFor();
     assert.equal(await page.locator('.instance-card').count(), 1);
     const k3dCalls = (await readFile(join(dir, 'k3d.log'), 'utf8')).trim().split('\n');
