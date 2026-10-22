@@ -87,8 +87,13 @@ ARM64/AMD64 材料闭包，以及 CLI 构建工具与最终 CLI 的来源分离�
 每个 runner 设置 `APEIRON_RELEASE_DISPOSABLE=true` 和 `APEIRON_ACCEPTANCE_CONFIG=/绝对路径/配置.json`。
 该配置是向导配置请求正文，包含 apps、models、slug、deployment 等；不包含 revision。
 必须选择 Apeiron、完整依赖、目标 topology 和全新站点域名，`deployment.offline=false`；
-不允许覆盖 deployment.root/environment 绕开编译进 CLI 的包。
+不允许覆盖 deployment.root/environment/bundleDir 绕开编译进 CLI 的包。
+使用本地候选包的开发验收须单独记录，不能作为公共下载入口的发行验收凭据。
 模型密钥、SSH 私钥、节点 inventory 留在受限 runner 文件中，不入 Git、公开发行文件或 Actions artifacts。
+
+SSO 配置重启 K3s 后，验收等待 backend/app/ops 恢复就绪，再核对运行镜像摘要。
+scode 工作空间按需启动，因此验收使用配置中的镜像创建临时 Pod，检查 Ready、镜像摘要与可执行文件版本，
+随后删除；不调用模型，也不将此检查称为对话或工作空间业务链路验收。
 
 安装器会修改专用测试机/测试集群。只对已明确用于验收、可重建的机器配置这些变量。
 环境管理员负责销毁/重建集群和恢复空白节点；工作流不自动卸载已有集群。

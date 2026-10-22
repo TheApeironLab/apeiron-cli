@@ -20,7 +20,8 @@ const distribution = validateDistribution(JSON.parse(inputBytes), release);
 const profile = await json(process.env.APEIRON_ACCEPTANCE_CONFIG);
 const installation = profile.deployment?.installation;
 if (installation?.topology !== target.topology || !profile.apps?.includes('apeiron')
-    || profile.deployment.offline !== false || profile.deployment.root || profile.deployment.environment)
+    || profile.deployment.offline !== false || profile.deployment.root || profile.deployment.environment
+    || profile.deployment.bundleDir)
   throw new Error('Acceptance must install Apeiron from the compiled public pins on the selected topology');
 if (target.servers === 3 && (installation.ha !== true || installation.nodes?.length !== 3
     || installation.nodes.some(n => n.role !== 'server')))
@@ -95,7 +96,7 @@ try {
   const t = record.target;
   const command = t.runner === 'native'
     ? [t.kubectlPath, '--kubeconfig', t.kubeconfig]
-    : ['docker', 'run', '--rm', '--pull=never', '--network', record.environment.LAB_NETWORK || `k3d-${record.environment.LAB_CLUSTER}`,
+    : ['docker', 'run', '--rm', '-i', '--pull=never', '--network', record.environment.LAB_NETWORK || `k3d-${record.environment.LAB_CLUSTER}`,
       '--entrypoint', 'kubectl', '-v', `${t.workDir}/state/kubeconfig:/kubeconfig:ro`, t.image, '--kubeconfig', '/kubeconfig'];
   const nodes = JSON.parse(await run([...command, 'get', 'nodes', '-o', 'json'])).items;
   const servers = nodes.filter(n => Object.hasOwn(n.metadata.labels, 'node-role.kubernetes.io/control-plane')).length;
@@ -105,11 +106,35 @@ try {
   if (nodes.some(n => n.status.nodeInfo?.architecture !== architecture
       || (target.topology !== 'single-k3d' && !n.status.nodeInfo?.osImage?.startsWith('Ubuntu 22.04'))))
     throw new Error('Cluster node architecture/OS mismatch');
-  const pods = JSON.parse(await run([...command, 'get', 'pods', '-n', 'apeiron', '-o', 'json'])).items;
-  for (const component of ['backend', 'app', 'ops', 'scode']) {
-    const expected = distribution.apeiron.images[component][architecture].split('@')[1];
-    if (!pods.some(p => p.status.containerStatuses?.some(c => c.ready === true && c.imageID?.endsWith('@' + expected))))
-      throw new Error(`Running ${component} image does not match the distribution digest`);
+  // SSO configuration restarts K3s. Wait for applications to recover before
+  // measuring their running image identities.
+  for (const name of ['backend', 'app', 'ops'])
+    await run([...command, 'rollout', 'status', '-n', 'apeiron', `deployment/apeiron-${name}`, '--timeout=600s']);
+  // scode workspaces are created on demand. Exercise the configured image in
+  // a disposable Pod without making a model request or creating user data.
+  const maps = JSON.parse(await run([...command, 'get', 'configmaps', '-n', 'apeiron', '-o', 'json'])).items;
+  const images = maps.map(c => c.data?.APEIRON_K8S_IMAGE).filter(Boolean);
+  const scodeDigest = distribution.apeiron.images.scode[architecture].split('@')[1];
+  if (images.length !== 1 || !images[0].endsWith('@' + scodeDigest))
+    throw new Error('Configured scode image does not match the distribution digest');
+  const probeName = `apeiron-release-probe-${process.env.GITHUB_RUN_ID}`;
+  const probe = { apiVersion: 'v1', kind: 'Pod', metadata: { name: probeName, namespace: 'apeiron' },
+    spec: { restartPolicy: 'Never', terminationGracePeriodSeconds: 5, imagePullSecrets: [{ name: 'registry-pull' }],
+      containers: [{ name: 'scode', image: images[0], command: ['sh', '-c', '/usr/local/bin/apeiron --version && exec sleep 300'],
+        resources: { requests: { cpu: '50m', memory: '64Mi' }, limits: { cpu: '500m', memory: '256Mi' } } }] } };
+  await run([...command, 'create', '-f', '-'], JSON.stringify(probe));
+  try {
+    await run([...command, 'wait', '-n', 'apeiron', `pod/${probeName}`, '--for=condition=Ready', '--timeout=180s']);
+    if (!(await run([...command, 'logs', '-n', 'apeiron', probeName])).includes(release.version))
+      throw new Error('Running scode executable version does not match the release');
+    const pods = JSON.parse(await run([...command, 'get', 'pods', '-n', 'apeiron', '-o', 'json'])).items;
+    for (const component of ['backend', 'app', 'ops', 'scode']) {
+      const expected = distribution.apeiron.images[component][architecture].split('@')[1];
+      if (!pods.some(p => p.status.containerStatuses?.some(c => c.ready === true && c.imageID?.endsWith('@' + expected))))
+        throw new Error(`Running ${component} image does not match the distribution digest`);
+    }
+  } finally {
+    await run([...command, 'delete', 'pod', '-n', 'apeiron', probeName, '--wait=true', '--timeout=60s']);
   }
   const credentials = await api('credentials', {});
   if (!credentials.username || !credentials.password) throw new Error('Durable operator credentials missing');
