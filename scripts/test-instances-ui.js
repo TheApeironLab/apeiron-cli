@@ -85,17 +85,18 @@ try {
     await page.getByRole('heading', { name: '选择拓扑', exact: true }).waitFor();
     assert.match(await page.locator('#instance-chip').innerText(), /^lab · [a-f0-9]{12}$/);
     assert.equal(await page.getByRole('radio', { name: /单机 K3d/ }).isChecked(), true);
-    assert.equal(await page.locator('#http-port').inputValue(), '54322', 'Ports after the adopted default instance');
-    assert.equal(await page.locator('#https-port').inputValue(), '54323');
+    const labHttpPort = Number(await page.locator('#http-port').inputValue());
+    assert.ok(labHttpPort >= 54322, 'Allocate available ports after the adopted default instance');
+    assert.equal(await page.locator('#https-port').inputValue(), String(labHttpPort + 1));
     assert.equal(await page.locator('#http-port').getAttribute('readonly'), '');
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '共存配置与资源预算', exact: true }).waitFor();
     assert.match(await page.locator('#coexist-instance').innerText(), /^lab · /);
     assert.match(await page.locator('#coexist-config').innerText(), /instances\/lab\/config\.json$/);
-    assert.match(await page.locator('#coexist-ports').innerText(), /HTTP 54322 \/ HTTPS 54323/);
+    assert.match(await page.locator('#coexist-ports').innerText(), new RegExp(`HTTP ${labHttpPort} / HTTPS ${labHttpPort + 1}`));
     const registry = JSON.parse(await readFile(join(home, '.apeiron/instances.json'), 'utf8'));
-    assert.deepEqual(registry.instances.map(i => [i.name, i.httpPort]), [['default', 54320], ['lab', 54322]]);
+    assert.deepEqual(registry.instances.map(i => [i.name, i.httpPort]), [['default', 54320], ['lab', labHttpPort]]);
     // Back to the list: default is no longer current, so its stopped cluster can be uninstalled.
     await page.getByRole('button', { name: '返回首页', exact: true }).click();
     await page.getByRole('button', { name: '查看实例列表', exact: true }).click();
