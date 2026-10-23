@@ -133,6 +133,21 @@ jobs:
     steps:
       - name: Reserve space for the offline material closure on this hosted runner
         run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+      - name: Preserve the frozen ARM toolbox OCI index identity
+        if: matrix.profile == 'k3d-arm64'
+        # The reviewed toolbox was exported from the containerd image store.
+        # Classic Docker stores only its config ID, not the pinned OCI index ID.
+        run: |
+          sudo python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('/etc/docker/daemon.json')
+          config = json.loads(path.read_text()) if path.exists() else {}
+          config.setdefault('features', {})['containerd-snapshotter'] = True
+          path.write_text(json.dumps(config) + '\n')
+          PY
+          sudo systemctl restart docker
+          docker info --format '{{json .DriverStatus}}' | python3 -c 'import json, sys; assert ["driver-type", "io.containerd.snapshotter.v1"] in json.load(sys.stdin), "containerd image store is required for the pinned toolbox"'
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
