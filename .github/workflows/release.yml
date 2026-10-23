@@ -64,8 +64,29 @@ jobs:
           rustc --edition=2021 --test runtime/build_version.rs -o "$RUNNER_TEMP/build-version-tests"
           "$RUNNER_TEMP/build-version-tests"
 
+  registry-tooling:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install the same registry exporter as material preparation
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+      - name: Export a small pinned public image and verify its real OCI graph
+        run: |
+          python3 - <<'PY'
+          import importlib.util,os,pathlib,subprocess
+          spec=importlib.util.spec_from_file_location('exporter','scripts/export-platform-image.py')
+          exporter=importlib.util.module_from_spec(spec);spec.loader.exec_module(exporter)
+          digest='sha256:e9622b01071c38e4fe1ca9822a3841feab630ae13ff5ad7f540f73771e56ae86'
+          archive=pathlib.Path(os.environ['RUNNER_TEMP'])/'pause.oci.tar'
+          subprocess.run(['skopeo','copy','--all','--preserve-digests','docker://docker.io/gpustack/runtime@'+digest,'oci-archive:'+str(archive)],check=True)
+          print('Verified registry export platforms:',exporter.verify_archive(archive,digest))
+          PY
+
   checks:
-    needs: release-contracts
+    needs: [release-contracts, registry-tooling]
     if: github.event_name != 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || inputs.candidate_version != ''
     runs-on: ubuntu-22.04
     steps:
