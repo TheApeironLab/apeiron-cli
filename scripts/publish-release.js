@@ -4,6 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { version, channel, baseVersion } from './version';
 import { mayAdvanceChannel } from './lib/release-version';
 import { validateDistribution, validateAcceptanceSet } from './lib/distribution.js';
+import { acceptanceScope } from './lib/acceptance-scope.js';
 // Publication uses GitHub OIDC credentials scoped to this OSS prefix. Never use root keys in CI.
 const out = process.argv[2];
 const repo = 'TheApeironLab/apeiron-cli';
@@ -72,7 +73,11 @@ for (const name of names)
 const existing = Bun.spawnSync(['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft'], { stdout: 'pipe', stderr: 'pipe' });
 if (existing.exitCode !== 0) {
     const notes = join(out, 'release-notes.md');
-    await writeFile(notes, `Apeiron CLI ${version} (${channel}). Standalone macOS/Linux binaries for ARM64 and x64. No Bun or Node.js is required for apeiron init.\n\nInstall this exact version from the public OSS mirror:\n\n\`\`\`sh\ncurl -fsSL ${base}/releases/${version}/install.sh | sh -s -- --version ${version}\napeiron init\n\`\`\`\n\nCLI platform support does not imply a matching deployment bundle exists for every platform. macOS binaries are not Developer ID notarized.\n\nChecksums: SHA256SUMS. The GitHub source repository and releases remain private; OSS assets are public.\n`);
+    const scope = acceptanceScope(version);
+    const coverage = `Installation acceptance covers ${scope.applications.length} applications on all four declared deployment targets. `
+      + (scope.deferredApplications.length ? `Deferred acceptance: ${scope.deferredApplications.join(', ')} remains packaged but is not part of this nightly's release acceptance. ` : '')
+      + 'This does not certify every application business journey, GPU inference, failover or disconnected installation. See distribution.json for the bound acceptance receipts.';
+    await writeFile(notes, `Apeiron CLI ${version} (${channel}). Standalone macOS/Linux binaries for ARM64 and x64. No Bun or Node.js is required for apeiron init.\n\n${coverage}\n\nInstall this exact version from the public OSS mirror:\n\n\`\`\`sh\ncurl -fsSL ${base}/releases/${version}/install.sh | sh -s -- --version ${version}\napeiron init\n\`\`\`\n\nCLI platform support does not imply a matching deployment bundle exists for every platform. macOS binaries are not Developer ID notarized.\n\nChecksums: SHA256SUMS. The GitHub source repository and releases remain private; OSS assets are public.\n`);
     await run(['gh', 'release', 'create', tag, '--repo', repo, '--verify-tag', '--draft', '--title', `Apeiron CLI ${version}`, '--notes-file', notes]);
 }
 // Re-runs can finish a draft/upload interrupted by network failure. Existing assets must match.

@@ -14,7 +14,7 @@ const receipts = await Promise.all(Object.keys(acceptanceTargets).map(async targ
   JSON.parse(await readFile(join(receiptsPath, `${target}.json`), 'utf8'))));
 validateAcceptanceSet(receipts, release, hash(inputBytes), process.env.GITHUB_RUN_ID);
 const keys = ['schemaVersion', 'version', 'revision', 'target', 'distributionSha256', 'archiveSha256', 'runId',
-  'os', 'arch', 'topology', 'osRelease', 'servers', 'agents'];
+  'os', 'arch', 'topology', 'osRelease', 'servers', 'agents', 'applications', 'deferredApplications'];
 const distribution = { ...publicDistribution(input), cli: { revision: release.revision, files: release.files },
   inputSha256: hash(inputBytes), acceptance: receipts.map(r => ({ ...Object.fromEntries(keys.map(k => [k, r[k]])),
     checks: Object.fromEntries(acceptanceChecks.map(k => [k, r.checks[k]])) })) };
