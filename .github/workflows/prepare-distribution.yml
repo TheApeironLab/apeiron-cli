@@ -267,6 +267,9 @@ jobs:
         with:
           name: deployment-${{ matrix.profile }}
           path: ${{ runner.temp }}/handoff
+          # This directory contains only the verified profile handoff. Its
+          # checksummed source includes plugin dot-directories and .gitkeep.
+          include-hidden-files: true
           compression-level: 0
           retention-days: 14
       - name: Remove the conversion registry and signing home

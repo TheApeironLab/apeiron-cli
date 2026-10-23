@@ -34,6 +34,8 @@ class DistributionPackage(unittest.TestCase):
             manifest = {'release': '0.2.1', 'profiles': {profile: {'architecture': arch}}, 'sources': source,
                         'artifacts': [{'kind': 'image', 'image': {'sourceReference': f'apeiron/{name}:0.2.1', 'targetDigest': 'sha256:' + 'e' * 64}} for name in ('backend', 'app', 'ops', 'scode')]}
             self.put(directory, 'chentu/driver.sh', runtime)
+            plugin = b'{"name":"fixture-plugin"}\n'
+            self.put(directory, 'chentu/.claude-plugin/plugin.json', plugin)
             self.put(directory, 'setup/release-manifest.json', json.dumps(manifest).encode())
             self.put(directory, 'resource.bin', b'platform bytes')
             components = {name: {'files': ['resource.bin'], 'requires': []}
@@ -43,7 +45,8 @@ class DistributionPackage(unittest.TestCase):
             self.put(directory, 'chentu/setup/install.json', json.dumps(catalog).encode())
             metadata = {'schemaVersion': 1, 'kind': 'chentu-deployment', 'version': '0.2.1', 'revision': 'c' * 40,
                         'sourceTree': 'f' * 40, 'sourceNormalization': {}, 'runtimePayload': {}, 'entrypoints': {},
-                        'sourceOverlay': {}, 'files': {'driver.sh': hashlib.sha256(runtime).hexdigest()}}
+                        'sourceOverlay': {}, 'files': {'driver.sh': hashlib.sha256(runtime).hexdigest(),
+                            '.claude-plugin/plugin.json': hashlib.sha256(plugin).hexdigest()}}
             self.put(directory, 'chentu/chentu-package.json', json.dumps(metadata).encode())
             self.sums(directory)
 
@@ -68,6 +71,8 @@ class DistributionPackage(unittest.TestCase):
             for value in catalog['catalogs'].values():
                 self.assertEqual(value['files'][0]['url'], package.PUBLIC + 'apeiron/blobs/sha256/' + value['files'][0]['sha256'])
             self.assertTrue(all(m.isfile() for m in archive.getmembers()))
+            self.assertEqual(archive.extractfile('chentu-0.2.1/.claude-plugin/plugin.json').read(),
+                             b'{"name":"fixture-plugin"}\n')
         with self.assertRaises(FileExistsError):
             package.combine(self.outputs, self.candidate, self.root / 'one')
 
@@ -188,6 +193,15 @@ class DistributionPackage(unittest.TestCase):
         marker.write_text(json.dumps(value))
         with self.assertRaisesRegex(ValueError, 'ordinary file'):
             package.combine(outputs, self.candidate, self.root / 'missing')
+
+    def test_handoff_cannot_drop_checksummed_hidden_source_files(self):
+        outputs = self.handoffs()
+        hidden = outputs['k3d-arm64'] / 'chentu/.claude-plugin/plugin.json'
+        self.assertEqual(hidden.read_bytes(), b'{"name":"fixture-plugin"}\n')
+        hidden.unlink()
+        with self.assertRaisesRegex(ValueError, 'ordinary file'):
+            package.combine(outputs, self.candidate, self.root / 'missing-hidden')
+        self.assertFalse((self.root / 'missing-hidden').exists())
 
 
 if __name__ == '__main__':
