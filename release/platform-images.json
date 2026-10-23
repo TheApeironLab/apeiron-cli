@@ -32,7 +32,16 @@
     }
   },
   "registryImages": {
-    "sftpgo": "ghcr.io/theapeironlab/sftpgo:2.7.6-chentu-pkce.3-multi-dev@sha256:06dbfec98afea4c97c5bdb7c963d86d00951a5d06a44c0fa2a990370c814cd85",
     "gpustack": "ghcr.io/theapeironlab/gpustack:v2.2.3-chentu-pkce.1@sha256:c838ac49a031ef795fc32596c4fcdc37d9514d154fa8a13bc3f249921375a07b"
+  },
+  "sourceBuilds": {
+    "sftpgo": {
+      "repository": "TheApeironLab/sftpgo",
+      "revision": "ddf558d2b2582b78ca79716820531f8e25b262b5",
+      "recipe": "Dockerfile.chentu",
+      "recipeSha256": "7f85a83fd602fb99ed7fc673289ff9db328ba32cce3d731b45fe183bf8587540",
+      "goVersion": "1.26.0",
+      "buildTags": "nogcs,noazblob,nosqlite"
+    }
   }
 }
