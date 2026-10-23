@@ -38,12 +38,14 @@ CLI 仓库固定交付组合、构建四平台二进制、执行安装验收并�
 
 ## 基础材料与来源
 
-`freeze-platform.py` 将经过验证的基础材料转换为按内容寻址的 seed。它不携带 Apeiron 应用镜像、
-接收端、System Skills、Chentu 源码或旧 sandbox 签名；这些由准备工作流从固定来源重新生成。
+`freeze-platform.py` 将经过验证的基础材料转换为按内容寻址的 seed（schemaVersion 2）：
+资源字节、静态回执、目标字段与发行方 values，不含清单。它不携带 Apeiron 应用镜像、接收端、
+System Skills、Chentu 源码或 sandbox；准备工作流用 Chentu `install_catalog.build` 从 seed 回执、
+本次构建回执与 Helmfile inventory 直接生成 `install.json`，不读取或替换旧清单。
 修改 seed 必须重新核对材料闭包、上传不可变内容并通过配方 PR 更新摘要。
 
 公开包的应用范围由 `runtime/assets/apps.json` 决定，`applicationScope: wizard` 包含全部
-可选应用及其依赖。准备入口先检查 seed 中的组件与资源；构建 profile 和组合归档时再检查一次。
+可选应用及其依赖。准备入口检查生成的清单；构建 profile 和组合归档时再检查一次。
 `requiredComponents` 只列基础根组件，不能用它缩减向导承诺的应用范围。ARM64 profile 出包后使用
 真实 Rust 规划器、Helmfile 和 check.py 验证逐个可选应用及全部应用组合，保留基础、Task、Langfuse、
 Grafana 的原有断言。检查容器没有网络，不把渲染成功视为运行验收通过。
@@ -67,11 +69,11 @@ SFTPGo 的旧多架构 pin 只在本地构建过，GHCR 没有对应对象。`Pr
 
 GPUStack 沿用 Chentu 的独立 GPU 主机契约：向导收集 GPU 主机 IP 和服务端口，部署集群中的
 Service/Endpoints/Ingress。GPU 驱动、主机服务、推理运行环境和模型权重由 GPU 主机单独准备；
-冻结平台材料时移除该组件的镜像，发布校验拒绝重新夹带这些 GPU 主机归档。配置与镜像检查、
+冻结与发布校验都拒绝 GPU 主机归档，不做事后剔除。配置与镜像检查、
 实际入口/SSO 验收、模型推理验收分别记录，CPU 安装测试不能代替 GPU 推理测试。
 
-`imagePins` 是组件镜像回执的派生映射。冻结材料和重建应用镜像后重新生成该映射，
-平台清单预检拒绝旧摘要、旧别名或已移除镜像的残留；部署 values 仍须通过 Chentu 原生镜像校验。
+`imagePins` 是组件镜像回执的派生映射，随清单一起生成，
+发布校验拒绝与回执不一致的映射；部署 values 仍须通过 Chentu 原生镜像校验。
 多架构镜像保留完整 index digest 和各架构构建记录，同时明确当前平台的 `recipe` 与 `platform`。
 下载材料前逐镜像运行 Chentu 原生构建记录校验，缺失或冲突的记录会报告具体镜像并终止构建。
 

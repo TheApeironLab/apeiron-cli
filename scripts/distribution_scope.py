@@ -20,16 +20,6 @@ def catalog_image_pins(components, registry):
     return pins
 
 
-def refresh_catalog_image_pins(catalog):
-    """Refresh only the derived map; deployment values must still pass Chentu validation."""
-    result = copy.deepcopy(catalog)
-    for target in result['targets'].values():
-        environment = target['environment']
-        environment['imagePins'] = catalog_image_pins(
-            result['components'], environment.get('registry', '__REGISTRY__'))
-    return result
-
-
 def platform_build_provenance(catalog, architecture):
     """Expose the selected platform recipe while retaining complete index evidence."""
     result = copy.deepcopy(catalog)
@@ -51,23 +41,6 @@ def platform_build_provenance(catalog, architecture):
                     raise ValueError('conflicting platform build provenance: ' + name)
                 provenance[name] = copy.deepcopy(value)
     return result
-
-
-def external_service_catalog(catalog):
-    """Keep the existing GPUStack service integration without GPU host images."""
-    result = copy.deepcopy(catalog)
-    component = result['components'].get('gpustack')
-    if component is None:
-        return refresh_catalog_image_pins(result)
-    removed = {image['file'] for image in component.get('images', [])}
-    removed.update(path for path in component['files'] if path.startswith(GPU_HOST_ARCHIVE_PREFIXES))
-    for name, other in result['components'].items():
-        if name != 'gpustack' and removed.intersection(other['files']):
-            raise ValueError('GPU host image unexpectedly shared with component: ' + name)
-    component['images'] = []
-    component['files'] = [path for path in component['files'] if path not in removed]
-    result['files'] = [item for item in result['files'] if item['path'] not in removed]
-    return refresh_catalog_image_pins(result)
 
 
 def application_releases():

@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tarfile
 import urllib.request
-from distribution_scope import required_components, validate_catalog, refresh_catalog_image_pins
+from distribution_scope import required_components, validate_catalog
 
 HERE = Path(__file__).resolve().parent
 
@@ -51,18 +51,6 @@ def download(record, output):
     output.chmod(mode)
 
 
-def replace(value, mapping):
-    if isinstance(value, str):
-        for old, new in mapping.items():
-            value = value.replace(old, new)
-        return value
-    if isinstance(value, list):
-        return [replace(item, mapping) for item in value]
-    if isinstance(value, dict):
-        return {replace(k, mapping): replace(v, mapping) for k, v in value.items()}
-    return value
-
-
 def archive_layout(layout, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(output, 'x') as archive:
@@ -77,10 +65,12 @@ def archive_layout(layout, output):
                 archive.addfile(info, stream)
 
 
-def render_values(environment, arch, scope):
-    values = {name: item.get('values', {}) for name, item in environment['releases'].items() if item.get('values')}
-    values = replace(values, {'__REGISTRY__': '${REGISTRY}', '__BUNDLE__': '${BUNDLE_DIR}',
-                              '__DOMAIN__': 'example.internal', '__ARCH__': arch})
+def render_values(values, arch, scope):
+    text = json.dumps(values)
+    for old, new in {'__REGISTRY__': '${REGISTRY}', '__BUNDLE__': '${BUNDLE_DIR}',
+                     '__DOMAIN__': 'example.internal', '__ARCH__': arch}.items():
+        text = text.replace(old, new)
+    values = {name: item for name, item in json.loads(text).items() if item}
     if 'gpustack' in scope:
         # Helmfile needs an external endpoint to render GPUStack's Service.
         # This documentation address belongs only to the temporary render input;
@@ -98,10 +88,10 @@ def prepare(args):
         raise ValueError('Chentu must be clean at the candidate commit')
     sys.path.insert(0, str(root / 'cli/src'))
     from chentu.release_version import validate_version
-    from chentu.local_computer import validate_material, paths
-    from chentu.image_pins import validate_catalog_image_values
+    from chentu.local_computer import validate_material
     validate_version(version)
     assembler = load('release_assemble', root / 'bundle/assemble.py')
+    install_catalog = load('release_install_catalog', root / 'bundle/install_catalog.py')
     hosted = load('release_hosted', root / 'bundle/hosted_release.py')
     native_images = load('release_native_images', root / 'bundle/native_images.py')
     recipe = json.loads(args.lock.read_text())
@@ -109,17 +99,9 @@ def prepare(args):
     seed_path = args.out / 'seed.json'
     download(recipe['platforms'][args.profile], seed_path)
     seed = json.loads(seed_path.read_text())
-    if seed['kind'] != 'apeiron-platform-material' or seed['profile'] != args.profile:
+    if seed['schemaVersion'] != 2 or seed['kind'] != 'apeiron-platform-material' or seed['profile'] != args.profile:
         raise ValueError('wrong platform seed')
     scope = required_components(recipe)
-    validate_catalog(seed['catalog'], scope)
-    validate_catalog_image_values(seed['catalog']['targets'][args.profile]['environment'], seed['catalog']['components'])
-    for component in seed['catalog']['components'].values():
-        for image in component.get('images', []):
-            try:
-                hosted.image_build_provenance(image, files.PROFILES[args.profile])
-            except (TypeError, ValueError) as error:
-                raise ValueError('Invalid platform image provenance: ' + image['reference']) from error
     material = args.out / 'material'
     material.mkdir()
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -129,8 +111,8 @@ def prepare(args):
     # Regenerate source-derived operator files from the reviewed Chentu commit.
     # Downloaded materials never supply deployment source or source overlays.
     assembler.snapshot(root, revision, material)
-    catalog = copy.deepcopy(seed['catalog'])
     arch = files.PROFILES[args.profile]
+    receipts, runtime, values = copy.deepcopy(seed['receipts']), copy.deepcopy(seed['runtime']), copy.deepcopy(seed['values'])
     toolbox = seed.get('toolboxLineage')
     if toolbox:
         archive = material / toolbox['export']['file']
@@ -149,13 +131,11 @@ def prepare(args):
     else:
         bindir = material / 'bin'
     os.environ['PATH'] = str(bindir) + os.pathsep + os.environ['PATH']
-    mapping = {}
-    updated_images = {}
     # Only a loopback registry is used to losslessly convert Docker-save builds
     # into OCI manifests. It is stopped by the caller's workflow cleanup step.
     if not args.registry.startswith('127.0.0.1:') or not args.registry.split(':')[1].isdigit():
         raise ValueError('image conversion registry must be loopback')
-    for name in ('backend', 'app', 'ops', 'scode'):
+    for name in files.APEIRON_IMAGES:
         directory = args.images / f'candidate-{name}-{arch}'
         proof = json.loads((directory / 'build-provenance.json').read_text())
         archive = files.safe_file(directory, proof['archive']['file'])
@@ -183,33 +163,13 @@ def prepare(args):
         archive_layout(layout, material / relative)
         plain.unlink()
         shutil.rmtree(layout)
-        updated_images[name] = {'file': relative, 'reference': reference, 'digest': digest,
-                               'buildProvenance': {'source': {'repository': 'https://github.com/TheApeironLab/apeiron', 'commit': proof['revision'], 'clean': True},
-                                                   'recipe': {'file': proof['recipe']['path'], 'sha256': proof['recipe']['sha256']},
-                                                   'platform': 'linux/' + arch, 'archive': proof['archive']}}
-    for detail in catalog['components'].values():
-        for image in detail.get('images', []):
-            for name, new in updated_images.items():
-                if image['reference'].startswith('apeiron/' + name + ':'):
-                    mapping[image['reference'] + '@' + image['digest']] = new['reference'] + '@' + new['digest']
-                    mapping[image['reference']] = new['reference']
-                    mapping[image['file']] = new['file']
-                    image.clear()
-                    image.update(new)
-    old_local = catalog['components']['apeiron'].get('values', {}).get('releases', {}).get('apeiron', {}).get('values', {}).get('localComputer')
-    old_version = old_local['apeironVersion'] if old_local else None
-    if old_version:
-        mapping[old_version] = 'v' + version
-    catalog = refresh_catalog_image_pins(replace(catalog, mapping))
+        receipts.append({'components': ['apeiron'], 'file': relative, 'reference': reference, 'digest': digest,
+                         'buildProvenance': {'source': {'repository': 'https://github.com/TheApeironLab/apeiron', 'commit': proof['revision'], 'clean': True},
+                                             'recipe': {'file': proof['recipe']['path'], 'sha256': proof['recipe']['sha256']},
+                                             'platform': 'linux/' + arch, 'archive': proof['archive']}})
     local = {'apeironVersion': 'v' + version, 'scodeVersion': recipe['sudocode']['version'], 'sourceRevision': candidate['sources']['apeiron']}
     shutil.copytree(args.clients / 'local-computer', material / 'local-computer', dirs_exist_ok=True)
-    local_files = validate_material(material, local)
-    if local_files != paths(local):
-        raise ValueError('receiver client closure is incomplete')
-    app_files = catalog['components']['apeiron']['files']
-    app_files[:] = [p for p in app_files if not p.startswith(('local-computer/', 'sandbox-apt/'))]
-    app_files.extend(local_files)
-    catalog['components']['apeiron'].setdefault('values', {}).setdefault('releases', {}).setdefault('apeiron', {}).setdefault('values', {})['localComputer'] = local
+    receipts.append({'components': ['apeiron'], 'files': validate_material(material, local), 'localComputer': local})
     skills = candidate['sources']['systemSkills']
     if run(['git', '-C', args.skills, 'rev-parse', 'HEAD']) != skills or run(['git', '-C', args.skills, 'status', '--porcelain']):
         raise ValueError('System Skills checkout differs from the pinned clean source')
@@ -219,45 +179,29 @@ def prepare(args):
         raise ValueError('Shared Skills bundle does not identify the pinned source')
     run(['git', '-C', args.skills, 'bundle', 'verify', args.skills_bundle])
     shutil.copy2(args.skills_bundle, material / 'files/system-skills.bundle')
-    old_skills = seed['catalog'].get('sources', {}).get('systemSkills', {}).get('commit')
-    if old_skills:
-        catalog = replace(catalog, {old_skills: skills})
-    app_files = catalog['components']['apeiron']['files']
-    if 'files/system-skills.bundle' not in app_files:
-        app_files.append('files/system-skills.bundle')
-    # The native seed predates the source provenance metadata; always set the
-    # runtime Skills revision from this explicit source rather than an old value.
-    target = catalog['targets'][args.profile]
-    target['environment']['releases']['apeiron']['values'].setdefault('systemSkills', {})['revision'] = skills
-    catalog['sources'] = {'apeiron': {'version': version, 'commit': candidate['sources']['apeiron']},
-                          'sudocode': recipe['sudocode'],
-                          'systemSkills': {'version': 'git-' + skills[:12], 'commit': skills,
-                                           'asset': {'name': 'system-skills.bundle', 'sha256': files.identity(material / 'files/system-skills.bundle')['sha256']}}}
+    receipts.append({'components': ['apeiron'], 'files': ['files/system-skills.bundle']})
+    # Apeiron's image roles and Skills revision come from this release's own builds.
+    apeiron = values.setdefault('apeiron', {})
+    apeiron['image'] = {name: f'__REGISTRY__/apeiron/{name}:{version}' for name in files.APEIRON_IMAGES}
+    apeiron.setdefault('systemSkills', {})['revision'] = skills
     if arch == 'amd64':
         if not args.sandbox or not args.gnupghome or not args.signing_key:
             raise ValueError('native material requires the prepared Debian pool and formal signing key')
         sandbox = load('release_sandbox', root / 'bundle/sandbox_apt.py')
         sandbox.build(args.sandbox, material / 'sandbox-apt', version, args.gnupghome, args.signing_key)
-        app_files.extend(p.relative_to(material).as_posix() for p in (material / 'sandbox-apt').rglob('*') if p.is_file())
+        receipts.append({'components': ['apeiron'], 'files': sorted(
+            p.relative_to(material).as_posix() for p in (material / 'sandbox-apt').rglob('*') if p.is_file())})
         wheels = args.out / 'wheels'
         run(['uv', 'build', '--wheel', '--out-dir', wheels, root / 'cli'])
         wheel = next(wheels.glob('chentu-*.whl'))
-        tools = catalog['components']['tools']['files']
-        tools[:] = [p for p in tools if not (p.startswith('cli/') and Path(p).name.startswith('chentu-'))]
         (material / 'cli').mkdir(exist_ok=True)
         shutil.copy2(wheel, material / 'cli' / wheel.name)
-        tools.append('cli/' + wheel.name)
-        # Chentu requires this metadata to bind airgap bytes to its bootstrap.
-        target['k3sAirgap'] = 'k3s/k3s-airgap-images-amd64.tar.zst'
-    all_files = sorted({p for component in catalog['components'].values() for p in component['files']})
-    catalog['files'] = [{'path': name, **files.identity(files.safe_file(material, name))} for name in all_files]
-    (material / 'chentu/setup').mkdir(exist_ok=True)
-    (material / 'chentu/setup/install.json').write_text(json.dumps(catalog, indent=2) + '\n')
+        runtime['files'].append('cli/' + wheel.name)
     # Native Helmfile remains the dependency graph. Build inventory from the
     # selected components; do not carry a hand-written release order in the CLI.
-    values = render_values(target['environment'], arch, scope)
     publisher = {'schemaVersion': 'chentu.catalog.v1', 'version': version, 'architecture': arch,
-                 'apps': {'apeiron': ['apeiron']}, 'required': scope, 'values': values, 'resources': []}
+                 'apps': {'apeiron': ['apeiron']}, 'required': scope, 'values': render_values(values, arch, scope),
+                 'resources': []}
     work = args.out / 'render'
     work.mkdir()
     config = assembler.inst.Installation.model_validate({'release': {'version': version}, 'organization': {'slug': 'example'},
@@ -270,8 +214,24 @@ def prepare(args):
     environment, resolved, selected, releases = assembler.inst.select_releases(config, choices, work, [])
     assembler.inst.write_yaml(environment, resolved)
     assembler.inst.helmfile_output(material / 'chentu', environment, 'template')
-    inventory = args.out / 'inventory.yaml'
-    inventory.write_text(yaml.safe_dump({'releases': [r for r in releases if r['name'] in selected]}, sort_keys=False))
+    inventory = {'releases': [r for r in releases if r['name'] in selected]}
+    (args.out / 'inventory.yaml').write_text(yaml.safe_dump(inventory, sort_keys=False))
+    # install.json is generated from the seed receipts, this release's receipts and Helmfile.
+    releases = {name: {'values': values[name]} if name in values else {} for name in resolved['releases']}
+    catalog = install_catalog.build(material, inventory, {'releases': releases}, receipts, runtime, None)
+    catalog['sources'] = {'apeiron': {'version': version, 'commit': candidate['sources']['apeiron']},
+                          'sudocode': recipe['sudocode'],
+                          'systemSkills': {'version': 'git-' + skills[:12], 'commit': skills,
+                                           'asset': {'name': 'system-skills.bundle', 'sha256': files.identity(material / 'files/system-skills.bundle')['sha256']}}}
+    validate_catalog(catalog, scope)
+    for component in catalog['components'].values():
+        for image in component.get('images', []):
+            try:
+                hosted.image_build_provenance(image, arch)
+            except (TypeError, ValueError) as error:
+                raise ValueError('Invalid platform image provenance: ' + image['reference']) from error
+    (material / 'chentu/setup').mkdir(exist_ok=True)
+    (material / 'chentu/setup/install.json').write_text(json.dumps(catalog, indent=2) + '\n')
     if toolbox:
         (args.out / 'toolbox-lineage.json').write_text(json.dumps(toolbox, indent=2) + '\n')
     else:
@@ -280,7 +240,7 @@ def prepare(args):
         for name in roots:
             command += ['--require', name]
         run(command)
-    return {'material': str(material), 'inventory': str(inventory), 'profile': args.profile, 'version': version}
+    return {'material': str(material), 'inventory': str(args.out / 'inventory.yaml'), 'profile': args.profile, 'version': version}
 
 
 if __name__ == '__main__':
