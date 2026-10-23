@@ -501,6 +501,23 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
     if !values["releases"].is_object() {
         return Err(fail("releases 必须是对象。", 400));
     }
+    if config["apps"].as_array().unwrap().contains(&json!("gpustack")) {
+        let gpu = config::gpustack(&config["gpustack"])?;
+        if values["releases"]["gpustack"].is_null() {
+            values["releases"]["gpustack"] = json!({});
+        }
+        if !values["releases"]["gpustack"].is_object() {
+            return Err(fail("GPUStack 配置必须是对象。", 400));
+        }
+        if values["releases"]["gpustack"]["values"].is_null() {
+            values["releases"]["gpustack"]["values"] = json!({});
+        }
+        if !values["releases"]["gpustack"]["values"].is_object() {
+            return Err(fail("GPUStack values 必须是对象。", 400));
+        }
+        values["releases"]["gpustack"]["values"]["gpuHost"] = gpu["host"].clone();
+        values["releases"]["gpustack"]["values"]["gpuPort"] = gpu["port"].clone();
+    }
     for app in config::apps().as_array().unwrap() {
         let names = app["releases"]
             .as_array()

@@ -34,7 +34,9 @@ jobs:
         with:
           bun-version: 1.3.14
       - id: recipe
-        run: bun scripts/resolve-release-recipe.js
+        run: |
+          bun scripts/resolve-release-recipe.js
+          python3 scripts/check-platform-scope.py
         env:
           GH_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
       - id: identity
@@ -235,6 +237,10 @@ jobs:
           uv run --project chentu/cli --locked python coordinator/scripts/prepare-deployment-material.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --lock coordinator/release/recipe.json --images "$RUNNER_TEMP/images" --clients "$RUNNER_TEMP/clients" --skills "$PWD/skills" --skills-bundle "$RUNNER_TEMP/skills/system-skills.bundle" --out "$RUNNER_TEMP/prepared" --profile "$PROFILE" --registry 127.0.0.1:5500 "${extra[@]}"
           export PATH="$RUNNER_TEMP/prepared/bin:$RUNNER_TEMP/prepared/material/bin:$PATH"
           uv run --project chentu/cli --locked python coordinator/scripts/build-deployment-profile.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --prepared "$RUNNER_TEMP/prepared" --builder "$RUNNER_TEMP/builder" --out "$RUNNER_TEMP/profile" --lock coordinator/release/recipe.json --profile "$PROFILE"
+          if [ "$PROFILE" = k3d-arm64 ]; then
+            toolbox=$(python3 -c 'import json,os; print(json.load(open(os.environ["RUNNER_TEMP"]+"/prepared/toolbox-lineage.json"))["derived"]["imageId"])')
+            (cd coordinator && bun scripts/test-install-plan.js --all-apps "$RUNNER_TEMP/profile/chentu" "$toolbox")
+          fi
           tar -cf "$RUNNER_TEMP/$PROFILE.tar" -C "$RUNNER_TEMP/profile" .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

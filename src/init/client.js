@@ -812,9 +812,13 @@ export function initWizard(supportsK3sHost) {
     function selectedApps() {
         return Array.from(document.querySelectorAll('[name="app"]:checked')).map(input => input.value);
     }
+    function gpuInput() {
+        return selectedApps().includes('gpustack') ? { host: get('gpustack-host').value.trim(), port: Number(get('gpustack-port').value) } : null;
+    }
     function updateSelection() {
         get('selected-count').textContent = `已选择 ${selectedApps().length} 个应用（${apps.filter(app => app.required).length} 个必选）`;
         const selected = selectedApps();
+        get('gpustack-settings').hidden = !selected.includes('gpustack');
         for (const button of document.querySelectorAll('[data-scenario]')) {
             const wanted = scenarioApps(button.dataset.scenario);
             button.setAttribute('aria-pressed', String(wanted.length === selected.length && wanted.every(id => selected.includes(id))));
@@ -937,6 +941,10 @@ export function initWizard(supportsK3sHost) {
             return false;
         }
         if (step === 3) {
+            if (selectedApps().includes('gpustack') && (!get('gpustack-host').value.trim() || !get('gpustack-port').reportValidity() || !get('gpustack-port').value)) {
+                showError('请填写 GPUStack 主机 IP 和服务端口。');
+                return false;
+            }
             if (!slug.reportValidity() || !domain.reportValidity())
                 return false;
             if (!validDomain()) {
@@ -1682,7 +1690,7 @@ export function initWizard(supportsK3sHost) {
         error.hidden = true;
         try {
             const response = await fetch(endpoint('deploy'), { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelInput(), deployment: target() }) });
+                body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelInput(), gpustack: gpuInput(), deployment: target() }) });
             const result = await response.json();
             if (!response.ok || !result.config)
                 throw new Error(result.error || '启动失败，请检查配置。');
@@ -1722,6 +1730,10 @@ export function initWizard(supportsK3sHost) {
                 slug.readOnly = true;
             }
             const savedModel = result.config?.models;
+            if (result.config?.gpustack) {
+                get('gpustack-host').value = result.config.gpustack.host;
+                get('gpustack-port').value = result.config.gpustack.port;
+            }
             if (savedModel) {
                 modelProvider.value = savedModel.provider || '';
                 modelUrl.value = savedModel.baseUrl;

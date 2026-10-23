@@ -306,7 +306,9 @@ try {
     assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
     await page.locator('[data-scenario=full]').click();
     assert.equal(await page.locator('#selected-count').textContent(), '已选择 18 个应用（4 个必选）');
+    assert.equal(await page.locator('#gpustack-settings').getAttribute('hidden'), null);
     await page.locator('[data-scenario=core]').click();
+    assert.notEqual(await page.locator('#gpustack-settings').getAttribute('hidden'), null);
     await app('CI').check();
     assert.equal(await app('代码仓库').isChecked(), true, 'CI enables its Git dependency');
     await app('代码仓库').uncheck();
@@ -404,6 +406,10 @@ try {
     await page.getByRole('heading', { name: '域名、访问方式与模型', exact: true }).waitFor();
     assert.equal(await slug.inputValue(), 'example-team');
     await page.getByRole('button', { name: '下一步', exact: true }).click();
+    assert.equal(await page.getByText('请填写 GPUStack 主机 IP 和服务端口。', { exact: true }).isVisible(), true);
+    await page.getByLabel('GPU 主机 IP', { exact: true }).fill('192.0.2.20');
+    await page.getByLabel('GPUStack 服务端口', { exact: true }).fill('8080');
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
     assert.match(await page.locator('#summary-apps').innerText(), /Grafana、Browser、CI/);
     await page.getByRole('button', { name: '开始安装', exact: true }).click();
@@ -450,6 +456,7 @@ try {
     assert.equal(saved.deployment.installation.entryIp, '127.0.0.1');
     assert.equal(saved.llm, undefined);
     assert.deepEqual(saved.apps, ['nexus', 'vasi', 'ontology', 'apeiron', 'zygos', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']);
+    assert.deepEqual(saved.gpustack, { host: '192.0.2.20', port: 8080 });
     assert.equal((await stat(path)).mode & 0o777, 0o600);
     const installCatalogPath = join(setup.root, 'setup/install.json');
     const installCatalog = JSON.parse(await readFile(installCatalogPath, 'utf8'));

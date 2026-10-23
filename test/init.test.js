@@ -69,6 +69,17 @@ test('configuration round trip requires deployment settings and private permissi
     expect((await stat(join(path, '..'))).mode & 0o777).toBe(0o700);
     expect(await Bun.file(path).json()).toEqual({ schemaVersion: 2, slug: input.slug, deployment: input.deployment, apps: requiredApps });
 });
+test('GPUStack selection requires an explicit host and preserves its service port', async () => {
+    const { path, server, input, post } = await fixture();
+    const selected = { ...input, apps: [...requiredApps, 'gpustack'] };
+    expect((await post(selected)).status).toBe(400);
+    expect((await post({ ...selected, gpustack: { host: '127.0.0.1', port: 80 } })).status).toBe(400);
+    const gpu = { host: '192.0.2.20', port: 8080 };
+    expect((await post({ ...selected, gpustack: gpu })).status).toBe(200);
+    expect((await Bun.file(path).json()).gpustack).toEqual(gpu);
+    const snapshot = await fetch(server.url + 'api/config').then(r => r.json());
+    expect(snapshot.config.gpustack).toEqual(gpu);
+});
 test('invalid inputs, cross-origin requests and missing required apps cannot write config', async () => {
     const { path, server, input, post } = await fixture();
     for (const body of [

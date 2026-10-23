@@ -1,0 +1,68 @@
+name: Prepare optional application images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-platform-images
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    if: github.repository == 'TheApeironLab/apeiron-cli' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - id: plan
+        env:
+          GH_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json,os,subprocess
+          lock=json.load(open('release/platform-images.json'))
+          for repo,revision in lock['sources'].items():
+              result=json.loads(subprocess.check_output(['gh','api',f'repos/TheApeironLab/{repo}/compare/{revision}...main']))
+              if result['status'] not in ('ahead','identical'):
+                  raise ValueError('Optional source must be on reviewed main: '+repo)
+          matrix={'include':[{'component':name,'repository':item['source'],'revision':lock['sources'][item['source']],'architecture':arch}
+                             for name,item in lock['images'].items() for arch in ('amd64','arm64')]}
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('matrix='+json.dumps(matrix,separators=(',',':'))+'\n')
+          PY
+  images:
+    needs: identity
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.identity.outputs.matrix) }}
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-22.04' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          path: coordinator
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: TheApeironLab/${{ matrix.repository }}
+          ref: ${{ matrix.revision }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          persist-credentials: false
+          path: source
+      - name: Build from the pinned upstream recipe
+        env:
+          COMPONENT: ${{ matrix.component }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          python3 coordinator/scripts/build-platform-image.py --source "$GITHUB_WORKSPACE/source" --component "$COMPONENT" --arch "$ARCHITECTURE" --out "$RUNNER_TEMP/image"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: platform-${{ matrix.component }}-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/image
+          compression-level: 0
+          retention-days: 7

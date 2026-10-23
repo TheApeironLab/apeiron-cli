@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "baseVersion": "0.2.1",
+  "applicationScope": "wizard",
   "sources": {
     "apeiron": "229b9ba6c9b841fad74fdcb40fbcdf94f537dfc1",
     "chentu": "1e38479523ef903f04dcb689d845b545b9a8a9c9",

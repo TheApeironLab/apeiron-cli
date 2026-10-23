@@ -34,6 +34,20 @@ pub fn safe_ip(s: &str) -> bool {
 pub fn apps() -> Value {
     serde_json::from_str(include_str!("../../assets/apps.json")).unwrap()
 }
+pub fn gpustack(v: &Value) -> Result<Value> {
+    let host = text(v, "host", 45, false)?;
+    let ip = host
+        .parse::<std::net::IpAddr>()
+        .map_err(|_| fail("请填写 GPUStack 主机的 IP 地址。", 400))?;
+    if ip.is_unspecified() || ip.is_loopback() || ip.is_multicast() {
+        return Err(fail("GPUStack 地址必须能从集群访问，不能使用本机回环地址。", 400));
+    }
+    let port = v["port"]
+        .as_u64()
+        .filter(|p| (1..=65535).contains(p))
+        .ok_or_else(|| fail("GPUStack 端口必须为 1–65535。", 400))?;
+    Ok(json!({"host":host,"port":port}))
+}
 /// 应用目录 id → 安装包组件名：带 `releases` 的应用（如 browser/ci）映射到其
 /// 组件；其余 id 即组件名，原样透传。未知 id 不在这里拦截（由
 /// resources::plan 的“安装包缺少组件”给出带包上下文的错误）。
@@ -275,6 +289,12 @@ pub fn validate(v: &Value, current: &Value) -> Result<Value> {
         }
     }
     let mut out = json!({"schemaVersion":2,"slug":slug,"apps":catalog.iter().filter(|a|list.contains(&a["id"])).map(|a|a["id"].clone()).collect::<Vec<_>>()});
+    if list.contains(&json!("gpustack")) {
+        let gpu = v.get("gpustack").unwrap_or(&current["gpustack"]);
+        if !gpu.is_null() {
+            out["gpustack"] = gpustack(gpu)?;
+        }
+    }
     if let Some(m) = v.get("models") {
         if !m.is_null() {
             out["models"] = models(m, &current["models"])?;
@@ -373,7 +393,8 @@ pub fn public(s: &Value) -> Value {
     if c.is_null() {
         return json!({"revision":s["revision"],"config":null});
     }
-    let mut result = json!({"slug":c["slug"],"apps":c["apps"],"deployment":c["deployment"],"models":null});
+    let mut result =
+        json!({"slug":c["slug"],"apps":c["apps"],"deployment":c["deployment"],"models":null,"gpustack":c["gpustack"]});
     if let Some(m) = c.get("models") {
         result["models"] = json!({"provider":m["provider"],"baseUrl":m["baseUrl"],"fast":m["fast"],"deep":m["deep"],"hasApiKey":!m["apiKey"].as_str().unwrap_or("").is_empty()});
     }
@@ -386,6 +407,9 @@ pub fn save(path: &Path, input: &Value) -> Result<Value> {
         return Err(fail("配置已更新，请刷新后重试。", 409));
     }
     let c = validate(input, &old["config"])?;
+    if c["apps"].as_array().unwrap().contains(&json!("gpustack")) {
+        gpustack(&c["gpustack"])?;
+    }
     if c.get("deployment").is_none() {
         return Err(fail("请填写部署环境。", 400));
     }
@@ -420,6 +444,28 @@ pub fn save(path: &Path, input: &Value) -> Result<Value> {
 #[cfg(test)]
 mod component_tests {
     use super::*;
+
+    #[test]
+    fn gpustack_requires_a_reachable_ip_and_valid_service_port() {
+        for host in [
+            "",
+            "127.0.0.1",
+            "0.0.0.0",
+            "::1",
+            "::",
+            "224.0.0.1",
+            "https://gpu.example",
+        ] {
+            assert!(gpustack(&json!({"host":host,"port":80})).is_err());
+        }
+        for port in [0, 65536] {
+            assert!(gpustack(&json!({"host":"192.168.1.20","port":port})).is_err());
+        }
+        assert_eq!(
+            gpustack(&json!({"host":"192.168.1.20","port":8080})).unwrap(),
+            json!({"host":"192.168.1.20","port":8080})
+        );
+    }
 
     #[test]
     fn app_ids_with_releases_map_to_components_and_others_pass_through() {

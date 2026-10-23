@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 import urllib.request
+from distribution_scope import required_components, validate_catalog
 
 HERE = Path(__file__).resolve().parent
 
@@ -97,6 +98,8 @@ def prepare(args):
     seed = json.loads(seed_path.read_text())
     if seed['kind'] != 'apeiron-platform-material' or seed['profile'] != args.profile:
         raise ValueError('wrong platform seed')
+    scope = required_components(recipe)
+    validate_catalog(seed['catalog'], scope)
     material = args.out / 'material'
     material.mkdir()
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -235,7 +238,7 @@ def prepare(args):
     values = {name: item.get('values', {}) for name, item in target['environment']['releases'].items() if item.get('values')}
     values = replace(values, {'__REGISTRY__': '${REGISTRY}', '__BUNDLE__': '${BUNDLE_DIR}', '__DOMAIN__': 'example.internal', '__ARCH__': arch})
     publisher = {'schemaVersion': 'chentu.catalog.v1', 'version': version, 'architecture': arch,
-                 'apps': {'apeiron': ['apeiron']}, 'required': recipe['requiredComponents'], 'values': values, 'resources': []}
+                 'apps': {'apeiron': ['apeiron']}, 'required': scope, 'values': values, 'resources': []}
     work = args.out / 'render'
     work.mkdir()
     config = assembler.inst.Installation.model_validate({'release': {'version': version}, 'organization': {'slug': 'example'},

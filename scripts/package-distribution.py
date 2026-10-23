@@ -6,6 +6,7 @@ from datetime import date
 import gzip
 import hashlib
 import io
+import importlib.util
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -13,6 +14,9 @@ import tarfile
 
 PUBLIC = "https://downloads.apeironlab.cn/"
 PROFILES = {"k3d-arm64": "arm64", "k3s-amd64": "amd64"}
+scope_spec = importlib.util.spec_from_file_location('distribution_scope', Path(__file__).with_name('distribution_scope.py'))
+scope = importlib.util.module_from_spec(scope_spec)
+scope_spec.loader.exec_module(scope)
 
 
 def identity(path):
@@ -90,6 +94,7 @@ def combine(outputs, candidate, out):
         sources = manifest["sources"]
         if catalog["schemaVersion"] != 1 or set(catalog["targets"]) != {profile}:
             raise ValueError("incorrect profile catalog")
+        scope.validate_catalog(catalog)
         catalog = copy.deepcopy(catalog)
         listed = set()
         for entry in catalog["files"]:
