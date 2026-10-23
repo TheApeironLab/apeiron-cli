@@ -1,15 +1,20 @@
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('package_distribution', Path(__file__).parents[1] / 'scripts/package-distribution.py')
 package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)
+handoff_spec = importlib.util.spec_from_file_location('profile_handoff', Path(__file__).parents[1] / 'scripts/prepare-profile-handoff.py')
+handoff = importlib.util.module_from_spec(handoff_spec)
+handoff_spec.loader.exec_module(handoff)
 
 
 class DistributionPackage(unittest.TestCase):
@@ -130,6 +135,59 @@ class DistributionPackage(unittest.TestCase):
         catalog['components']['clickhouse'] = {'requires': [], 'files': ['clickhouse.tar']}
         with self.assertRaisesRegex(ValueError, 'missing resource: clickhouse.tar'):
             package.scope.validate_catalog(catalog)
+
+    def handoffs(self):
+        outputs = {}
+        for name, source in self.outputs.items():
+            output = self.root / ('handoff-' + name)
+            handoff.prepare(source, output, self.root / (name + '-upload.json'))
+            self.assertFalse((output / 'resource.bin').exists())
+            outputs[name] = output
+        return outputs
+
+    def remote_response(self, data=b'platform bytes'):
+        response = io.BytesIO(data)
+        response.status = 200
+        return response
+
+    def test_published_handoffs_produce_identical_archive_and_verify_shared_bytes_once(self):
+        complete = package.combine(self.outputs, self.candidate, self.root / 'complete')
+        outputs = self.handoffs()
+        with patch.object(package.urllib.request, 'build_opener') as opener:
+            opener.return_value.open.side_effect = lambda *a, **kw: self.remote_response()
+            remote = package.combine(outputs, self.candidate, self.root / 'remote')
+            self.assertEqual(remote, complete)
+            self.assertEqual(opener.return_value.open.call_count, 1)
+        plan = json.loads((self.root / 'remote/upload-plan.json').read_text())
+        self.assertTrue(all(k.startswith('chentu/releases/') for k in plan['objects']))
+
+    def test_handoff_rejects_changed_public_bytes_before_output(self):
+        outputs = self.handoffs()
+        with patch.object(package.urllib.request, 'build_opener') as opener:
+            opener.return_value.open.side_effect = lambda *a, **kw: self.remote_response(b'changed bytes!')
+            with self.assertRaisesRegex(ValueError, 'public profile bytes differ'):
+                package.combine(outputs, self.candidate, self.root / 'corrupt')
+        self.assertFalse((self.root / 'corrupt').exists())
+
+    def test_handoff_rejects_non_content_addressed_url_without_network(self):
+        outputs = self.handoffs()
+        marker = outputs['k3d-arm64'] / 'profile-handoff.json'
+        value = json.loads(marker.read_text())
+        value['resources']['resource.bin']['url'] = 'https://example.invalid/resource.bin'
+        marker.write_text(json.dumps(value))
+        with patch.object(package.urllib.request, 'build_opener') as opener:
+            with self.assertRaisesRegex(ValueError, 'exact content address'):
+                package.combine(outputs, self.candidate, self.root / 'unsafe')
+            opener.assert_not_called()
+
+    def test_handoff_cannot_hide_a_missing_resource(self):
+        outputs = self.handoffs()
+        marker = outputs['k3d-arm64'] / 'profile-handoff.json'
+        value = json.loads(marker.read_text())
+        del value['resources']['resource.bin']
+        marker.write_text(json.dumps(value))
+        with self.assertRaisesRegex(ValueError, 'ordinary file'):
+            package.combine(outputs, self.candidate, self.root / 'missing')
 
 
 if __name__ == '__main__':

@@ -77,6 +77,18 @@ def archive_layout(layout, output):
                 archive.addfile(info, stream)
 
 
+def render_values(environment, arch, scope):
+    values = {name: item.get('values', {}) for name, item in environment['releases'].items() if item.get('values')}
+    values = replace(values, {'__REGISTRY__': '${REGISTRY}', '__BUNDLE__': '${BUNDLE_DIR}',
+                              '__DOMAIN__': 'example.internal', '__ARCH__': arch})
+    if 'gpustack' in scope:
+        # Helmfile needs an external endpoint to render GPUStack's Service.
+        # This documentation address belongs only to the temporary render input;
+        # the published catalog leaves endpoint selection to the installer.
+        values.setdefault('gpustack', {}).update(gpuHost='192.0.2.20', gpuPort=18080)
+    return values
+
+
 def prepare(args):
     import yaml
     root = args.chentu.resolve()
@@ -235,8 +247,7 @@ def prepare(args):
     (material / 'chentu/setup/install.json').write_text(json.dumps(catalog, indent=2) + '\n')
     # Native Helmfile remains the dependency graph. Build inventory from the
     # selected components; do not carry a hand-written release order in the CLI.
-    values = {name: item.get('values', {}) for name, item in target['environment']['releases'].items() if item.get('values')}
-    values = replace(values, {'__REGISTRY__': '${REGISTRY}', '__BUNDLE__': '${BUNDLE_DIR}', '__DOMAIN__': 'example.internal', '__ARCH__': arch})
+    values = render_values(target['environment'], arch, scope)
     publisher = {'schemaVersion': 'chentu.catalog.v1', 'version': version, 'architecture': arch,
                  'apps': {'apeiron': ['apeiron']}, 'required': scope, 'values': values, 'resources': []}
     work = args.out / 'render'

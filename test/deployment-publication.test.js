@@ -43,3 +43,17 @@ test('server rejection is idempotent only when the winning object has identical 
   await expect(publishImmutable('/artifact', key, expected, dependencies)).rejects.toThrow('server rejected');
   await expect(publishImmutable('/artifact', 'apeiron/blobs/sha256/' + 'b'.repeat(64), expected, dependencies)).rejects.toThrow('Content address');
 });
+
+test('large immutable blobs use conditional multipart upload and still verify public bytes', async () => {
+  const large = { ...expected, size: 6 * 1024 ** 3 };
+  let reads = 0, command;
+  const dependencies = { fileIdentity: async () => large,
+    publicIdentity: async () => ++reads === 1 ? null : large,
+    run: async args => { command = args; } };
+  expect(await publishImmutable('/large-image.tar', key, large, dependencies)).toEndWith(key);
+  expect(command[0]).toBe('python3');
+  expect(command[1]).toEndWith('/scripts/multipart-deployment-upload.py');
+  expect(command).toContain(key);
+  expect(command).toContain(String(large.size));
+  expect(reads).toBe(2);
+});
