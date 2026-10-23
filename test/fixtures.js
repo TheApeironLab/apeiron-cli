@@ -78,6 +78,7 @@ export async function freshInstallFixture(dir, setup, exit = 0, resumeDomain) {
     await writeFile(join(dir, 'deployments/resources/core.bin'), bytes);
     await mkdir(join(setup.root, 'setup'), { recursive: true });
     const environment = Bun.YAML.parse(setup.source.replace('fixtureExit: 0', `fixtureExit: ${exit}`).replace('fixtureDelay: 700', 'fixtureDelay: 1500'));
+    environment.releases.postgres.enabled = false;
     environment.fixtureCa = ca;
     // Tiny declared airgap stands in for the upstream archive in isolated UI tests.
     const profile = { k3sAirgap: 'core.bin', deploymentTopology: true, publicPorts: true, clusterOidc: true, base: ['core', 'cluster-access'], environment, toolboxImage: 'fixture/toolbox@sha256:' + 'a'.repeat(64) };
@@ -85,7 +86,7 @@ export async function freshInstallFixture(dir, setup, exit = 0, resumeDomain) {
     await writeFile(join(setup.root, 'tests/lab/helmfile.sh'), 'REPO=$(cd "$(dirname "$0")/../.." && pwd)\nargs=(\n-e CHENTU_ENV=/environment.yaml -e KUBECONFIG=/work/state/kubeconfig\n)\n' + launcher);
     delete environment.architecture;
     const catalog = { schemaVersion: 1, targets: { 'k3d-arm64': profile, 'k3d-amd64': profile },
-        components: { core: { requires: [], files: ['core.bin'] }, 'cluster-access': { requires: ['core'], files: [] },
+        components: { core: { requires: [], files: ['core.bin'], values: { releases: { postgres: { enabled: true } } } }, 'cluster-access': { requires: ['core'], files: [] },
             ...Object.fromEntries(APPS.flatMap(app => [...new Set([app.id, ...(app.releases ?? [])])]
                 .map(id => [id, { requires: ['core'], files: [] }]))) },
         files: [{ path: 'core.bin', size: Buffer.byteLength(bytes), sha256: createHash('sha256').update(bytes).digest('hex') }] };

@@ -74,7 +74,7 @@ pub fn components(selected: &Value) -> Value {
 }
 pub fn defaults() -> Value {
     let mac = cfg!(target_os = "macos");
-    json!({"installation":{"topology":if mac{"single-k3d"}else{"single-k3s"},"httpPort":if mac{54320}else{80},"httpsPort":if mac{54321}else{443},"domain":"","entryIp":if mac{"127.0.0.1"}else{""},"ha":false,"sshUser":"","sshKey":"","sshPort":22,"nodes":[]},"runner":if mac{"docker"}else{"native"},"root":"","environment":std::env::var("CHENTU_ENV").or_else(|_|std::env::var("LAB_ENV")).unwrap_or_default(),"kubeconfig":std::env::var("KUBECONFIG").unwrap_or_default(),"workDir":std::env::var("LAB_WORK_DIR").unwrap_or_default(),"image":std::env::var("LAB_IMAGE").unwrap_or_else(|_|"chentu-lab".into()),"offline":false,"bundleDir":""})
+    json!({"installation":{"topology":if mac{"single-k3d"}else{"k3s"},"httpPort":if mac{54320}else{80},"httpsPort":if mac{54321}else{443},"domain":"","entryIp":if mac{"127.0.0.1"}else{""},"ha":false,"sshUser":"","sshKey":"","sshPort":22,"nodes":[]},"runner":if mac{"docker"}else{"native"},"root":"","environment":std::env::var("CHENTU_ENV").or_else(|_|std::env::var("LAB_ENV")).unwrap_or_default(),"kubeconfig":std::env::var("KUBECONFIG").unwrap_or_default(),"workDir":std::env::var("LAB_WORK_DIR").unwrap_or_default(),"image":std::env::var("LAB_IMAGE").unwrap_or_else(|_|"chentu-lab".into()),"offline":false,"bundleDir":""})
 }
 pub fn connection(v: &Value) -> Result<Value> {
     let user = v["sshUser"].as_str().unwrap_or("");
@@ -96,9 +96,21 @@ pub fn connection(v: &Value) -> Result<Value> {
     }
     Ok(json!({"sshUser":user,"sshKey":key,"sshPort":port}))
 }
+/// Immutable distribution selector, derived only at the package boundary.
+/// New K3s intent does not encode a single/multi application policy.
+pub fn release_topology(i: &Value) -> &str {
+    match i["topology"].as_str().unwrap_or("") {
+        "k3s" => if i["nodes"].as_array().is_some_and(|n| n.len() > 1) { "multi-k3s" } else { "single-k3s" },
+        other => other,
+    }
+}
+pub fn explicit_nodes(i: &Value) -> bool {
+    i["topology"] == "multi-k3s" || i["nodes"].as_array().is_some_and(|n| !n.is_empty())
+}
+
 pub fn installation(v: &Value) -> Result<Value> {
     let topology = text(v, "topology", 32, false)?;
-    if !["single-k3d", "single-k3s", "multi-k3s"].contains(&topology.as_str()) {
+    if !["single-k3d", "k3s", "single-k3s", "multi-k3s"].contains(&topology.as_str()) {
         return Err(fail("请选择安装方式。", 400));
     }
     let local = topology == "single-k3d";
@@ -111,8 +123,8 @@ pub fn installation(v: &Value) -> Result<Value> {
         return Err(fail("请填写可访问的入口 IPv4 地址。", 400));
     }
     let ha = v["ha"].as_bool().ok_or_else(|| fail("高可用选项格式不正确。", 400))?;
-    if ha && topology != "multi-k3s" {
-        return Err(fail("高可用仅适用于多机 K3s。", 400));
+    if ha && !["k3s", "multi-k3s"].contains(&topology.as_str()) {
+        return Err(fail("控制平面高可用需要 K3s 节点配置。", 400));
     }
     let http = v
         .get("httpPort")
@@ -152,17 +164,17 @@ pub fn installation(v: &Value) -> Result<Value> {
         }
     }
     let servers = nodes.iter().filter(|n| n["role"] == "server").count();
-    if topology == "multi-k3s" {
-        if nodes.len() < 2
+    if topology == "multi-k3s" || (topology == "k3s" && !nodes.is_empty()) {
+        if (topology == "multi-k3s" && nodes.len() < 2)
             || if ha {
                 servers < 3 || servers % 2 == 0
             } else {
                 servers != 1
             }
         {
-            return Err(fail("多机部署需要有效的控制节点数量。", 400));
+            return Err(fail("节点清单需要 1 个控制节点，或至少 3 个奇数控制节点并启用控制平面高可用。", 400));
         }
-    } else if !nodes.is_empty() {
+    } else if !nodes.is_empty() || ha {
         return Err(fail("单机部署不接受远程节点。", 400));
     }
     let mut out = connection(v)?;
@@ -182,7 +194,7 @@ pub fn installation(v: &Value) -> Result<Value> {
             .map(|n| n.as_u64())
             .unwrap_or(Some(19444))
             .unwrap_or(0);
-        if topology != "single-k3s"
+        if !["k3s", "single-k3s"].contains(&topology.as_str()) || !nodes.is_empty()
             || !["direct", "relay"].contains(&mode)
             || !safe_ip(public_ip)
             || matches(

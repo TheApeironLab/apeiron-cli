@@ -192,7 +192,9 @@ try {
     detected.machine.hardware.runtimeArchitecture = 'arm64';
     await page.getByRole('button', { name: '重新检测', exact: true }).click();
     await page.getByText('Ubuntu 24.04', { exact: true }).waitFor();
-    await page.getByRole('radio', { name: /单机 K3s/ }).check();
+    assert.equal(await page.getByRole('group', { name: '集群类型', exact: true }).getByRole('radio').count(), 2);
+    await page.getByRole('radio', { name: /^K3s / }).check();
+    await page.getByRole('checkbox', { name: '使用当前主机作为节点', exact: true }).check();
     assert.match(await page.locator('#topology-note').innerText(), /匹配系统与架构的安装包/);
     assert.equal(await page.locator('#entry-field').isVisible(), false, 'Entry IP belongs to the access step');
     assert.equal(await page.locator('#local-ports').isVisible(), false);
@@ -242,7 +244,8 @@ try {
     await page.getByRole('button', { name: '上一步', exact: true }).click();
     await page.getByRole('button', { name: '上一步', exact: true }).click();
     await page.getByRole('heading', { name: '选择拓扑', exact: true }).waitFor();
-    await page.getByRole('radio', { name: /多机 K3s/ }).check();
+    await page.getByRole('radio', { name: /^K3s / }).check();
+    await page.getByRole('checkbox', { name: '使用当前主机作为节点', exact: true }).uncheck();
     assert.equal(await page.locator('#node-section').isVisible(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     assert.equal(await page.getByRole('heading', { name: '选择拓扑', exact: true }).isVisible(), true);
@@ -251,6 +254,13 @@ try {
         const input = route.request().postDataJSON();
         await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ nodes: input.hosts.map((_, i) => node(i)) }) });
     });
+    // A single explicit node uses the same K3s form; node count is not a mode switch.
+    await page.getByLabel('IP 地址或 SSH 别名', { exact: true }).fill('node-0');
+    await page.getByRole('button', { name: '自动检测节点', exact: true }).click();
+    await page.getByText('已生成节点配置，请确认内网 IP 和控制／工作角色。部署前会再次核验。', { exact: true }).waitFor();
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
+    await page.getByRole('heading', { name: '选择应用与场景', exact: true }).waitFor();
+    await page.getByRole('button', { name: '上一步', exact: true }).click();
     await page.getByLabel('IP 地址或 SSH 别名', { exact: true }).fill('node-0\nnode-1');
     await page.getByRole('button', { name: '自动检测节点', exact: true }).click();
     await page.getByText('已生成节点配置，请确认内网 IP 和控制／工作角色。部署前会再次核验。', { exact: true }).waitFor();

@@ -188,6 +188,35 @@ fn old_packages_profiles_and_mismatched_architectures_fail_before_preparation() 
     }
 }
 #[test]
+fn package_defaults_cannot_enable_unselected_apps_before_resource_preparation() {
+    // Regression: TheApeironLab/apeiron-cli#32 (legacy online package defaults).
+    let mut c = catalog();
+    c["targets"]["k3s-amd64"]["environment"]["releases"] =
+        json!({"langfuse":{"enabled":true},"clickhouse":{"enabled":false}});
+    let error = resources::plan(&c, "k3s-amd64", &json!([])).unwrap_err();
+    assert!(error.message.contains("请使用配套的新部署包"));
+    assert!(error.message.contains("尚未下载应用资源或创建集群"));
+}
+#[test]
+fn selected_package_components_enable_only_their_declared_release_closure() {
+    let mut c = catalog();
+    c["targets"]["k3s-amd64"]["environment"]["releases"] = json!({
+        "postgres":{"enabled":false}, "task":{"enabled":false},
+        "stalwart":{"enabled":false}, "langfuse":{"enabled":false},
+        "clickhouse":{"enabled":false}
+    });
+    c["components"]["core"]["values"] = json!({"releases":{"postgres":{"enabled":true}}});
+    c["components"]["task"]["requires"] = json!(["core", "stalwart"]);
+    c["components"]["task"]["values"] = json!({"releases":{"task":{"enabled":true}}});
+    c["components"]["stalwart"] = json!({"requires":["core"],"files":[],"values":{"releases":{"stalwart":{"enabled":true}}}});
+    for (apps, expected) in [(json!([]), vec!["postgres"]), (json!(["task"]), vec!["postgres", "stalwart", "task"])] {
+        let plan = resources::plan(&c, "k3s-amd64", &apps).unwrap();
+        let enabled: Vec<_> = plan["environment"]["releases"].as_object().unwrap().iter()
+            .filter(|(_, value)| value["enabled"] == true).map(|(name, _)| name.as_str()).collect();
+        assert_eq!(enabled, expected);
+    }
+}
+#[test]
 fn resource_closure_excludes_unselected_apps_and_rejects_missing_or_cyclic_dependencies() {
     let mut c = catalog();
     let p = resources::plan(&c, "k3s-amd64", &json!(["task"])).unwrap();
@@ -925,4 +954,27 @@ fn fresh_files_selection_declares_only_operator_bucket_and_preserves_user_mappin
                 .is_null()
         );
     }
+}
+
+#[test]
+fn unified_k3s_intent_derives_distribution_selector_without_enabling_ha() {
+    for count in [0, 1, 2, 3] {
+        let mut i = install("single-k3s");
+        i["topology"] = json!("k3s");
+        i["nodes"] = json!((0..count).map(|n| json!({"host":format!("node-{n}"),"name":format!("node-{n}"),"address":format!("192.0.2.{}",n+10),"role":if n==0{"server"}else{"agent"}})).collect::<Vec<_>>());
+        let normalized = config::installation(&i).unwrap();
+        assert_eq!(normalized["topology"], "k3s");
+        assert_eq!(normalized["ha"], false);
+        assert_eq!(normalized["nodes"], i["nodes"]);
+        assert_eq!(config::release_topology(&normalized), if count > 1 {"multi-k3s"} else {"single-k3s"});
+        assert_eq!(config::explicit_nodes(&normalized), count > 0);
+    }
+    let mut i = install("single-k3s");
+    i["topology"] = json!("k3s");
+    i["ha"] = json!(true);
+    assert!(config::installation(&i).is_err());
+    i["nodes"] = json!((0..3).map(|n|json!({"host":format!("node-{n}"),"name":format!("node-{n}"),"address":format!("192.0.2.{}",n+10),"role":"server"})).collect::<Vec<_>>());
+    assert!(config::installation(&i).is_ok());
+    i["nodes"].as_array_mut().unwrap().pop();
+    assert!(config::installation(&i).is_err());
 }
