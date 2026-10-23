@@ -27,7 +27,10 @@ def upload(path, key, expected, *, call=api, part_size=PART_SIZE):
             or path.is_symlink() or not path.is_file() or path.stat().st_size != expected['size']):
         raise ValueError('multipart publication requires an exact immutable blob')
     with path.open('rb') as stream:
-        if hashlib.file_digest(stream, 'sha256').hexdigest() != expected['sha256']:
+        digest = hashlib.sha256()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+        if digest.hexdigest() != expected['sha256']:
             raise ValueError('multipart source checksum differs')
     count = (expected['size'] + part_size - 1) // part_size
     if not 1 <= count <= 10000 or not 100 * 1024 <= part_size <= 5 * 1024 ** 3:
