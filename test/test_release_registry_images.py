@@ -6,6 +6,7 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('registry_export', Path(__file__).parents[1] / 'scripts/export-platform-image.py')
 module = importlib.util.module_from_spec(spec)
@@ -61,6 +62,19 @@ class RegistryClosureTests(unittest.TestCase):
             path, root = self.fixture(directory, arches=('amd64',))
             with self.assertRaisesRegex(ValueError, 'both linux/amd64 and linux/arm64'):
                 module.verify_archive(path, root)
+
+    def test_tag_is_metadata_and_transport_uses_only_the_fixed_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive, root = self.fixture(directory)
+            with patch.object(module.subprocess, 'run') as run:
+                module.export_archive('ghcr.io/example/image:display-tag@' + root, archive)
+                command = run.call_args.args[0]
+                self.assertIn('docker://ghcr.io/example/image@' + root, command)
+                self.assertTrue(all('display-tag' not in arg for arg in command))
+            with patch.object(module.subprocess, 'run') as run:
+                with self.assertRaisesRegex(ValueError, 'fixed SHA-256 digest'):
+                    module.export_archive('ghcr.io/example/image:latest', archive)
+                run.assert_not_called()
 
 
 if __name__ == '__main__':

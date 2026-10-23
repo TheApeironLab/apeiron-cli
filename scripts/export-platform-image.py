@@ -72,6 +72,20 @@ def verify_archive(path, expected):
         return sorted(platforms)
 
 
+def export_archive(reference, archive):
+    tagged, separator, expected = reference.rpartition('@')
+    if not separator or not re.fullmatch(r'sha256:[0-9a-f]{64}', expected):
+        raise ValueError('registry exports require a fixed SHA-256 digest')
+    # Skopeo rejects tag@digest, even though it is a valid display reference.
+    # Keep the tag in provenance, but address the transport exclusively by digest.
+    parent, slash, name = tagged.rpartition('/')
+    repository = parent + slash + name.split(':', 1)[0]
+    subprocess.run(['skopeo', 'copy', '--all', '--preserve-digests',
+                    'docker://' + repository + '@' + expected,
+                    'oci-archive:' + str(archive)], check=True)
+    return verify_archive(archive, expected)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--component', required=True)
@@ -84,9 +98,7 @@ def main():
         raise ValueError('private platform images require a pinned first-party GHCR reference')
     args.out.mkdir(parents=True, exist_ok=False)
     archive = args.out / (args.component + '.oci.tar')
-    subprocess.run(['skopeo', 'copy', '--all', '--preserve-digests',
-                    'docker://' + reference, 'oci-archive:' + str(archive)], check=True)
-    platforms = verify_archive(archive, expected)
+    platforms = export_archive(reference, archive)
     with archive.open('rb') as stream:
         checksum = digest(stream)
     (args.out / 'export-provenance.json').write_text(json.dumps({

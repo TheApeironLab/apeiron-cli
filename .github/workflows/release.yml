@@ -76,13 +76,12 @@ jobs:
       - name: Export a small pinned public image and verify its real OCI graph
         run: |
           python3 - <<'PY'
-          import importlib.util,os,pathlib,subprocess
+          import importlib.util,os,pathlib
           spec=importlib.util.spec_from_file_location('exporter','scripts/export-platform-image.py')
           exporter=importlib.util.module_from_spec(spec);spec.loader.exec_module(exporter)
           digest='sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662'
           archive=pathlib.Path(os.environ['RUNNER_TEMP'])/'busybox.oci.tar'
-          subprocess.run(['skopeo','copy','--all','--preserve-digests','docker://docker.io/library/busybox@'+digest,'oci-archive:'+str(archive)],check=True)
-          print('Verified registry export platforms:',exporter.verify_archive(archive,digest))
+          print('Verified registry export platforms:',exporter.export_archive('docker.io/library/busybox:1.36@'+digest,archive))
           PY
 
   checks:
