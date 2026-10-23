@@ -61,7 +61,8 @@ SFTPGo 的旧多架构 pin 只在本地构建过，GHCR 没有对应对象。`Pr
 分别在原生 runner 执行版本检查，记录二进制、CA、镜像和归档摘要。它也由完整平台材料工作流调用，
 可单独运行以补齐材料。构建只产生 Actions artifacts，不写 GHCR 或下载通道；将两种架构组合为
 固定 OCI index 后，须同步更新 Chentu 的镜像与对应源码声明，通过完整材料检查后再冻结 seed。
-当前基础 seed 尚未包含全量应用，准备入口会拒绝它；不得为了继续发布而删减向导范围或跳过检查。
+配方固定的平台 seed 包含全部向导应用材料，包括重建的 SFTPGo 和完整的 Chromium 多架构 OCI 归档。
+准备入口仍检查材料闭包；不得为了继续发布而删减向导范围或跳过检查。
 
 GPUStack 沿用 Chentu 的独立 GPU 主机契约：向导收集 GPU 主机 IP 和服务端口，部署集群中的
 Service/Endpoints/Ingress。GPU 驱动、主机服务、模型权重由 GPU 主机单独准备。配置与镜像检查、
