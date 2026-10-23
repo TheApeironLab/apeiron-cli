@@ -34,6 +34,28 @@ pub fn safe_ip(s: &str) -> bool {
 pub fn apps() -> Value {
     serde_json::from_str(include_str!("../../assets/apps.json")).unwrap()
 }
+/// Resolve UI application aliases through the existing catalog. Dependencies
+/// still come exclusively from the publisher's Helmfile-derived components.
+pub fn components(selected: &Value) -> Value {
+    let catalog = apps();
+    let Some(list) = selected.as_array() else {
+        return selected.clone();
+    };
+    json!(list
+        .iter()
+        .map(|app| {
+            catalog
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == *app)
+                .and_then(|row| row["releases"].as_array())
+                .and_then(|releases| releases.first())
+                .cloned()
+                .unwrap_or_else(|| app.clone())
+        })
+        .collect::<Vec<_>>())
+}
 pub fn defaults() -> Value {
     let mac = cfg!(target_os = "macos");
     json!({"installation":{"topology":if mac{"single-k3d"}else{"single-k3s"},"httpPort":if mac{54320}else{80},"httpsPort":if mac{54321}else{443},"domain":"","entryIp":if mac{"127.0.0.1"}else{""},"ha":false,"sshUser":"","sshKey":"","sshPort":22,"nodes":[]},"runner":if mac{"docker"}else{"native"},"root":"","environment":std::env::var("CHENTU_ENV").or_else(|_|std::env::var("LAB_ENV")).unwrap_or_default(),"kubeconfig":std::env::var("KUBECONFIG").unwrap_or_default(),"workDir":std::env::var("LAB_WORK_DIR").unwrap_or_default(),"image":std::env::var("LAB_IMAGE").unwrap_or_else(|_|"chentu-lab".into()),"offline":false,"bundleDir":""})
@@ -217,6 +239,13 @@ pub fn validate(v: &Value, current: &Value) -> Result<Value> {
     {
         return Err(fail("应用列表不正确或重复。", 400));
     }
+    for app in catalog.iter().filter(|app| list.contains(&app["id"])) {
+        for required in app["requires"].as_array().into_iter().flatten() {
+            if !list.contains(required) {
+                return Err(fail("所选应用缺少显式前置应用。", 400));
+            }
+        }
+    }
     let mut out = json!({"schemaVersion":2,"slug":slug,"apps":catalog.iter().filter(|a|list.contains(&a["id"])).map(|a|a["id"].clone()).collect::<Vec<_>>()});
     if let Some(m) = v.get("models") {
         if !m.is_null() {
@@ -358,4 +387,34 @@ pub fn save(path: &Path, input: &Value) -> Result<Value> {
     let _ = fs::remove_file(temp);
     let _ = fs::remove_file(lock);
     result
+}
+
+#[cfg(test)]
+mod package_application_tests {
+    use super::*;
+
+    #[test]
+    fn optional_application_aliases_preserve_selection_and_package_names() {
+        assert_eq!(
+            components(&json!(["browser", "ci", "git", "kps"])),
+            json!(["chrome-headless", "woodpecker", "git", "kps"])
+        );
+        assert_eq!(components(&json!(["missing"])), json!(["missing"]));
+        assert_eq!(components(&Value::Null), Value::Null);
+        for id in ["browser", "ci"] {
+            let catalog = apps();
+            let app = catalog.as_array().unwrap().iter().find(|a| a["id"] == id).unwrap();
+            assert_eq!(app["selected"], false);
+        }
+    }
+
+    #[test]
+    fn ci_requires_explicit_git_selection_without_adding_it() {
+        let input = json!({"slug":"example","apps":["ci"]});
+        assert!(validate(&input, &Value::Null).is_err());
+        let input = json!({"slug":"example","apps":["ci","git"]});
+        let value = validate(&input, &Value::Null).unwrap();
+        assert_eq!(value["apps"], json!(["git", "ci"]));
+        assert_eq!(input["apps"], json!(["ci", "git"]));
+    }
 }

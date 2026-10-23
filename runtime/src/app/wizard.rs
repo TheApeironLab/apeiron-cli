@@ -182,6 +182,23 @@ impl State {
             return Err(fail("请求超过大小限制。", 413));
         }
         let input: Value = serde_json::from_slice(&bytes).map_err(|_| fail("请求需为有效 JSON。", 400))?;
+        // Lifecycle execution is intentionally unavailable in this delivery. Never
+        // reinterpret an upgrade/restore request as a legacy first installation.
+        if route.starts_with("api/lifecycle/")
+            || ([
+                "api/config",
+                "api/deploy",
+                "api/deployment/retry",
+                "api/deployment/resume",
+            ]
+            .contains(&route)
+                && (input.get("intent").is_some() || input.get("planId").is_some()))
+        {
+            return Err(fail(
+                "生命周期执行尚未实现或验收；请使用 apeiron lifecycle plan 生成只读计划。",
+                409,
+            ));
+        }
         if route == "api/deployment/stop" {
             empty(&input)?;
             if !self.deployment.active() || self.access.active() {
@@ -575,6 +592,31 @@ fn serve(
 #[cfg(test)]
 mod contracts {
     use super::*;
+    #[test]
+    fn lifecycle_execution_intents_cannot_fall_through_to_first_install() {
+        let temp = crate::app::contracts::Temp::new();
+        let mut server = start_gateway(temp.0.join("config.json"), "fixture".into()).unwrap();
+        let before = std::fs::read(&server.state.path).ok();
+        let client = reqwest::blocking::Client::new();
+        for route in [
+            "api/deploy",
+            "api/config",
+            "api/deployment/resume",
+            "api/deployment/retry",
+            "api/lifecycle/execute",
+        ] {
+            let response = client
+                .post(format!("{}{route}", server.url()))
+                .header("Origin", &server.state.origin)
+                .json(&json!({"intent":"upgrade","planId":"fixture-plan"}))
+                .send()
+                .unwrap();
+            assert_eq!(response.status().as_u16(), 409, "{route}");
+        }
+        assert_eq!(std::fs::read(&server.state.path).ok(), before);
+        assert!(!server.state.deployment.active());
+        server.stop();
+    }
     #[test]
     fn pending_local_authorization_blocks_mutations_finish_and_duplicate_installation() {
         let temp = crate::app::contracts::Temp::new();

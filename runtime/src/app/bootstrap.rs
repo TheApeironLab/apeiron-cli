@@ -97,7 +97,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     }
     let key = format!("{}-{arch}", if docker { "k3d" } else { "k3s" });
     let catalog = resources::catalog(&root, &key)?;
-    let mut plan = resources::plan(&catalog, &key, &config["apps"])?;
+    let mut plan = resources::plan(&catalog, &key, &config::components(&config["apps"]))?;
     let cache = if target["bundleDir"].as_str().unwrap_or("").is_empty() {
         c.directory.parent().unwrap().join("resources")
     } else {

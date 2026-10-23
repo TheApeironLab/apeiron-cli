@@ -52,7 +52,7 @@ test('wizard serves seven steps including model configuration without writing co
     expect(snapshot.config).toBeNull();
     expect(snapshot.apps.map((a) => a.id)).toEqual([
         'nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart',
-        'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps',
+        'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci',
     ]);
     expect(snapshot.apps.filter((a) => a.required).map((a) => a.id)).toEqual(requiredApps);
     expect(snapshot.apps.filter((a) => a.selected).map((a) => a.id)).toEqual([...requiredApps, 'task', 'corpus', 'matrix', 'files', 'stalwart']);

@@ -8,6 +8,7 @@ mod contracts;
 pub(crate) mod deploy;
 mod discovery;
 pub(crate) mod distribution;
+mod lifecycle;
 mod models;
 mod pairing;
 mod process;
@@ -205,6 +206,7 @@ pub fn run() -> Option<i32> {
         "chat" => chat::run(&args[1..]),
         "register" => register::run(&args[1..]),
         "init" => wizard::run(&args[1..]),
+        "lifecycle" => lifecycle::run(&args[1..]),
         "platform" => pairing::run(&args[1..]),
         "--build-info" => {
             println!(
@@ -220,7 +222,7 @@ pub fn run() -> Option<i32> {
             Ok(())
         }
         "--help" | "-h" | "describe" => {
-            println!("schema=apeiron.v1\ncommand\tusage\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
+            println!("schema=apeiron.v1\ncommand\tusage\nlifecycle\tapeiron lifecycle --help — read-only upgrade, backup and recovery plans\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
             Ok(())
         }
         _ => forward(module, &args[1..]),
