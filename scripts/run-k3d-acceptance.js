@@ -4,6 +4,7 @@ import { lstat, readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { acceptanceTargets } from './lib/distribution.js';
 import { cleanupK3dLease } from './lib/k3d-lease.js';
+import { acceptanceScope } from './lib/acceptance-scope.js';
 const [targetName, release, input, work] = process.argv.slice(2);
 const target = acceptanceTargets[targetName];
 if (!target || target.topology !== 'single-k3d' || ![release, input, work].every(isAbsolute)
@@ -22,10 +23,9 @@ async function freePort() {
 const httpPort = await freePort();
 let httpsPort = await freePort();
 while (httpsPort === httpPort) httpsPort = await freePort();
-const apps = JSON.parse(await readFile(new URL('../runtime/assets/apps.json', import.meta.url)));
 const domain = `release-${id}-${target.os}.apeironlab.internal`;
 const profile = { schemaVersion: 1, slug: `release-${process.env.GITHUB_RUN_ID}`,
-  apps: [...new Set([...apps.filter(a => a.required).map(a => a.id), 'apeiron'])],
+  apps: acceptanceScope(JSON.parse(await readFile(join(release, 'release.json'))).version).applications,
   models: { provider: 'fixture', baseUrl: 'https://models.example.internal/v1', apiKey: 'fixture-only-key', fast: 'fixture-chat', deep: 'fixture-chat' },
   deployment: { offline: false, installation: { topology: 'single-k3d', ha: false, nodes: [],
     domain, entryIp: '127.0.0.1', httpPort, httpsPort, sshKey: '', sshUser: '', sshPort: 22 } } };
