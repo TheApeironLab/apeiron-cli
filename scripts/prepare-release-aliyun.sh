@@ -11,4 +11,6 @@ printf '%s\n' "$directory" >> "$GITHUB_PATH"
 
 # aliyun lazily installs ossutil in a shared location. Complete that bootstrap
 # before any concurrent immutable uploads can race over its executable.
+export ALIBABA_CLOUD_REGION_ID=cn-beijing
+export ALIBABA_CLOUD_IGNORE_PROFILE=TRUE
 "$directory/aliyun" ossutil version
