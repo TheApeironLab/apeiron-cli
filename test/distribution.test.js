@@ -1,3 +1,4 @@
+import { acceptanceScope } from '../scripts/lib/acceptance-scope.js';
 import { expect, test } from 'bun:test';
 import { acceptanceTargets, acceptanceChecks, validateDistribution, validateAcceptanceSet, publicDistribution } from '../scripts/lib/distribution.js';
 
@@ -13,6 +14,7 @@ function fixture() {
     release.files[`apeiron-${version}-${t.cli}.tar.gz`] = { sha256: hash };
     return { schemaVersion: 1, version, revision: release.revision, target, distributionSha256: hash, archiveSha256: hash,
       runId: '123', os: t.os, arch: t.arch, topology: t.topology, osRelease: 'ubuntu:22.04', servers: t.servers, agents: 0,
+      applications: acceptanceScope(version).applications, deferredApplications: acceptanceScope(version).deferredApplications,
       checks: Object.fromEntries(acceptanceChecks.map(name => [name, true])) };
   });
   return { release, input, receipts };
@@ -43,6 +45,15 @@ test('stale, mixed or incomplete receipts cannot authorize publication', () => {
     const { release, receipts } = fixture();
     mutate(receipts[3]);
     expect(() => validateAcceptanceSet(receipts, release, hash, '123')).toThrow();
+  }
+});
+
+test('a base-only or duplicated application receipt cannot authorize a full wizard release', () => {
+  for (const applications of [undefined, ['nexus', 'vasi', 'apeiron', 'gateway'],
+    [...acceptanceScope(version).applications, 'files'], acceptanceScope(version).applications.filter(name => name !== 'files')]) {
+    const { release, receipts } = fixture();
+    receipts[0].applications = applications;
+    expect(() => validateAcceptanceSet(receipts, release, hash, '123')).toThrow('every non-deferred wizard application');
   }
 });
 

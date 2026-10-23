@@ -1,4 +1,5 @@
 import { parseReleaseVersion } from './release-version.js';
+import { validateApplicationScope, acceptanceScope } from './acceptance-scope.js';
 
 // Deployment coverage is deliberately separate from the four executable targets.
 export const acceptanceTargets = Object.freeze({
@@ -7,7 +8,7 @@ export const acceptanceTargets = Object.freeze({
   'k3s-single-amd64': { cli: 'linux-x64', topology: 'single-k3s', os: 'linux', arch: 'x64', servers: 1 },
   'k3s-multi-amd64': { cli: 'linux-x64', topology: 'multi-k3s', os: 'linux', arch: 'x64', servers: 3 },
 });
-export const acceptanceChecks = Object.freeze(['installation', 'nodes', 'images', 'credentials', 'https', 'login']);
+export const acceptanceChecks = Object.freeze(['installation', 'nodes', 'images', 'credentials', 'https', 'login', 'applications', 'workloads']);
 const requireValue = (value, message) => { if (!value) throw new Error(message); };
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
@@ -54,6 +55,8 @@ export function validateAcceptance(receipt, release, distributionHash, runId) {
     'Acceptance host/topology mismatch');
   if (target.topology !== 'single-k3d') requireValue(receipt.osRelease === 'ubuntu:22.04', 'Native acceptance requires Ubuntu 22.04');
   requireValue(receipt.servers === target.servers && receipt.agents === 0, 'Acceptance node count mismatch');
+  validateApplicationScope(receipt.applications, release.version);
+  requireValue(JSON.stringify(receipt.deferredApplications) === JSON.stringify(acceptanceScope(release.version).deferredApplications), 'Acceptance must explicitly record deferred applications');
   requireValue(acceptanceChecks.every(name => receipt.checks?.[name] === true), 'Incomplete acceptance checks');
   return receipt;
 }
