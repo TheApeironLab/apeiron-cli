@@ -27,9 +27,9 @@
       "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/93e977a8367ee61e8b8ac32c525533ed7f30b350509fc25e02a0ab7a6518a4a8"
     },
     "k3s-amd64": {
-      "sha256": "1763270095021783120a666c92f5be89cd4000e5b7de9b3f40bc5a4e1918a7d5",
+      "sha256": "bb1da554c83e87a5ae444ec73840f78a363c38524cfbd07cf1433490eb00c2b8",
       "size": 135067,
-      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/1763270095021783120a666c92f5be89cd4000e5b7de9b3f40bc5a4e1918a7d5"
+      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/bb1da554c83e87a5ae444ec73840f78a363c38524cfbd07cf1433490eb00c2b8"
     }
   }
 }
