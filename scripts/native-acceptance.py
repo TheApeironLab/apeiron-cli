@@ -182,7 +182,11 @@ failure() {{
   code=$?
   trap - ERR
   printf 'APEIRON_DIAGNOSTIC=' >&3
-  {{ tail -c 5000 "$work/bootstrap.log"; tail -c 7000 "$work/acceptance.log" 2>/dev/null || true; }} | base64 -w0 >&3
+  {{
+    tail -c 3000 "$work/bootstrap.log"
+    tail -c 3000 "$work/acceptance.log" 2>/dev/null || true
+    find "$work/run" -maxdepth 4 -type f -name install.log -exec tail -c 6000 '{{}}' '+' 2>/dev/null | tail -c 6000 || true
+  }} | base64 -w0 >&3
   printf '\\n' >&3
   exit "$code"
 }}

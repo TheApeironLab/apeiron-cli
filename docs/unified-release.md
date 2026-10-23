@@ -85,7 +85,7 @@ Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选�
 `.github/workflows/release-acceptance.yml@refs/heads/main` 调用，并各自带对应目标标签。
 该工作流须先存在于 `main`，才能配置 GitHub 的工作流限制。runner 设置
 `APEIRON_RELEASE_DISPOSABLE=true`；测试脚本生成独占配置路径、域名和端口，最终只清理本次集群的容器、网络和卷。
-禁止使用 Docker prune。安装配置和原始日志留在私有工作目录，仅上传有界验收结果。
+禁止使用 Docker prune。安装配置和原始日志仅写入私有临时目录（runner 完成 job 后可能清理），只上传有界验收结果。
 
 原生测试在 GitHub hosted Ubuntu runner 上编排，通过云助手运行，无需持久 GitHub runner 注册令牌或公网 SSH 放行。
 测试机固定为 8 核 32 GB、200 GB 磁盘，按量计费并设置 4 小时自动释放。
