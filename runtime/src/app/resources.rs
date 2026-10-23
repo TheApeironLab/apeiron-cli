@@ -532,6 +532,31 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
             &mut done,
         )?;
     }
+    // A wizard application can enable several Helmfile releases. Each release
+    // that has its own catalog component must contribute its artifacts before
+    // flags are enabled below. Older catalogs aggregate those artifacts into the
+    // primary component and do not declare the sibling components separately.
+    loop {
+        let mut additional = Vec::new();
+        for app in config::apps().as_array().unwrap() {
+            if !done.iter().any(|name| app["id"] == name.as_str()) {
+                continue;
+            }
+            if let Some(releases) = app["releases"].as_array() {
+                for name in releases.iter().filter_map(Value::as_str) {
+                    if c["components"].get(name).is_some() && !done.iter().any(|done| done == name) {
+                        additional.push(name.to_owned());
+                    }
+                }
+            }
+        }
+        if additional.is_empty() {
+            break;
+        }
+        for name in additional {
+            visit(c, &name, &mut vec![], &mut done)?;
+        }
+    }
     let mut env = t["environment"].clone();
     let mut paths = std::collections::HashSet::new();
     let mut images = BTreeMap::new();
