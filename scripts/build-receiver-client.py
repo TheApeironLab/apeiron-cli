@@ -18,7 +18,7 @@ def build(source, candidate, platform, out):
     version, revision = identity['version'], identity['sources']['apeiron']
     if run('git', '-C', source, 'rev-parse', 'HEAD') != revision or run('git', '-C', source, 'status', '--porcelain'):
         raise ValueError('receiver source must be clean at the candidate commit')
-    run('python3', source / 'deploy/lib/release-version.py', '--tag', 'v' + version, '--stage')
+    run('python3', source / 'deploy/lib/release-version.py', '--base-file', source / 'VERSION', '--tag', 'v' + version, '--stage')
     subprocess.run(['cargo', 'build', '--release', '--locked'], cwd=source / 'cli', check=True)
     binary = source / 'cli/target/release/apeiron'
     if run(binary, '--version') != 'apeiron ' + version:
