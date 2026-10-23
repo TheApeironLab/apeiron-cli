@@ -51,20 +51,23 @@ Grafana 的原有断言。检查容器没有网络，不把渲染成功视为运
 首次补齐平台材料时，`Prepare optional application images` 从 `release/platform-images.json`
 指定的已合并源码和正式 Dockerfile 构建 Zygos API/Web/Worker/EvalScope 与 Browser 的 AMD64、ARM64
 镜像。工作流仅保留镜像归档、源提交、配方摘要和归档摘要；不发布通道，也不自动替换平台 seed。
-同一工作流通过临时 `GITHUB_TOKEN` 的 `packages: read` 获取固定 digest 的 GPUStack
-多架构 OCI 归档。该私有包须授予 `apeiron-cli` Actions 的 Read 权限；不需要增加长期 PAT。
-导出后验证原始 index digest、全部 blob 摘要和引用闭包，以及 AMD64/ARM64 的存在；截断归档、
-缺失层和只有单一架构的导出均拒绝。临时认证文件在 job 结束前删除，artifact 不包含凭据。
+GPUStack 使用已运行的外部服务，普通发行包不分发其服务镜像、Runner、vLLM、pause 或 NVIDIA 插件镜像。
+如果未来需要独立 GPU 主机安装包，应另设发布与验收范围。
+当前 registry 镜像清单为空，对应导出 job 自动跳过。若以后加入固定 digest 的多架构镜像，
+导出仍须验证原始 index digest、全部 blob 摘要、引用闭包，以及 AMD64/ARM64 的存在；
+截断归档、缺失层和只有单一架构的导出均拒绝。临时认证文件在 job 结束前删除，artifact 不包含凭据。
 这些镜像与其他应用材料通过 Chentu publisher 的闭包验证后，才能冻结并提交新的 seed 摘要。
 SFTPGo 的旧多架构 pin 只在本地构建过，GHCR 没有对应对象。`Prepare SFTPGo source images`
 从 `sourceBuilds.sftpgo` 固定的公开 PKCE 源码提交、Dockerfile 摘要和 Go 版本重建两种架构，
 分别在原生 runner 执行版本检查，记录二进制、CA、镜像和归档摘要。它也由完整平台材料工作流调用，
 可单独运行以补齐材料。构建只产生 Actions artifacts，不写 GHCR 或下载通道；将两种架构组合为
 固定 OCI index 后，须同步更新 Chentu 的镜像与对应源码声明，通过完整材料检查后再冻结 seed。
-当前基础 seed 尚未包含全量应用，准备入口会拒绝它；不得为了继续发布而删减向导范围或跳过检查。
+配方固定的平台 seed 包含全部向导应用材料，包括重建的 SFTPGo 和完整的 Chromium 多架构 OCI 归档。
+准备入口仍检查材料闭包；不得为了继续发布而删减向导范围或跳过检查。
 
 GPUStack 沿用 Chentu 的独立 GPU 主机契约：向导收集 GPU 主机 IP 和服务端口，部署集群中的
-Service/Endpoints/Ingress。GPU 驱动、主机服务、模型权重由 GPU 主机单独准备。配置与镜像检查、
+Service/Endpoints/Ingress。GPU 驱动、主机服务、推理运行环境和模型权重由 GPU 主机单独准备；
+冻结平台材料时移除该组件的镜像，发布校验拒绝重新夹带这些 GPU 主机归档。配置与镜像检查、
 实际入口/SSO 验收、模型推理验收分别记录，CPU 安装测试不能代替 GPU 推理测试。
 
 `release/signing-key.asc` 仅包含公钥。正式私钥不进入 Git；`recipe.json` 固定其完整指纹。
@@ -135,7 +138,7 @@ Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选�
 每个目标使用最终 CLI 编译引用的公开 Chentu 包安装；当前 nightly 选择除 GPUStack 外的 17 个应用，stable 仍要求向导全部应用。
 核对节点数量、角色、Ready、架构和原生 Ubuntu 版本，
 检查四种应用运行镜像摘要、持久 Keycloak operator 凭据、CA 校验的 HTTPS，以及真实 IAM 密码 token 登录。
-按本次 nightly 的明确范围，GPUStack 外部服务验收暂缓，部署包仍包含其材料；这不构成 GPUStack 安装、SSO 或 GPU 推理验收通过。
+按本次 nightly 的明确范围，GPUStack 外部服务验收暂缓，部署包仅保留现有服务的接入配置，不包含 GPU 主机镜像；这不构成 GPUStack 安装、SSO 或 GPU 推理验收通过。
 验收回执同时记录应用列表及 `deferredApplications: ["gpustack"]`，缺应用、重复应用或旧的基础安装回执不能授权发布。
 同时核对应用对应的 Helm release 已部署，并等待 Deployment / StatefulSet / DaemonSet 的观测代次、就绪副本和滚动更新完成。
 SSO 配置重启 K3s 后会等待服务恢复。scode 按需启动，因此创建临时 Pod 检查镜像和可执行文件版本，完成后删除。

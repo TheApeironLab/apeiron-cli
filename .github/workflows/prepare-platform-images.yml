@@ -22,6 +22,7 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       registry-matrix: ${{ steps.plan.outputs.registry-matrix }}
+      registry-enabled: ${{ steps.plan.outputs.registry-enabled }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -41,6 +42,7 @@ jobs:
                              for name,item in lock['images'].items() for arch in ('amd64','arm64')]}
           with open(os.environ['GITHUB_OUTPUT'],'a') as output:
               output.write('matrix='+json.dumps(matrix,separators=(',',':'))+'\n')
+              output.write('registry-enabled='+str(bool(lock['registryImages'])).lower()+'\n')
               output.write('registry-matrix='+json.dumps({'component':list(lock['registryImages'])},separators=(',',':'))+'\n')
           PY
   images:
@@ -83,6 +85,7 @@ jobs:
 
   registry-images:
     needs: identity
+    if: needs.identity.outputs.registry-enabled == 'true'
     # Jammy's Skopeo lacks --preserve-digests. Match the real export smoke job.
     runs-on: ubuntu-24.04
     permissions:
