@@ -72,6 +72,8 @@ Service/Endpoints/Ingress。GPU 驱动、主机服务、推理运行环境和模
 
 `imagePins` 是组件镜像回执的派生映射。冻结材料和重建应用镜像后重新生成该映射，
 平台清单预检拒绝旧摘要、旧别名或已移除镜像的残留；部署 values 仍须通过 Chentu 原生镜像校验。
+多架构镜像保留完整 index digest 和各架构构建记录，同时明确当前平台的 `recipe` 与 `platform`。
+下载材料前逐镜像运行 Chentu 原生构建记录校验，缺失或冲突的记录会报告具体镜像并终止构建。
 
 `release/signing-key.asc` 仅包含公钥。正式私钥不进入 Git；`recipe.json` 固定其完整指纹。
 Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选及两种 profile 的完整来源和构建工具摘要。

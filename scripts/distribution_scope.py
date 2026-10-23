@@ -30,6 +30,29 @@ def refresh_catalog_image_pins(catalog):
     return result
 
 
+def platform_build_provenance(catalog, architecture):
+    """Expose the selected platform recipe while retaining complete index evidence."""
+    result = copy.deepcopy(catalog)
+    platform = 'linux/' + architecture
+    for component in result['components'].values():
+        for image in component.get('images', []):
+            provenance = image.get('buildProvenance')
+            if not provenance or 'platformBuilds' not in provenance:
+                continue
+            builds = provenance['platformBuilds']
+            selected = [build for build in builds if build.get('platform') == platform]
+            if len(selected) != 1:
+                raise ValueError('multiarchitecture provenance requires one build for ' + platform)
+            build = selected[0]
+            if build.get('source') != provenance.get('source'):
+                raise ValueError('platform build source differs from index source')
+            for name, value in (('recipe', build['recipe']), ('platform', platform)):
+                if name in provenance and provenance[name] != value:
+                    raise ValueError('conflicting platform build provenance: ' + name)
+                provenance[name] = copy.deepcopy(value)
+    return result
+
+
 def external_service_catalog(catalog):
     """Keep the existing GPUStack service integration without GPU host images."""
     result = copy.deepcopy(catalog)
