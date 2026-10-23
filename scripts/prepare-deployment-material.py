@@ -114,6 +114,12 @@ def prepare(args):
     scope = required_components(recipe)
     validate_catalog(seed['catalog'], scope)
     validate_catalog_image_values(seed['catalog']['targets'][args.profile]['environment'], seed['catalog']['components'])
+    for component in seed['catalog']['components'].values():
+        for image in component.get('images', []):
+            try:
+                hosted.image_build_provenance(image, files.PROFILES[args.profile])
+            except (TypeError, ValueError) as error:
+                raise ValueError('Invalid platform image provenance: ' + image['reference']) from error
     material = args.out / 'material'
     material.mkdir()
     with ThreadPoolExecutor(max_workers=4) as executor:
