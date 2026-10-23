@@ -49,6 +49,10 @@ Grafana 的原有断言。检查容器没有网络，不把渲染成功视为运
 首次补齐平台材料时，`Prepare optional application images` 从 `release/platform-images.json`
 指定的已合并源码和正式 Dockerfile 构建 Zygos API/Web/Worker/EvalScope 与 Browser 的 AMD64、ARM64
 镜像。工作流仅保留镜像归档、源提交、配方摘要和归档摘要；不发布通道，也不自动替换平台 seed。
+同一工作流通过临时 `GITHUB_TOKEN` 的 `packages: read` 获取固定 digest 的 SFTPGo、GPUStack
+多架构 OCI 归档。两个私有包须授予 `apeiron-cli` Actions 的 Read 权限；不需要增加长期 PAT。
+导出后验证原始 index digest、全部 blob 摘要和引用闭包，以及 AMD64/ARM64 的存在；截断归档、
+缺失层和只有单一架构的导出均拒绝。临时认证文件在 job 结束前删除，artifact 不包含凭据。
 这些镜像与其他应用材料通过 Chentu publisher 的闭包验证后，才能冻结并提交新的 seed 摘要。
 当前基础 seed 尚未包含全量应用，准备入口会拒绝它；不得为了继续发布而删减向导范围或跳过检查。
 
