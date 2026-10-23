@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { acceptanceTargets, validateDistribution, validateAcceptance } from './lib/distribution.js';
+import { validateApplicationScope, acceptanceScope, workloadsReady } from './lib/acceptance-scope.js';
 
 // Destructive installation is restricted to an explicitly configured disposable
 // acceptance runner. Never use a developer's existing cluster as this runner.
@@ -18,6 +19,8 @@ const release = await json(join(out, 'release.json'));
 const inputBytes = await readFile(inputPath);
 const distribution = validateDistribution(JSON.parse(inputBytes), release);
 const profile = await json(process.env.APEIRON_ACCEPTANCE_CONFIG);
+validateApplicationScope(profile.apps, release.version);
+const scope = acceptanceScope(release.version);
 const installation = profile.deployment?.installation;
 if (installation?.topology !== target.topology || !profile.apps?.includes('apeiron')
     || profile.deployment.offline !== false || profile.deployment.root || profile.deployment.environment
@@ -106,6 +109,17 @@ try {
   if (nodes.some(n => n.status.nodeInfo?.architecture !== architecture
       || (target.topology !== 'single-k3d' && !n.status.nodeInfo?.osImage?.startsWith('Ubuntu 22.04'))))
     throw new Error('Cluster node architecture/OS mismatch');
+  const deployed = (await run([...command, 'get', 'secrets', '-A', '-l', 'owner=helm,status=deployed',
+    '-o', 'jsonpath={range .items[*]}{.metadata.labels.name}{"\\n"}{end}'])).trim().split('\n');
+  if (scope.releases.some(name => !deployed.includes(name)))
+    throw new Error('A selected wizard application Helm release is not deployed');
+  const workloadsDeadline = Date.now() + 600_000;
+  for (;;) {
+    const workloads = JSON.parse(await run([...command, 'get', 'deployments,statefulsets,daemonsets', '-A', '-o', 'json'])).items;
+    if (workloadsReady(workloads)) break;
+    if (Date.now() >= workloadsDeadline) throw new Error('Full application workloads did not become ready');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+  }
   // SSO configuration restarts K3s. Wait for applications to recover before
   // measuring their running image identities.
   for (const name of ['backend', 'app', 'ops'])
@@ -160,7 +174,8 @@ try {
   const receipt = { schemaVersion: 1, version: release.version, revision: release.revision, target: targetName,
     runId: process.env.GITHUB_RUN_ID, distributionSha256: hash(inputBytes), archiveSha256,
     os: process.platform, arch: process.arch, osRelease, topology: target.topology, servers, agents: nodes.length - servers,
-    checks: { installation: true, nodes: true, images: true, credentials: true, https: true, login: true } };
+    applications: [...profile.apps].sort(), deferredApplications: scope.deferredApplications,
+    checks: { installation: true, nodes: true, images: true, credentials: true, https: true, login: true, applications: true, workloads: true } };
   validateAcceptance(receipt, release, hash(inputBytes), process.env.GITHUB_RUN_ID);
   await writeFile(join(work, `${targetName}.json`), JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   console.log(`PASS ${targetName}: installation, nodes, durable credentials, HTTPS and IAM login`);

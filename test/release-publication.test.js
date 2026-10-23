@@ -1,3 +1,4 @@
+import { acceptanceScope } from '../scripts/lib/acceptance-scope.js';
 import { test, expect } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
@@ -41,7 +42,8 @@ async function fixture(version, fn) {
       acceptance: Object.entries(acceptanceTargets).map(([target, t]) => ({ schemaVersion: 1, target, version, revision,
         distributionSha256: inputSha256, runId: '123', archiveSha256: artifacts[`apeiron-${version}-${t.cli}.tar.gz`].sha256,
         os: t.os, arch: t.arch, topology: t.topology, osRelease: 'ubuntu:22.04', servers: t.servers, agents: 0,
-        checks: Object.fromEntries(acceptanceChecks.map(name => [name, true])) })) });
+        applications: acceptanceScope(version).applications, deferredApplications: acceptanceScope(version).deferredApplications,
+      checks: Object.fromEntries(acceptanceChecks.map(name => [name, true])) })) });
     for (const [name, bytes] of Object.entries(files)) await writeFile(join(out, name), bytes);
     await writeFile(join(out, 'SHA256SUMS'), Object.entries(files).map(([name, bytes]) => `${digest(bytes)}  ${name}\n`).join(''));
     const preload = join(root, 'transport.js');

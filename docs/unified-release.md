@@ -133,11 +133,15 @@ Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选�
 
 ## 验收内容与边界
 
-每个目标使用最终 CLI 编译引用的公开 Chentu 包安装，核对节点数量、角色、Ready、架构和原生 Ubuntu 版本，
+每个目标使用最终 CLI 编译引用的公开 Chentu 包安装；当前 nightly 选择除 GPUStack 外的 17 个应用，stable 仍要求向导全部应用。
+核对节点数量、角色、Ready、架构和原生 Ubuntu 版本，
 检查四种应用运行镜像摘要、持久 Keycloak operator 凭据、CA 校验的 HTTPS，以及真实 IAM 密码 token 登录。
+按本次 nightly 的明确范围，GPUStack 外部服务验收暂缓，部署包仍包含其材料；这不构成 GPUStack 安装、SSO 或 GPU 推理验收通过。
+验收回执同时记录应用列表及 `deferredApplications: ["gpustack"]`，缺应用、重复应用或旧的基础安装回执不能授权发布。
+同时核对应用对应的 Helm release 已部署，并等待 Deployment / StatefulSet / DaemonSet 的观测代次、就绪副本和滚动更新完成。
 SSO 配置重启 K3s 后会等待服务恢复。scode 按需启动，因此创建临时 Pod 检查镜像和可执行文件版本，完成后删除。
 
-上述基线不包含浏览器 PKCE/会话、模型调用、应用或存储故障切换、可选组件及完全断网验收。
+上述基线不包含 GPUStack 验收、浏览器 PKCE/会话、模型调用、应用或存储故障切换及完全断网验收。
 三 server 的基础安装通过不等于完整 HA。使用私有开发部署包的旧测试不能替代公开固定引用的发行验收。
 `scripts/smoke-native-host.py` 的主机启动检查也不算安装验收。
 
