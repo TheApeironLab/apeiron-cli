@@ -1,4 +1,4 @@
-# 隔离升级入口（开发中，尚未完成真实入口验收）
+# 隔离升级入口（已完成限定副本验收）
 
 入口为 `bin/apeiron lifecycle upgrade`，固定调用同一安装包内的 Chentu 执行器。
 不接受外部执行脚本，不转发插件，不通过首次安装向导接管已有集群。生产、扩容和恢复
@@ -22,7 +22,7 @@ Python 模块集合，拒绝未知导入文件；子进程不继承代理、Pyth
 | `prepare` | `--request FILE` | 核对副本、旧记录、逐组件基线、保护证据并只读渲染，生成待审计划 |
 | `execute` | `--plan FILE --plan-sha256 SHA256` | 准入 → 前指纹 → 原生 Helmfile → 后指纹 → 待审验收 |
 | `verify` | 同上 | 只读刷新后指纹与验收，保留历史证据和已完成 sync |
-| `status` | 同上 | 读取持久检查点；不将 Helm deployed 当成 hook 成功 |
+| `status` | 同上 | 运行期间只读持久快照，不争用执行锁；不将 Helm deployed 当成 hook 成功 |
 | `reconcile` | 同上 | 核对实际状态并输出精确对账摘要 |
 | `resume` | 同上，另加 `--reconciliation-sha256 SHA256` | 仅执行已证明可继续的阶段，不自动重装 Chart |
 | `commit` | 同上，另加 `--review-sha256 SHA256` | 无硬阻断且审阅摘要匹配时提交新 generation，保留旧记录 |
@@ -39,3 +39,32 @@ Python 模块集合，拒绝未知导入文件；子进程不继承代理、Pyth
 续执行只在所有选中 Chart 到达精确的新 revision，且 native prepare 回执完整时续跑
 IAM/Task finalize；已完成配置跳过，失败证据保留。部分 Chart 未完成仍明确阻断。
 现场漂移、未支持迁移、未验收组件和生产目标均不能靠更换 state 目录绕过准入。
+
+## 已完成的限定验收
+
+2026-10-23，candidate-52（`0.1.0-dev.20261023.2`）通过包内统一入口在授权隔离
+single-k3s 副本完成 `prepare → execute → verify / reconcile / resume → commit`。
+CLI 源码 `8c0db97`，Chentu 源码 `459a6ba`；安装包构建没有读取部署集群。
+
+- 错误 plan 摘要在变更前被拒绝；执行期间 `status` 成功返回 running 快照。
+- IAM revision 5→6、Task 7→8；其余 26 个 release 不变。四个原生 hook 阶段、13 个细分步骤完成。
+- 在已完成 sync 后，仅中断只读 `data-after` 验证器，再经精确对账摘要续执行。
+  sync 回执及全部 Helm revision 不变，没有重放 Chart。未宣称真实注入过 native hook 中断。
+- 47 个活动 Pod Ready、healthz 正常，26 个 PVC/PV 身份保留；6 条历史 Failed Pod 保留。
+  11 个 PostgreSQL 库 / 578 张表没有旧行或列缺失；24 个 S3 桶 / 15 个对象及 Git refs/fsck 通过。
+  心跳、租约、控制器观察、认证审计/会话及 Stalwart 内存子空间变化逐项审阅，没有使用数据丢失例外。
+- 成功 sync 日志 ERROR=0；正式提交 generation 5，旧 generation 4 及资源/扩容信息保留。
+  记录 SHA-256：`3755707b589265e49328a843d29ea549e1453227acd47cbb05c851cf0cb1cf93`。
+- 归档 SHA-256：`425422f392d5381dc0608c762e00c1449cc05f2d55ad89c5cc6ad11b4301ab49`；
+  验收 SHA-256：`6383c83db8c78d34b8a46738a27c07a797ff123e1632fc828d446a8af029d697`。
+  私有证据目录 `unified-entry-2/` 保留计划、检查点、中断/续执行回执、数据指纹及最终资源清单。
+
+本次是交付包升级和相同业务制品重同步，不能作为不同 Chart/镜像的迁移证明。
+原机未修改；沿用已审历史恢复点，未生成新鲜备份，不声明 RPO=0、生产容量或完整业务验收。
+
+## 组件范围与批次
+
+符合契约的多个组件应放入同一份计划，由原生 Helmfile 按依赖处理；不是每个组件都必须
+分批升级。当前正式适配器仅覆盖 IAM/Task，其他已演练组件接入统一入口及不同制品迁移
+仍是实现缺口，不能静默跳过后宣称全组件升级完成。扩容须独立验收并更新基线，再升级应用；
+应用操作不得自动撤销已验收扩容。
