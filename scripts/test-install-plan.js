@@ -123,6 +123,10 @@ try {
             '-e', 'PYTHONPATH=/repo/cli/src:/repo/deploy/helmfile/scripts'];
         const resolved = Bun.YAML.parse(await run([...docker, '--entrypoint', 'helmfile', image,
             '--environment', 'single-k3d', '--file', 'helmfile.yaml.gotmpl', 'print-env'])).values;
+        for (const [name, release] of Object.entries(resolved.releases)) {
+            assert.equal(release.enabled, plan.environment.releases[name]?.enabled === true,
+                `${name}: Helmfile defaults must not enable a release outside the planned selection`);
+        }
         for (const app of APPS) {
             for (const name of app.releases ?? [app.id]) {
                 assert.equal(resolved.releases[name]?.enabled, plan.components.includes(app.id) || plan.components.includes(name), name);
