@@ -4,7 +4,7 @@
   "applicationScope": "wizard",
   "sources": {
     "apeiron": "229b9ba6c9b841fad74fdcb40fbcdf94f537dfc1",
-    "chentu": "892c0c7d9589ba7ead9074c9ddcb3ead21ac66b9",
+    "chentu": "6ac831344977d5f7ec1e484c33bdd1cbdba43705",
     "systemSkills": "7fcdf6d69bfb7154e9ffa87d6b7b86b61fdee2af"
   },
   "sudocode": {
@@ -22,14 +22,14 @@
   "signingFingerprint": "C6F774C1EFCA93381D33DDCD4591611AFFF52B50",
   "platforms": {
     "k3d-arm64": {
-      "sha256": "64b6d4f95f0a78832502922198342219de642e93434a76000e768f98b943c80b",
-      "size": 113154,
-      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/64b6d4f95f0a78832502922198342219de642e93434a76000e768f98b943c80b"
+      "sha256": "93e977a8367ee61e8b8ac32c525533ed7f30b350509fc25e02a0ab7a6518a4a8",
+      "size": 51835,
+      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/93e977a8367ee61e8b8ac32c525533ed7f30b350509fc25e02a0ab7a6518a4a8"
     },
     "k3s-amd64": {
-      "sha256": "1e40422746a4469ed7ff93b6db5d8cdb0974e556f55629f677176ae48dff40eb",
-      "size": 561113,
-      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/1e40422746a4469ed7ff93b6db5d8cdb0974e556f55629f677176ae48dff40eb"
+      "sha256": "1763270095021783120a666c92f5be89cd4000e5b7de9b3f40bc5a4e1918a7d5",
+      "size": 135067,
+      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/1763270095021783120a666c92f5be89cd4000e5b7de9b3f40bc5a4e1918a7d5"
     }
   }
 }

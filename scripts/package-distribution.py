@@ -16,6 +16,7 @@ import urllib.request
 
 PUBLIC = "https://downloads.apeironlab.cn/"
 PROFILES = {"k3d-arm64": "arm64", "k3s-amd64": "amd64"}
+APEIRON_IMAGES = ("backend", "app", "ops", "scode")
 scope_spec = importlib.util.spec_from_file_location('distribution_scope', Path(__file__).with_name('distribution_scope.py'))
 scope = importlib.util.module_from_spec(scope_spec)
 scope_spec.loader.exec_module(scope)
@@ -136,7 +137,7 @@ def combine(outputs, candidate, out):
     catalogs, packages, blobs, files, sources = {}, {}, {}, {}, None
     manifests = {}
     verified_public = {}
-    images = {name: {} for name in ("backend", "app", "ops", "scode")}
+    images = {name: {} for name in APEIRON_IMAGES}
     for profile, directory in outputs.items():
         manifest, catalog, package = read_profile(directory, verified_public)
         remote = public_resources(directory)

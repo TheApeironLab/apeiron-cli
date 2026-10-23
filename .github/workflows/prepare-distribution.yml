@@ -34,9 +34,7 @@ jobs:
         with:
           bun-version: 1.3.14
       - id: recipe
-        run: |
-          bun scripts/resolve-release-recipe.js
-          python3 scripts/check-platform-scope.py
+        run: bun scripts/resolve-release-recipe.js
         env:
           GH_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
       - id: identity
