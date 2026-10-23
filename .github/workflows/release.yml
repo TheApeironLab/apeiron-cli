@@ -79,9 +79,9 @@ jobs:
           import importlib.util,os,pathlib,subprocess
           spec=importlib.util.spec_from_file_location('exporter','scripts/export-platform-image.py')
           exporter=importlib.util.module_from_spec(spec);spec.loader.exec_module(exporter)
-          digest='sha256:e9622b01071c38e4fe1ca9822a3841feab630ae13ff5ad7f540f73771e56ae86'
-          archive=pathlib.Path(os.environ['RUNNER_TEMP'])/'pause.oci.tar'
-          subprocess.run(['skopeo','copy','--all','--preserve-digests','docker://docker.io/gpustack/runtime@'+digest,'oci-archive:'+str(archive)],check=True)
+          digest='sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662'
+          archive=pathlib.Path(os.environ['RUNNER_TEMP'])/'busybox.oci.tar'
+          subprocess.run(['skopeo','copy','--all','--preserve-digests','docker://docker.io/library/busybox@'+digest,'oci-archive:'+str(archive)],check=True)
           print('Verified registry export platforms:',exporter.verify_archive(archive,digest))
           PY
 
