@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { parseReleaseVersion } from './release-version.js';
 
 export async function fileIdentity(path) {
@@ -12,7 +13,7 @@ export async function fileIdentity(path) {
 }
 
 export async function publicIdentity(url) {
-  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(900_000) });
+  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(3_600_000) });
   if (response.status === 404) return null;
   if (response.status !== 200 || !response.body) throw new Error(`Cannot verify public artifact: HTTP ${response.status}`);
   const hash = createHash('sha256');
@@ -47,7 +48,6 @@ export async function publishImmutable(path, key, expected, dependencies = {}) {
   if (!sameIdentity(actual, expected)) throw new Error('Artifact changed after package preparation');
   if (key.startsWith('apeiron/blobs/') && !key.endsWith('/' + actual.sha256))
     throw new Error('Content address differs from artifact bytes');
-  if (actual.size > 5 * 1024 ** 3) throw new Error('Object exceeds the atomic PutObject size limit');
   const url = `https://downloads.apeironlab.cn/${key}`;
   const old = await remote(url);
   if (old !== null) {
@@ -55,9 +55,14 @@ export async function publishImmutable(path, key, expected, dependencies = {}) {
     return url;
   }
   try {
-    await run(['aliyun', 'ossutil', 'api', 'put-object', '--bucket', 'apeiron-bj-cli-downloads', '--key', key,
-      '--body', `file://${path}`, '--forbid-overwrite', '--region', 'cn-beijing', '--object-acl', 'public-read',
-      '--cache-control', 'public,max-age=31536000,immutable', '--metadata', `sha256=${actual.sha256}`]);
+    if (actual.size > 5 * 1024 ** 3) {
+      await run(['python3', fileURLToPath(new URL('../multipart-deployment-upload.py', import.meta.url)),
+        '--file', path, '--key', key, '--sha256', actual.sha256, '--size', String(actual.size)]);
+    } else {
+      await run(['aliyun', 'ossutil', 'api', 'put-object', '--bucket', 'apeiron-bj-cli-downloads', '--key', key,
+        '--body', `file://${path}`, '--forbid-overwrite', '--region', 'cn-beijing', '--object-acl', 'public-read',
+        '--cache-control', 'public,max-age=31536000,immutable', '--metadata', `sha256=${actual.sha256}`]);
+    }
   } catch (error) {
     // The server atomically rejects a concurrent writer. Only an identical
     // object already visible at the public URL makes this an idempotent retry.

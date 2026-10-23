@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Combine validated Chentu profile outputs; never patch deployment source."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import copy
 from datetime import date
 import gzip
@@ -11,6 +12,7 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 import tarfile
+import urllib.request
 
 PUBLIC = "https://downloads.apeironlab.cn/"
 PROFILES = {"k3d-arm64": "arm64", "k3s-amd64": "amd64"}
@@ -43,21 +45,79 @@ def safe_file(root, name):
     return path
 
 
-def read_profile(directory):
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ValueError('public profile resource redirects are not accepted')
+
+
+def public_resources(directory):
+    marker = directory / 'profile-handoff.json'
+    if not marker.exists():
+        return {}
+    if marker.is_symlink():
+        raise ValueError('profile handoff cannot be a symlink')
+    value = json.loads(marker.read_text())
+    if value.get('schemaVersion') != 1 or value.get('kind') != 'apeiron-published-profile':
+        raise ValueError('invalid profile handoff')
+    records = value['resources']
+    if not isinstance(records, dict):
+        raise ValueError('invalid public resource map')
+    for name, record in records.items():
+        if safe_file(directory, name).exists():
+            raise ValueError('public profile resource also exists locally')
+        if (set(record) != {'sha256', 'size', 'url'}
+                or not re.fullmatch('[a-f0-9]{64}', record['sha256'])
+                or type(record['size']) is not int or record['size'] < 0
+                or record['url'] != PUBLIC + 'apeiron/blobs/sha256/' + record['sha256']):
+            raise ValueError('public profile resource must have an exact content address')
+    return records
+
+
+def verify_public_resource(record):
+    digest, size = hashlib.sha256(), 0
+    with urllib.request.build_opener(NoRedirect).open(record['url'], timeout=900) as response:
+        if response.status != 200:
+            raise ValueError('public profile resource is unavailable')
+        for chunk in iter(lambda: response.read(1024 * 1024), b''):
+            size += len(chunk)
+            if size > record['size']:
+                raise ValueError('oversized public profile resource')
+            digest.update(chunk)
+    got = {'sha256': digest.hexdigest(), 'size': size}
+    if got != {k: record[k] for k in ('sha256', 'size')}:
+        raise ValueError('public profile bytes differ from the catalog')
+    return got
+
+
+def read_profile(directory, verified_public=None):
+    verified_public = verified_public if verified_public is not None else {}
+    records = public_resources(directory)
+    catalog = json.loads((directory / 'chentu/setup/install.json').read_text())
+    catalog_files = {entry['path']: entry for entry in catalog['files']}
+    for name, record in records.items():
+        if name not in catalog_files or any(record[k] != catalog_files[name][k] for k in ('sha256', 'size')):
+            raise ValueError('handoff resource differs from the catalog')
     sums = {}
     for line in (directory / "SHA256SUMS").read_text().splitlines():
         match = re.fullmatch(r"([a-f0-9]{64})  (.+)", line)
         if not match or match[2] in sums:
             raise ValueError("invalid or duplicate profile checksum")
         sums[match[2]] = match[1]
-        if identity(safe_file(directory, match[2]))["sha256"] != match[1]:
+        got = records.get(match[2]) or identity(safe_file(directory, match[2]))
+        if got['sha256'] != match[1]:
             raise ValueError("profile bytes differ from checksum")
     actual = {p.relative_to(directory).as_posix() for p in directory.rglob("*")
-              if p.is_file() and p.relative_to(directory).as_posix() != "SHA256SUMS"}
+              if p.is_file() and p.relative_to(directory).as_posix() not in ('SHA256SUMS', 'profile-handoff.json')}
+    actual |= set(records)
     if set(sums) != actual:
         raise ValueError("profile checksum inventory is incomplete")
+    pending = {(r['sha256'], r['size']): r for r in records.values()
+               if (r['sha256'], r['size']) not in verified_public}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for key, got in zip(pending, pool.map(verify_public_resource, pending.values())):
+            verified_public[key] = got
     return (json.loads((directory / "setup/release-manifest.json").read_text()),
-            json.loads((directory / "chentu/setup/install.json").read_text()),
+            catalog,
             json.loads((directory / "chentu/chentu-package.json").read_text()))
 
 
@@ -75,9 +135,11 @@ def combine(outputs, candidate, out):
             raise ValueError('candidate requires full source identities')
     catalogs, packages, blobs, files, sources = {}, {}, {}, {}, None
     manifests = {}
+    verified_public = {}
     images = {name: {} for name in ("backend", "app", "ops", "scode")}
     for profile, directory in outputs.items():
-        manifest, catalog, package = read_profile(directory)
+        manifest, catalog, package = read_profile(directory, verified_public)
+        remote = public_resources(directory)
         expected = candidate["sources"]
         if (manifest["release"] != version or set(manifest["profiles"]) != {profile}
                 or manifest["profiles"][profile]["architecture"] != PROFILES[profile]
@@ -99,12 +161,14 @@ def combine(outputs, candidate, out):
         listed = set()
         for entry in catalog["files"]:
             path = safe_file(directory, entry["path"])
-            got = identity(path)
+            got = (verified_public[(entry['sha256'], entry['size'])]
+                   if entry['path'] in remote else identity(path))
             if entry["path"] in listed or got != {k: entry[k] for k in ("sha256", "size")}:
                 raise ValueError("catalog file identity differs")
             listed.add(entry["path"])
             key = "apeiron/blobs/sha256/" + got["sha256"]
-            blobs.setdefault(key, {"path": str(path.resolve()), **got})
+            if entry['path'] not in remote:
+                blobs.setdefault(key, {"path": str(path.resolve()), **got})
             entry["url"] = PUBLIC + key
         for component, detail in catalog["components"].items():
             if not set(detail["files"]) <= listed:

@@ -18,6 +18,8 @@ CLI 仓库固定交付组合、构建四平台二进制、执行安装验收并�
    提交生成。使用 Chentu 原有 Helmfile 图、材料检查、Debian 包闭包检查和官方 publisher 生成两个 profile。
    原生 sandbox APT 仓库及最终部署归档使用保护环境中的签名密钥。
 5. 两个 profile 的部署源码、版本、来源和公共材料必须一致，才组合为 schema 2 部署目录。
+   每个 profile 先上传并回读验证资源，再交付保留原始校验清单的轻量 artifact，避免将整套镜像
+   打包、下载、解压多次。组合步骤按目录中的大小和摘要完整读取公开资源；两种架构共享的对象只验证一次。
    归档和签名按固定输入生成；每个对象上传时使用 `forbid-overwrite`，并完整回读公开 URL 核对字节。
    同名对象内容不同则失败，不能覆盖已发布版本。
 6. 自动创建 `codex/distribution-<version>` PR，只修改 Apeiron gitlink、编译进 CLI 的 Chentu
@@ -91,6 +93,9 @@ Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选�
 组织当前禁止 `GITHUB_TOKEN` 创建 PR，因此使用独立的 CLI 专用 PR 凭据，不修改组织策略。
 所有有限期凭据需在到期前轮换。验收角色没有生产部署权限；创建实例限定测试 VPC、实例规格、按量计费和用途标签。
 基础材料上传角色不能写 CLI 通道；发布角色的现有范围不能替代部署材料权限。
+超过 5 GiB 的内容寻址 blob 使用分片上传，逐片核对 ETag，完成时仍由 OSS 原子拒绝覆盖已有对象，
+成功后完整回读公开内容。失败时仅中止本次创建的 upload ID；构建角色的 `oss:AbortMultipartUpload`
+仅授予 `apeiron-bj-cli-downloads/apeiron/blobs/sha256/*`，不包含删除已完成对象的权限。
 
 ## 四种验收目标
 
