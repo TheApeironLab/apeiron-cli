@@ -70,6 +70,9 @@ Service/Endpoints/Ingress。GPU 驱动、主机服务、推理运行环境和模
 冻结平台材料时移除该组件的镜像，发布校验拒绝重新夹带这些 GPU 主机归档。配置与镜像检查、
 实际入口/SSO 验收、模型推理验收分别记录，CPU 安装测试不能代替 GPU 推理测试。
 
+`imagePins` 是组件镜像回执的派生映射。冻结材料和重建应用镜像后重新生成该映射，
+平台清单预检拒绝旧摘要、旧别名或已移除镜像的残留；部署 values 仍须通过 Chentu 原生镜像校验。
+
 `release/signing-key.asc` 仅包含公钥。正式私钥不进入 Git；`recipe.json` 固定其完整指纹。
 Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选及两种 profile 的完整来源和构建工具摘要。
 同版本重试应复用成功的 Actions artifacts，只重跑失败 job；重新构建得到不同字节不能覆盖同版本对象。

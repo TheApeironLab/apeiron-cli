@@ -22,14 +22,14 @@
   "signingFingerprint": "C6F774C1EFCA93381D33DDCD4591611AFFF52B50",
   "platforms": {
     "k3d-arm64": {
-      "sha256": "35111086610ecb31b6fe89c441b12587cd2ed331f42c1e4e9360307457b4831f",
-      "size": 113788,
-      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/35111086610ecb31b6fe89c441b12587cd2ed331f42c1e4e9360307457b4831f"
+      "sha256": "90151dbb5d0bfd6ecbe1bd64ef554dd0850d4158eedbcd64a6bfd872d13f27ae",
+      "size": 112690,
+      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/90151dbb5d0bfd6ecbe1bd64ef554dd0850d4158eedbcd64a6bfd872d13f27ae"
     },
     "k3s-amd64": {
-      "sha256": "21401de187bc95479f8e3c55237475afcb6bb5c5b2008c02f8ecf483df4770d4",
-      "size": 561747,
-      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/21401de187bc95479f8e3c55237475afcb6bb5c5b2008c02f8ecf483df4770d4"
+      "sha256": "2d00ece49c6143d365c3c580fe0b4bc5cfa56b4f7294246612de7e84a340885e",
+      "size": 560649,
+      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/2d00ece49c6143d365c3c580fe0b4bc5cfa56b4f7294246612de7e84a340885e"
     }
   }
 }

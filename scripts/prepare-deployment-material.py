@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tarfile
 import urllib.request
-from distribution_scope import required_components, validate_catalog
+from distribution_scope import required_components, validate_catalog, refresh_catalog_image_pins
 
 HERE = Path(__file__).resolve().parent
 
@@ -99,6 +99,7 @@ def prepare(args):
     sys.path.insert(0, str(root / 'cli/src'))
     from chentu.release_version import validate_version
     from chentu.local_computer import validate_material, paths
+    from chentu.image_pins import validate_catalog_image_values
     validate_version(version)
     assembler = load('release_assemble', root / 'bundle/assemble.py')
     hosted = load('release_hosted', root / 'bundle/hosted_release.py')
@@ -112,6 +113,7 @@ def prepare(args):
         raise ValueError('wrong platform seed')
     scope = required_components(recipe)
     validate_catalog(seed['catalog'], scope)
+    validate_catalog_image_values(seed['catalog']['targets'][args.profile]['environment'], seed['catalog']['components'])
     material = args.out / 'material'
     material.mkdir()
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -192,7 +194,7 @@ def prepare(args):
     old_version = old_local['apeironVersion'] if old_local else None
     if old_version:
         mapping[old_version] = 'v' + version
-    catalog = replace(catalog, mapping)
+    catalog = refresh_catalog_image_pins(replace(catalog, mapping))
     local = {'apeironVersion': 'v' + version, 'scodeVersion': recipe['sudocode']['version'], 'sourceRevision': candidate['sources']['apeiron']}
     shutil.copytree(args.clients / 'local-computer', material / 'local-computer', dirs_exist_ok=True)
     local_files = validate_material(material, local)
