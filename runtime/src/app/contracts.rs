@@ -214,6 +214,30 @@ fn resource_closure_excludes_unselected_apps_and_rejects_missing_or_cyclic_depen
 }
 
 #[test]
+fn grouped_app_selection_includes_sibling_resources_images_and_dependencies() {
+    let mut c = catalog();
+    c["components"]["kps"] = json!({"requires":["core"],"files":[]});
+    c["components"]["loki"] = json!({"requires":["kps"],"files":["task.bin"]});
+    c["components"]["promtail"] = json!({"requires":["loki"],"files":["optional.bin"],
+        "images":[{"file":"optional.bin","reference":"grafana/promtail:fixture","digest":format!("sha256:{}", "a".repeat(64))}]});
+    let plan = resources::plan(&c, "k3s-amd64", &config::components(&json!(["kps"]))).unwrap();
+    assert_eq!(plan["components"], json!(["core", "kps", "loki", "promtail"]));
+    assert_eq!(plan["files"].as_array().unwrap().len(), 3);
+    assert_eq!(plan["images"][0]["reference"], "grafana/promtail:fixture");
+    for name in ["kps", "loki", "promtail"] {
+        assert_eq!(plan["environment"]["releases"][name]["enabled"], true);
+    }
+    let unselected = resources::plan(&c, "k3s-amd64", &json!([])).unwrap();
+    assert_eq!(unselected["components"], json!(["core"]));
+    assert!(unselected["images"].as_array().unwrap().is_empty());
+    c["components"]["loki"]["requires"] = json!(["promtail"]);
+    assert!(resources::plan(&c, "k3s-amd64", &json!(["kps"]))
+        .unwrap_err()
+        .message
+        .contains("循环"));
+}
+
+#[test]
 fn fresh_install_ignores_legacy_optional_defaults_but_keeps_selected_dependencies() {
     let mut c = catalog();
     for name in [

@@ -45,6 +45,8 @@ try {
         await run(['tar', '-xzf', archive, '-C', directory]);
         root = join(directory, `chentu-${version}`);
     }
+    const release = JSON.parse(await readFile(join(root, 'setup/install.json'), 'utf8'));
+    const catalog = release.schemaVersion === 2 ? release.catalogs[target] : release;
     const required = APPS.filter(app => app.required).map(app => app.id);
     const basePlan = await buildSupport('plan', root, target, JSON.stringify(required));
     if (!image) {
@@ -86,6 +88,21 @@ try {
     for (const extra of selections) {
         const apps = [...required, ...extra];
         const plan = await buildSupport('plan', root, target, JSON.stringify(apps));
+        // Enabling a grouped release must also select its catalog resources.
+        // Legacy catalogs can aggregate them in the primary component instead.
+        for (const app of APPS.filter(app => apps.includes(app.id))) {
+            for (const name of app.releases ?? [app.id]) {
+                const component = catalog.components[name];
+                if (!component) continue;
+                assert.ok(plan.components.includes(name), `${app.id}: missing ${name} component`);
+                for (const path of component.files) {
+                    assert.ok(plan.files.some(file => file.path === path), `${name}: missing ${path}`);
+                }
+                for (const image of component.images ?? []) {
+                    assert.ok(plan.images.some(selected => selected.reference === image.reference && selected.digest === image.digest), `${name}: missing ${image.reference}`);
+                }
+            }
+        }
         const replacements = { __DOMAIN__: 'example.internal', __REGISTRY__: 'registry.example.internal', __NODE__: 'fixture-node', __WORK__: '/work/state', __BUNDLE__: '/work/bundle', __ARCH__: target.slice(4) };
         let text = JSON.stringify(plan.environment);
         for (const [from, to] of Object.entries(replacements)) text = text.replaceAll(from, to);
