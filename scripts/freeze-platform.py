@@ -5,6 +5,7 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+from distribution_scope import external_service_catalog
 
 spec = importlib.util.spec_from_file_location('package_distribution', Path(__file__).with_name('package-distribution.py'))
 package = importlib.util.module_from_spec(spec)
@@ -15,6 +16,7 @@ def freeze(material, profile, out, toolbox_lineage=None):
     catalog = json.loads((material / 'chentu/setup/install.json').read_text())
     if catalog['schemaVersion'] != 1 or set(catalog['targets']) != {profile}:
         raise ValueError('one explicit material profile is required')
+    catalog = external_service_catalog(catalog)
     dynamic = set()
     for component in catalog['components'].values():
         for image in component.get('images', []):

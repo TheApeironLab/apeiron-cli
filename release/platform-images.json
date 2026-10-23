@@ -31,9 +31,7 @@
       "context": "."
     }
   },
-  "registryImages": {
-    "gpustack": "ghcr.io/theapeironlab/gpustack:v2.2.3-chentu-pkce.1@sha256:c838ac49a031ef795fc32596c4fcdc37d9514d154fa8a13bc3f249921375a07b"
-  },
+  "registryImages": {},
   "sourceBuilds": {
     "sftpgo": {
       "repository": "TheApeironLab/sftpgo",
