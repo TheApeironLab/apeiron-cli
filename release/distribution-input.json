@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "version": "0.2.1-nightly.20261023.39899034401",
+  "apeiron": {
+    "version": "0.2.1-nightly.20261023.39899034401",
+    "revision": "229b9ba6c9b841fad74fdcb40fbcdf94f537dfc1",
+    "images": {
+      "backend": {
+        "amd64": "apeiron/backend@sha256:427bd7bd4a08394151e453a66ac4e0565a9d8e11d5cf678b037f9c425ff34b0c",
+        "arm64": "apeiron/backend@sha256:62dd27d83922516d2b71313eb8b3744e09a378f8feb510d47bf6542774875690"
+      },
+      "app": {
+        "amd64": "apeiron/app@sha256:bf2a3a1438c05ef83d675d32ae725c07215924d4f3abf688701be02097c3b26a",
+        "arm64": "apeiron/app@sha256:1b8fa786e19de4ab18536e4f67726e2cb2d478f52930fd810f2622761fd57ba7"
+      },
+      "ops": {
+        "amd64": "apeiron/ops@sha256:033bd99a4fea1c5eba991a3bf8a57153ba726e8203324124004840f0370b29b3",
+        "arm64": "apeiron/ops@sha256:a453781867fe8aac732a3d75653d4f3fe44944c5e5a818c7d667a504757446f7"
+      },
+      "scode": {
+        "amd64": "apeiron/scode@sha256:c6e2d3efc96141e76210a43e3ca5d4a13aa12ad735f116c154172b7d8571007b",
+        "arm64": "apeiron/scode@sha256:f9cdaba5d99e73b0f7bba72a2b23dc39cdead7d45b618093ef1e72b19af1dd14"
+      }
+    }
+  },
+  "chentu": {
+    "version": "0.2.1-nightly.20261023.39899034401",
+    "revision": "1e38479523ef903f04dcb689d845b545b9a8a9c9",
+    "sha256": "a2ea20ede321e6aac139945809e709b788ffd6a008187793cea247731eff5514",
+    "url": "https://downloads.apeironlab.cn/chentu/releases/0.2.1-nightly.20261023.39899034401/chentu-0.2.1-nightly.20261023.39899034401.tar.gz"
+  }
+}
