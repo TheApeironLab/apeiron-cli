@@ -1,0 +1,120 @@
+name: Release acceptance on disposable hosts
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  source:
+    if: github.repository == 'TheApeironLab/apeiron-cli' && startsWith(github.ref, 'refs/tags/v') && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Require the tagged release commit to be reviewed main history
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          case "$TARGET" in k3d-darwin-arm64|k3d-linux-arm64|k3s-single-amd64|k3s-multi-amd64) ;; *) exit 1;; esac
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq .status)
+          case "$status" in ahead|identical) ;; *) echo 'Release tag must belong to reviewed main history'; exit 1;; esac
+
+  install:
+    needs: source
+    if: startsWith(inputs.target, 'k3d-')
+    runs-on:
+      group: apeiron-release
+      labels: ${{ inputs.target }}
+    timeout-minutes: 110
+    concurrency:
+      group: release-acceptance-${{ inputs.target }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/release
+      - name: Install the exact candidate and verify the live cluster
+        env:
+          ACCEPTANCE_TARGET: ${{ inputs.target }}
+        run: bun scripts/run-k3d-acceptance.js "$ACCEPTANCE_TARGET" "$RUNNER_TEMP/release" "$PWD/release/distribution-input.json" "$RUNNER_TEMP/acceptance-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: acceptance-${{ inputs.target }}
+          path: ${{ runner.temp }}/acceptance-${{ github.run_id }}-${{ github.run_attempt }}/${{ inputs.target }}.json
+          if-no-files-found: error
+          retention-days: 30
+      # Raw configs, kubeconfigs, tokens and installation logs remain private on
+      # the disposable runner. Only the bounded result receipt is uploaded.
+
+  native:
+    needs: source
+    if: startsWith(inputs.target, 'k3s-')
+    environment: deployment-acceptance
+    runs-on: ubuntu-22.04
+    timeout-minutes: 130
+    concurrency:
+      group: native-release-acceptance
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate
+          path: ${{ runner.temp }}/release
+      - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.OSS_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.ACCEPTANCE_ECS_ROLE_ARN }}
+          role-session-name: apeiron-native-acceptance
+          role-session-expiration: 10800
+      - uses: aliyun/setup-aliyun-cli-action@09a5f86915bb556e27bf050e9a5e339aeb073df5
+        with:
+          version: 3.3.23
+      - name: Install the public candidate on fresh bounded ECS leases
+        env:
+          TARGET: ${{ inputs.target }}
+          ACCEPTANCE_ECS_SETTINGS: ${{ vars.ACCEPTANCE_ECS_SETTINGS }}
+          ALIBABA_CLOUD_REGION_ID: cn-beijing
+          ALIBABA_CLOUD_IGNORE_PROFILE: 'TRUE'
+        run: python3 scripts/native-acceptance.py run --state "$RUNNER_TEMP/native-lease/state.json" --target "$TARGET" --release "$RUNNER_TEMP/release" --source "$PWD"
+      - name: Refresh cleanup authority
+        if: always()
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.OSS_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.ACCEPTANCE_ECS_ROLE_ARN }}
+          role-session-name: apeiron-native-cleanup
+      - name: Release owned instances, key pair and private transport
+        if: always()
+        env:
+          ALIBABA_CLOUD_REGION_ID: cn-beijing
+          ALIBABA_CLOUD_IGNORE_PROFILE: 'TRUE'
+        run: python3 scripts/native-acceptance.py cleanup --state "$RUNNER_TEMP/native-lease/state.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: acceptance-${{ inputs.target }}
+          path: ${{ runner.temp }}/native-lease/${{ inputs.target }}.json
+          if-no-files-found: error
+          retention-days: 30

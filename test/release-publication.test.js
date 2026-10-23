@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { baseVersion } from '../scripts/version';
+import { acceptanceTargets, acceptanceChecks } from '../scripts/lib/distribution.js';
 
 const publisher = new URL('../scripts/publish-release.js', import.meta.url).pathname;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -27,8 +28,20 @@ async function fixture(version, fn) {
       files[`apeiron-${version}-${target}.tar.gz`] = `archive for ${version} ${target}`;
     }
     files['install.sh'] = `installer for ${version}`;
-    files['release.json'] = JSON.stringify({ schemaVersion: 2, version, baseVersion, revision,
+    const artifacts = Object.fromEntries(Object.entries(files).map(([name, bytes]) => [name, { sha256: digest(bytes), size: bytes.length }]));
+    files['release.json'] = JSON.stringify({ schemaVersion: 2, version, baseVersion, revision, files: artifacts,
       releaseChannel: version.includes('-nightly.') ? 'nightly' : 'stable' });
+    const inputSha256 = digest('distribution input');
+    files['distribution.json'] = JSON.stringify({ schemaVersion: 1, version,
+      apeiron: { version, revision: 'b'.repeat(40), images: Object.fromEntries(['backend', 'app', 'ops', 'scode'].map(name =>
+        [name, { amd64: `registry.example/${name}@sha256:${digest(name)}`, arm64: `registry.example/${name}@sha256:${digest(name)}` }])) },
+      chentu: { version, revision: 'c'.repeat(40), sha256: digest('chentu'),
+        url: `https://downloads.apeironlab.cn/chentu/releases/${version}/chentu-${version}.tar.gz` },
+      cli: { revision, files: artifacts }, inputSha256,
+      acceptance: Object.entries(acceptanceTargets).map(([target, t]) => ({ schemaVersion: 1, target, version, revision,
+        distributionSha256: inputSha256, runId: '123', archiveSha256: artifacts[`apeiron-${version}-${t.cli}.tar.gz`].sha256,
+        os: t.os, arch: t.arch, topology: t.topology, osRelease: 'ubuntu:22.04', servers: t.servers, agents: 0,
+        checks: Object.fromEntries(acceptanceChecks.map(name => [name, true])) })) });
     for (const [name, bytes] of Object.entries(files)) await writeFile(join(out, name), bytes);
     await writeFile(join(out, 'SHA256SUMS'), Object.entries(files).map(([name, bytes]) => `${digest(bytes)}  ${name}\n`).join(''));
     const preload = join(root, 'transport.js');
@@ -77,7 +90,7 @@ async function fixture(version, fn) {
       const child = Bun.spawn([process.execPath, '--preload', preload, publisher, out], {
         cwd: root, stdout: 'pipe', stderr: 'pipe',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GITHUB_REF: `refs/tags/v${version}`, APEIRON_BUILD_VERSION: '',
-          FAKE_CLOUD: cloud, FAKE_LOG: join(root, 'commands.jsonl'), ...extra },
+          FAKE_CLOUD: cloud, FAKE_LOG: join(root, 'commands.jsonl'), GITHUB_RUN_ID: '123', ...extra },
       });
       const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       return { code, stdout, stderr };
@@ -142,4 +155,19 @@ test('different bytes under an existing version are never overwritten', () => fi
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain('Immutable release object differs');
   expect(await get(key)).toBe('previously published bytes');
+}));
+
+test('missing or incomplete deployment acceptance cannot write any public object', () => fixture(baseVersion, async ({ out, run, cloud }) => {
+  const path = join(out, 'distribution.json');
+  const original = await readFile(path, 'utf8');
+  await rm(path);
+  expect((await run()).code).not.toBe(0);
+  const distribution = JSON.parse(original);
+  distribution.acceptance.pop();
+  await writeFile(path, JSON.stringify(distribution));
+  const result = await run();
+  expect(result.code).not.toBe(0);
+  expect(result.stderr).toContain('All four deployment targets must pass');
+  expect(await Bun.file(join(cloud, `releases/${baseVersion}/install.sh`)).exists()).toBe(false);
+  expect(await Bun.file(join(cloud, 'channels/stable.txt')).exists()).toBe(false);
 }));

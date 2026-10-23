@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { version, channel, baseVersion } from './version';
 import { mayAdvanceChannel } from './lib/release-version';
+import { validateDistribution, validateAcceptanceSet } from './lib/distribution.js';
 // Publication uses GitHub OIDC credentials scoped to this OSS prefix. Never use root keys in CI.
 const out = process.argv[2];
 const repo = 'TheApeironLab/apeiron-cli';
@@ -23,8 +24,12 @@ const revision = Bun.spawnSync(['git', 'rev-parse', `${tag}^{commit}`]);
 if (revision.exitCode !== 0 || manifest.version !== version || manifest.baseVersion !== baseVersion
     || manifest.releaseChannel !== channel || revision.stdout.toString().trim() !== manifest.revision)
     throw new Error('Release source/tag mismatch');
+const distribution = validateDistribution(JSON.parse(await readFile(join(out, 'distribution.json'), 'utf8')), manifest);
+if (distribution.cli?.revision !== manifest.revision || JSON.stringify(distribution.cli.files) !== JSON.stringify(manifest.files))
+    throw new Error('Distribution CLI artifacts mismatch');
+validateAcceptanceSet(distribution.acceptance, manifest, distribution.inputSha256, process.env.GITHUB_RUN_ID);
 const required = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'].map(t => `apeiron-${version}-${t}.tar.gz`);
-const names = [...required, 'install.sh', 'release.json', 'SHA256SUMS'];
+const names = [...required, 'install.sh', 'release.json', 'distribution.json', 'SHA256SUMS'];
 const sums = new Map((await readFile(join(out, 'SHA256SUMS'), 'utf8')).trim().split('\n').map(line => {
     const match = /^([a-f0-9]{64})  ([A-Za-z0-9._-]+)$/.exec(line);
     if (!match)
@@ -35,6 +40,9 @@ for (const name of names) {
     const bytes = await readFile(join(out, name));
     if (name !== 'SHA256SUMS' && hash(bytes) !== sums.get(name))
         throw new Error(`Checksum mismatch: ${name}`);
+    if ((required.includes(name) || name === 'install.sh') && (manifest.files?.[name]?.sha256 !== hash(bytes)
+        || manifest.files[name].size !== bytes.length))
+        throw new Error(`Release manifest artifact mismatch: ${name}`);
 }
 async function publicBytes(url) {
     const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(180_000) });

@@ -1,8 +1,16 @@
-import { appendFile } from 'node:fs/promises';
-import { version, channel } from './version';
-import { assertStableAlignment } from './lib/release-version';
+import { appendFile, readFile } from 'node:fs/promises';
+import { version as defaultVersion, baseVersion } from './version';
+import { assertStableAlignment, parseReleaseVersion, resolveReleaseVersion } from './lib/release-version';
 
 if (!process.env.GITHUB_ENV) throw new Error('This command configures a GitHub Actions build');
+let version = defaultVersion;
+if (!process.env.GITHUB_REF?.startsWith('refs/tags/') && !process.env.APEIRON_BUILD_VERSION) {
+  try {
+    const input = JSON.parse(await readFile('release/distribution-input.json', 'utf8'));
+    version = resolveReleaseVersion(baseVersion, '', input.version);
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
+const { channel } = parseReleaseVersion(version);
 if (process.env.GITHUB_REF?.startsWith('refs/tags/') && channel === 'stable') {
   const apeiron = (await Bun.file(new URL('../third_party/apeiron/VERSION', import.meta.url)).text()).trim();
   const resources = await Bun.file(new URL('../runtime/src/app/resources.rs', import.meta.url)).text();
