@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { validateDistribution } from './lib/distribution.js';
 import { version } from './version.js';
+import { verifyPublicDeployment } from './lib/deployment-signature.js';
 
 const inputPath = process.argv[2];
 if (!inputPath) throw new Error('A committed distribution input is required');
@@ -18,9 +18,5 @@ for (const [constant, expected] of [['VERSION', input.chentu.version], ['REVISIO
   const actual = resources.match(new RegExp(`^const ${constant}: &str = "([^"]+)";`, 'm'))?.[1];
   if (actual !== expected) throw new Error(`Distribution differs from compiled Chentu ${constant}`);
 }
-const response = await fetch(input.chentu.url, { redirect: 'error', signal: AbortSignal.timeout(180_000) });
-if (response.status !== 200 || !response.body) throw new Error('Pinned Chentu archive is not publicly readable');
-const hash = createHash('sha256');
-for await (const chunk of response.body) hash.update(chunk);
-if (hash.digest('hex') !== input.chentu.sha256) throw new Error('Public Chentu archive digest mismatch');
+await verifyPublicDeployment(input.chentu);
 console.log(`Validated source pins and public Chentu archive for ${version}`);

@@ -1,0 +1,338 @@
+name: Prepare unified distribution
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Prepare immutable upstream artifacts and a pin PR; never publish CLI channels
+        type: choice
+        options: [nightly, stable]
+        default: nightly
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: prepare-unified-distribution
+  cancel-in-progress: false
+
+jobs:
+  identity:
+    if: github.repository == 'TheApeironLab/apeiron-cli' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      apeiron: ${{ steps.recipe.outputs.apeiron }}
+      chentu: ${{ steps.recipe.outputs.chentu }}
+      systemSkills: ${{ steps.recipe.outputs.systemSkills }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - id: recipe
+        run: bun scripts/resolve-release-recipe.js
+        env:
+          GH_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+      - id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APEIRON_REVISION: ${{ steps.recipe.outputs.apeiron }}
+          CHENTU_REVISION: ${{ steps.recipe.outputs.chentu }}
+          SYSTEM_SKILLS_REVISION: ${{ steps.recipe.outputs.systemSkills }}
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          GITHUB_RUN_CREATED_AT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+          export GITHUB_RUN_CREATED_AT
+          if [ "$CHANNEL" = stable ]; then RELEASE_VERSION=$(bun -e 'import {baseVersion} from "./scripts/version.js"; console.log(baseVersion)'); export RELEASE_VERSION; fi
+          bun scripts/prepare-candidate.js "$RUNNER_TEMP/identity"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-identity
+          path: ${{ runner.temp }}/identity
+          retention-days: 14
+
+  images:
+    needs: identity
+    uses: ./.github/workflows/candidate-images.yml
+    with:
+      apeiron_revision: ${{ needs.identity.outputs.apeiron }}
+      chentu_revision: ${{ needs.identity.outputs.chentu }}
+      release_version: ${{ needs.identity.outputs.version }}
+    secrets: inherit
+
+  clients:
+    needs: identity
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15, platform: darwin-arm64 }
+          - { runner: macos-15-intel, platform: darwin-x64 }
+          - { runner: ubuntu-22.04, platform: linux-x64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          path: coordinator
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: TheApeironLab/apeiron
+          ref: ${{ needs.identity.outputs.apeiron }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          persist-credentials: false
+          path: apeiron
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-identity
+          path: ${{ runner.temp }}/identity
+      - name: Build and measure the native receiver
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: python3 coordinator/scripts/build-receiver-client.py --source apeiron --candidate "$RUNNER_TEMP/identity/candidate.json" --platform "$PLATFORM" --out "$RUNNER_TEMP/client"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: receiver-${{ matrix.platform }}
+          path: ${{ runner.temp }}/client
+          retention-days: 14
+
+  skills:
+    needs: identity
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: TheApeironLab/apeiron-system-skills
+          ref: ${{ needs.identity.outputs.systemSkills }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          persist-credentials: false
+          fetch-depth: 0
+      - run: git bundle create "$RUNNER_TEMP/system-skills.bundle" HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: system-skills
+          path: ${{ runner.temp }}/system-skills.bundle
+          retention-days: 14
+
+  profiles:
+    needs: [identity, images, clients, skills]
+    environment: deployment-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, profile: k3s-amd64, architecture: amd64, target: linux-x64, triple: x86_64-unknown-linux-musl }
+          - { runner: ubuntu-24.04-arm, profile: k3d-arm64, architecture: arm64, target: linux-arm64, triple: aarch64-unknown-linux-musl }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - name: Reserve space for the offline material closure on this hosted runner
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          submodules: recursive
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          path: coordinator
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: TheApeironLab/chentu
+          ref: ${{ needs.identity.outputs.chentu }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          persist-credentials: false
+          path: chentu
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: TheApeironLab/apeiron-system-skills
+          ref: ${{ needs.identity.outputs.systemSkills }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          persist-credentials: false
+          path: skills
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
+        with:
+          version: '0.9.5'
+          python-version: '3.12'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-identity
+          path: ${{ runner.temp }}/identity
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: candidate-*-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/images
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: receiver-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/clients
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: system-skills
+          path: ${{ runner.temp }}/skills
+      - name: Build a clean publisher CLI independently of the final distribution pins
+        working-directory: coordinator
+        env:
+          APEIRON_BUILD_VERSION: ${{ needs.identity.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          TRIPLE: ${{ matrix.triple }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools gnupg debian-archive-keyring
+          rustup target add "$TRIPLE"
+          bun scripts/build-release.js "$RUNNER_TEMP/builder-archive" "$TARGET"
+          mkdir "$RUNNER_TEMP/builder"
+          tar -xzf "$RUNNER_TEMP/builder-archive/apeiron-$APEIRON_BUILD_VERSION-$TARGET.tar.gz" -C "$RUNNER_TEMP/builder"
+          uv sync --project ../chentu/cli --locked
+      - name: Download the pinned Sudocode receiver resources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("coordinator/release/recipe.json"))["sudocode"]["version"])')
+          mkdir -p "$RUNNER_TEMP/clients/local-computer/scode/$version"
+          gh release download "$version" --repo sudoprivacy/sudocode --pattern scode-macos-arm64.tar.gz --pattern scode-macos-x64.tar.gz --pattern scode-linux-x64.tar.gz --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP/clients/local-computer/scode/$version"
+      - name: Import the protected release signing identity
+        if: matrix.profile == 'k3s-amd64'
+        working-directory: coordinator
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+          CHENTU_SIGNING_KEY: ${{ secrets.CHENTU_SIGNING_KEY }}
+          CHENTU_SIGNING_FINGERPRINT: ${{ vars.CHENTU_SIGNING_FINGERPRINT }}
+        run: bash scripts/import-release-key.sh
+      - name: Prepare the authenticated Debian sandbox closure
+        if: matrix.profile == 'k3s-amd64'
+        run: uv run --project chentu/cli --locked python chentu/bundle/prepare_sandbox_apt.py --output "$RUNNER_TEMP/sandbox"
+      - name: Prepare exact material and invoke the official Chentu publisher
+        env:
+          PROFILE: ${{ matrix.profile }}
+          CHENTU_SIGNING_FINGERPRINT: ${{ vars.CHENTU_SIGNING_FINGERPRINT }}
+        run: |
+          docker run -d --name release-converter -p 127.0.0.1:5500:5000 registry:2
+          extra=()
+          if [ "$PROFILE" = k3s-amd64 ]; then extra=(--sandbox "$RUNNER_TEMP/sandbox/debs" --gnupghome "$RUNNER_TEMP/gnupg" --signing-key "$CHENTU_SIGNING_FINGERPRINT"); fi
+          uv run --project chentu/cli --locked python coordinator/scripts/prepare-deployment-material.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --lock coordinator/release/recipe.json --images "$RUNNER_TEMP/images" --clients "$RUNNER_TEMP/clients" --skills "$PWD/skills" --skills-bundle "$RUNNER_TEMP/skills/system-skills.bundle" --out "$RUNNER_TEMP/prepared" --profile "$PROFILE" --registry 127.0.0.1:5500 "${extra[@]}"
+          export PATH="$RUNNER_TEMP/prepared/bin:$RUNNER_TEMP/prepared/material/bin:$PATH"
+          uv run --project chentu/cli --locked python coordinator/scripts/build-deployment-profile.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --prepared "$RUNNER_TEMP/prepared" --builder "$RUNNER_TEMP/builder" --out "$RUNNER_TEMP/profile" --lock coordinator/release/recipe.json --profile "$PROFILE"
+          tar -cf "$RUNNER_TEMP/$PROFILE.tar" -C "$RUNNER_TEMP/profile" .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deployment-${{ matrix.profile }}
+          path: ${{ runner.temp }}/${{ matrix.profile }}.tar
+          compression-level: 0
+          retention-days: 14
+      - name: Remove the conversion registry and signing home
+        if: always()
+        run: |
+          docker rm -f release-converter || true
+          gpgconf --homedir "$RUNNER_TEMP/gnupg" --kill all || true
+          rm -rf "$RUNNER_TEMP/gnupg"
+
+  package:
+    needs: [identity, profiles]
+    environment: deployment-build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    timeout-minutes: 120
+    steps:
+      - name: Reserve space for both profile archives on this hosted runner
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: candidate-identity
+          path: ${{ runner.temp }}/identity
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: deployment-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/profiles
+      - name: Combine both verified architecture profiles
+        run: |
+          for profile in k3d-arm64 k3s-amd64; do
+            mkdir "$RUNNER_TEMP/profiles/$profile"
+            tar -xf "$RUNNER_TEMP/profiles/$profile.tar" -C "$RUNNER_TEMP/profiles/$profile"
+            rm "$RUNNER_TEMP/profiles/$profile.tar"
+          done
+          python3 scripts/package-distribution.py --candidate "$RUNNER_TEMP/identity/candidate.json" --profile "k3d-arm64=$RUNNER_TEMP/profiles/k3d-arm64" --profile "k3s-amd64=$RUNNER_TEMP/profiles/k3s-amd64" --out "$RUNNER_TEMP/package"
+      - name: Sign the immutable deployment source archive
+        env:
+          GNUPGHOME: ${{ runner.temp }}/gnupg
+          CHENTU_SIGNING_KEY: ${{ secrets.CHENTU_SIGNING_KEY }}
+          CHENTU_SIGNING_FINGERPRINT: ${{ vars.CHENTU_SIGNING_FINGERPRINT }}
+        run: |
+          bash scripts/import-release-key.sh
+          python3 scripts/sign-deployment.py --candidate "$RUNNER_TEMP/identity/candidate.json" --directory "$RUNNER_TEMP/package" --gnupghome "$GNUPGHOME" --fingerprint "$CHENTU_SIGNING_FINGERPRINT"
+      - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.OSS_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.DEPLOYMENT_OSS_ROLE_ARN }}
+          role-session-name: apeiron-deployment-build
+          role-session-expiration: 7200
+      - uses: aliyun/setup-aliyun-cli-action@09a5f86915bb556e27bf050e9a5e339aeb073df5
+        with:
+          version: 3.3.23
+      - name: Upload immutable objects and verify their public bytes
+        run: bun scripts/publish-deployment.js "$RUNNER_TEMP/package/upload-plan.json"
+        env:
+          ALIBABA_CLOUD_REGION_ID: cn-beijing
+          ALIBABA_CLOUD_IGNORE_PROFILE: 'TRUE'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: distribution-input
+          path: ${{ runner.temp }}/package/distribution-input.json
+          retention-days: 30
+      - name: Remove signing home
+        if: always()
+        run: |
+          gpgconf --homedir "$RUNNER_TEMP/gnupg" --kill all || true
+          rm -rf "$RUNNER_TEMP/gnupg"
+
+  pins:
+    needs: [identity, package]
+    environment: deployment-pins
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Require the repository-scoped dependency PR credential
+        env:
+          WRITER: ${{ secrets.DISTRIBUTION_PR_TOKEN }}
+        run: test -n "$WRITER" || { echo '::error::Configure the protected CLI-only Contents and Pull requests writer.'; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          submodules: false
+          fetch-depth: 0
+          token: ${{ secrets.DISTRIBUTION_PR_TOKEN }}
+      - name: Read the private upstream gitlink without persisting its credential
+        env:
+          READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+        run: |
+          header=$(printf 'x-access-token:%s' "$READ_TOKEN" | base64 -w0)
+          git -c http.https://github.com/.extraheader= -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" submodule update --init third_party/apeiron
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: distribution-input
+          path: ${{ runner.temp }}/input
+      - name: Create the reviewable fixed dependency PR
+        env:
+          GH_TOKEN: ${{ secrets.DISTRIBUTION_PR_TOKEN }}
+          READ_TOKEN: ${{ secrets.ZYGOS_READ_TOKEN }}
+        run: bun scripts/pin-distribution.js "$RUNNER_TEMP/input/distribution-input.json"

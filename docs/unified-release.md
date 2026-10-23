@@ -1,117 +1,122 @@
 # 统一发布编排
 
-统一发布入口属于 `apeiron-cli`。Apeiron 仓库拥有应用镜像构建，Chentu 仓库拥有部署包构建；
-CLI 仓库负责固定交付组合、四平台二进制、安装验收和下载通道发布。发布不调用生产部署工作流。
+统一入口位于 `apeiron-cli`。Apeiron 提供应用源码和镜像配方，Chentu 提供部署源码和官方 publisher，
+CLI 仓库固定交付组合、构建四平台二进制、执行安装验收并更新下载通道。发布不调用生产部署工作流。
 
-## 当前实现边界
+## 从源码到下载通道
 
-`Unified release` 接管已构建 CLI 的验收与发布：
-
-1. `Standalone CLI` 保留已有完整检查及四平台构建，版本标签构建完成后 dispatch 统一入口。
-2. 统一入口核对原构建的仓库、工作流、完整提交、成功状态，拒绝 PR 构建；下载原产物，不重构建。
-3. `release/distribution-input.json` 必须在该标签的源码中，绑定 Apeiron 提交、两种架构的应用镜像 digest、
-   Chentu 版本/提交/归档 digest。其版本必须与 CLI 完全一致，nightly 也不例外。
-4. 分别在 macOS ARM64 K3d、Linux ARM64 K3d、Ubuntu 22.04 AMD64 单机 K3s、三 server K3s 上安装。
-5. 验收同时检查节点数量/Ready、运行镜像摘要、持久 Keycloak operator 凭据、CA 校验的 HTTPS，
-   以及实际 IAM 密码登录。这里的登录检查是 IAM token 请求，**不替代浏览器 PKCE/会话端到端测试**。
-6. 四个结果全部成功才生成 `distribution.json`，发布脚本再次核对结果与本次 workflow run、CLI 归档及发行输入摘要。
-7. 复用已有不可变 OSS/GitHub 上传、下载回读、串行发布和防止版本回退逻辑。
+1. `release/recipe.json` 固定 Apeiron、Chentu、System Skills 的完整已合并提交、第三方版本、
+   两种架构的基础材料摘要和发布签名身份。`Prepare unified distribution` 仅从 `main` 运行，
+   首先检查源码提交属于各自的 `main` 历史。
+2. 全局版本只生成一次。stable 使用 Cargo 基础版本；nightly 使用
+   `X.Y.Z-nightly.YYYYMMDD.RUN_ID`，日期取原 workflow 创建时间的北京时间。
+   重跑同一 workflow 保留版本、源码提交和签名时间。
+3. 构建 backend/app/ops/scode 的 AMD64、ARM64 镜像，以及 macOS ARM64、macOS Intel、Linux AMD64
+   接收端。所有 Apeiron 组件使用同一全局版本；Sudocode 保持独立的上游版本。
+   镜像实际执行版本和前端运行配置检查。System Skills 仅生成一个共享的 Git bundle。
+4. 按公开 SHA-256 地址下载平台基础材料，逐文件验证内容、大小和执行权限；部署源码重新从固定 Chentu
+   提交生成。使用 Chentu 原有 Helmfile 图、材料检查、Debian 包闭包检查和官方 publisher 生成两个 profile。
+   原生 sandbox APT 仓库及最终部署归档使用保护环境中的签名密钥。
+5. 两个 profile 的部署源码、版本、来源和公共材料必须一致，才组合为 schema 2 部署目录。
+   归档和签名按固定输入生成；每个对象上传时使用 `forbid-overwrite`，并完整回读公开 URL 核对字节。
+   同名对象内容不同则失败，不能覆盖已发布版本。
+6. 自动创建 `codex/distribution-<version>` PR，只修改 Apeiron gitlink、编译进 CLI 的 Chentu
+   VERSION/REVISION/DIGEST、`release/distribution-input.json`。PR 构建读取该固定版本，执行完整检查和四平台构建。
+   此时上游制品已可下载，但 CLI 下载通道还没有更新。
+7. PR 审核并合并后，nightly 调度器给这个固定组合创建对应版本标签并启动 `Standalone CLI`。
+   stable 必须由发布负责人明确授权创建 stable 标签；合并源码或准备 stable 制品不等于发布 stable。
+8. 标签构建成功后，`Unified release` 核对原构建的仓库、工作流、提交和成功状态，下载原产物，
+   验证公开 Chentu 归档摘要和签名，执行四种目标的真实安装。
+9. 四个验收全部成功，才生成与构建、发行输入和本次验收 run 绑定的 `distribution.json` 并发布。
    stable 更新 stable/latest/install.sh；nightly 只更新 nightly。
 
-手动运行 `Standalone CLI` 并设置 `candidate=true`、Apeiron 和 Chentu 的完整提交，
-会调用 `candidate-images.yml` 构建 backend/app/ops/scode 的 AMD64、ARM64 镜像。
-`prepare-candidate.js` 根据原始 workflow 创建时间与 run ID 生成唯一 nightly 版本；
-重跑沿用该版本。产物包含源码、配方、镜像与归档摘要，并保存在 Actions artifacts。
-backend 和 scode 实际执行版本检查；app/ops 启动容器，检查两组站点 OIDC 参数、
-运行配置响应和未被改写的前端资源。该入口只产生候选镜像，不发布下载通道。
+构建部署包所需的 publisher CLI 与最终交付 CLI 分开：前者来自编排源码提交，包含当时的旧安装引用，
+仅用作 Chentu 构建工具，其实际二进制来源保留在 provenance；后者在固定新部署包的 PR 合并后构建。
+这避免“先有最终 CLI 才能构建它所依赖的部署包”的循环依赖。
 
-已有候选版本后，可在分支手动运行 `Standalone CLI`，只填写 `candidate_version`。
-它保留完整检查、四平台构建和归档校验，输出未发布的 CLI artifacts；只接受与 Cargo
-基础版本一致的 nightly，不能与镜像准备开关同时使用。正式发布仍须固定部署包引用，
-通过统一验收入口；分支构建不会触发发布。
+## 基础材料与来源
 
-**尚未接通自动构建/上传 Chentu 包及自动创建固定引用 PR。**
-ARM64/AMD64 材料闭包，以及 CLI 构建工具与最终 CLI 的来源分离仍须接通；
-不能把本工作流称为“三仓库从源码一键构建”。目前也没有可用的正式 `0.2.1` 原生部署包，
-因此不提交虚假的 `distribution-input.json`，不启用环境就绪变量，不创建正式标签或触发发布。
+`freeze-platform.py` 将经过验证的基础材料转换为按内容寻址的 seed。它不携带 Apeiron 应用镜像、
+接收端、System Skills、Chentu 源码或旧 sandbox 签名；这些由准备工作流从固定来源重新生成。
+修改 seed 必须重新核对材料闭包、上传不可变内容并通过配方 PR 更新摘要。
 
-## 准备发行输入
+`release/signing-key.asc` 仅包含公钥。正式私钥不进入 Git；`recipe.json` 固定其完整指纹。
+Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选及两种 profile 的完整来源和构建工具摘要。
+同版本重试应复用成功的 Actions artifacts，只重跑失败 job；重新构建得到不同字节不能覆盖同版本对象。
 
-先固定三个仓库的提交和一个全局版本。nightly 只生成一次 `X.Y.Z-nightly.YYYYMMDD.RUN_ID`，
-所有组件使用该版本；日期为北京时间。构建工具所用 CLI 可以是较早的已验证提交，
-必须在 Chentu provenance 中记录它，不能将它冒充最终交付 CLI。
+发行输入绑定三者的同一版本、Apeiron/Chentu 完整提交、Chentu 公开归档摘要和 URL，
+以及四种应用镜像的 AMD64、ARM64 manifest digest。digest 必须是实际运行的架构 manifest，
+不能使用浮动 tag 或多架构 index digest。缺少真实部署包时不得填占位摘要或虚构输入。
 
-上游制品实际构建、验证并上传不可变地址后，更新 CLI 的 Apeiron gitlink 和
-`runtime/src/app/resources.rs` 中 Chentu VERSION/REVISION/DIGEST。随后生成并评审发行输入：
+## nightly 调度
 
-```json
-{
-  "schemaVersion": 1,
-  "version": "0.2.1",
-  "apeiron": {
-    "version": "0.2.1",
-    "revision": "完整的40位提交",
-    "images": {
-      "backend": {"amd64": "仓库@sha256:摘要", "arm64": "仓库@sha256:摘要"},
-      "app": {"amd64": "仓库@sha256:摘要", "arm64": "仓库@sha256:摘要"},
-      "ops": {"amd64": "仓库@sha256:摘要", "arm64": "仓库@sha256:摘要"},
-      "scode": {"amd64": "仓库@sha256:摘要", "arm64": "仓库@sha256:摘要"}
-    }
-  },
-  "chentu": {
-    "version": "0.2.1",
-    "revision": "完整的40位提交",
-    "sha256": "实际归档的64位摘要",
-    "url": "https://downloads.apeironlab.cn/chentu/releases/0.2.1/chentu-0.2.1.tar.gz"
-  }
-}
-```
+`Unified nightly` 先检查公开 stable 指针。Cargo 基础版本不高于 stable 时停止，要求先推进开发版本。
+有待审核的 distribution PR 时保留该候选；已合并但尚无标签时验证引用再创建原 nightly 标签。
+若标签已有构建，提示检查或重跑原 workflow，不为同版本创建另一份验收身份。
+当 `main` 已推进且没有待审核候选时，准备新的整套上游制品。
 
-以上是格式说明，不能直接作为发行输入。镜像 digest 是各架构实际运行的 manifest digest，
-不是可移动 tag 或多架构 index digest。构建和验收必须使用对应的实际值。
+分支仍可手动运行 `Standalone CLI` 并填写与 Cargo 基础版本一致的 `candidate_version`，
+获得未发布的四平台构建用于诊断。该入口保留完整检查，不会触发下载通道发布。
 
-现有 nightly 调度器仍只调度 CLI 构建，尚未生成整套新 nightly 上游制品及输入。
-在该准备阶段接通前，它会被统一入口阻塞，不能回退为单独发布 CLI。
+## 权限配置
 
-## 专用验收环境
+| 环境或凭据 | 允许来源 | 用途 |
+| --- | --- | --- |
+| `ZYGOS_READ_TOKEN` | GitHub 构建 | 只读访问 CLI、Apeiron、IAM、Zygos、Chentu、Skills |
+| `deployment-build` | 仅 `main` | `CHENTU_SIGNING_KEY` secret、指纹变量；OIDC 仅写 Chentu 版本目录和内容寻址 blob |
+| `deployment-pins` | 仅 `main` | `DISTRIBUTION_PR_TOKEN`，仅 CLI 的 Contents/PR 写权限，创建普通 PR 事件并触发 CI |
+| `deployment-acceptance` | 仅 `v*` 标签 | `ACCEPTANCE_ECS_ROLE_ARN` 和固定测试网络/镜像配置；OIDC 管理有验收标签的临时 ECS |
+| CLI 下载发布角色 | 版本标签 | 仅统一发布最后一步写 CLI 发行对象与通道 |
 
-四个自托管 runner 都带 `apeiron-release` 标签，另分别带：
+组织当前禁止 `GITHUB_TOKEN` 创建 PR，因此使用独立的 CLI 专用 PR 凭据，不修改组织策略。
+所有有限期凭据需在到期前轮换。验收角色没有生产部署权限；创建实例限定测试 VPC、实例规格、按量计费和用途标签。
+基础材料上传角色不能写 CLI 通道；发布角色的现有范围不能替代部署材料权限。
 
-| 标签 | 环境 |
+## 四种验收目标
+
+| 目标 | 执行环境 |
 | --- | --- |
-| `k3d-darwin-arm64` | macOS ARM64、Docker、独立空集群 |
-| `k3d-linux-arm64` | Linux ARM64、Docker、独立空集群 |
-| `k3s-single-amd64` | 一台全新 Ubuntu 22.04 AMD64 |
-| `k3s-multi-amd64` | Ubuntu 22.04 AMD64 操作机及三台独立 server；HA 开启，无 agent |
+| `k3d-darwin-arm64` | macOS ARM64 自托管 runner、Docker、临时独立集群 |
+| `k3d-linux-arm64` | Linux ARM64 自托管 runner、Docker、临时独立集群 |
+| `k3s-single-amd64` | 临时 Ubuntu 22.04 AMD64 ECS，一台 server |
+| `k3s-multi-amd64` | 临时 Ubuntu 22.04 AMD64 ECS，三台 server，HA 开启 |
 
-每个 runner 设置 `APEIRON_RELEASE_DISPOSABLE=true` 和 `APEIRON_ACCEPTANCE_CONFIG=/绝对路径/配置.json`。
-该配置是向导配置请求正文，包含 apps、models、slug、deployment 等；不包含 revision。
-必须选择 Apeiron、完整依赖、目标 topology 和全新站点域名，`deployment.offline=false`；
-不允许覆盖 deployment.root/environment/bundleDir 绕开编译进 CLI 的包。
-使用本地候选包的开发验收须单独记录，不能作为公共下载入口的发行验收凭据。
-模型密钥、SSH 私钥、节点 inventory 留在受限 runner 文件中，不入 Git、公开发行文件或 Actions artifacts。
+两个 ARM runner 放入 `apeiron-release` 专用 runner group，仅允许 CLI 仓库的
+`.github/workflows/release-acceptance.yml@refs/heads/main` 调用，并各自带对应目标标签。
+该工作流须先存在于 `main`，才能配置 GitHub 的工作流限制。runner 设置
+`APEIRON_RELEASE_DISPOSABLE=true`；测试脚本生成独占配置路径、域名和端口，最终只清理本次集群的容器、网络和卷。
+禁止使用 Docker prune。安装配置和原始日志留在私有工作目录，仅上传有界验收结果。
 
-SSO 配置重启 K3s 后，验收等待 backend/app/ops 恢复就绪，再核对运行镜像摘要。
-scode 工作空间按需启动，因此验收使用配置中的镜像创建临时 Pod，检查 Ready、镜像摘要与可执行文件版本，
-随后删除；不调用模型，也不将此检查称为对话或工作空间业务链路验收。
+原生测试在 GitHub hosted Ubuntu runner 上编排，通过云助手运行，无需持久 GitHub runner 注册令牌或公网 SSH 放行。
+测试机固定为 8 核 32 GB、200 GB 磁盘，按量计费并设置 4 小时自动释放。
+单机和三机测试串行执行，同时最多三台。每次生成独立 SSH key，仅在测试 VPC 内连接节点。
+传输包放私有 OSS 路径，经临时签名 URL 下载并核对摘要；密钥、配置和安装日志不进入公开制品。
 
-安装器会修改专用测试机/测试集群。只对已明确用于验收、可重建的机器配置这些变量。
-环境管理员负责销毁/重建集群和恢复空白节点；工作流不自动卸载已有集群。
-每个目标串行运行，失败保留私有安装目录供排错。重跑之前须恢复该目标为空白环境。
-全部环境就绪后才设置仓库变量 `RELEASE_ACCEPTANCE_READY=true`。
+工作流在成功、失败后均尝试删除本次带完整用途/运行标签的实例、密钥对及传输包，并确认实例已消失。
+清理前检查实例身份、规格、网络、镜像和到期时间；不匹配则停止清理并报错。
+强制中断使清理无法执行时，自动到期作为兜底。云助手失败诊断最多保留 12 KB，位于
+`apeiron/acceptance-staging/<lease>/diagnostic.txt` 私有对象；由维护者排错后清理，不公开上传 Actions artifacts。
 
-云端单机的启动检查可运行 `scripts/smoke-native-host.py`，它验证系统、二进制来源、版本和向导 API，
-输出 `kind=native-host-smoke`、`installationTested=false`，**不能作为任何安装验收结果**。
+所有环境和权限就绪后才设置仓库变量 `RELEASE_ACCEPTANCE_READY=true`。该开关只表示基础设施可用，
+不代表某个版本已经通过安装验收。标签必须属于 reviewed `main` 历史，PR 不能执行验收 runner。
 
-## 重试与权限
+## 验收内容与边界
 
-尚未上传任何发行文件时，统一入口也可在同一版本标签手动运行，输入原 `Standalone CLI` 的 build run ID。
-一旦开始上传不可变发行文件，必须重跑原 Unified release 的失败 job，保留同一个 run ID 和原始验收记录；
-不能重新 dispatch 后用另一次验收记录覆盖同版本的 `distribution.json`。
-缺少任何制品、目标环境或验收结果均阻止发布。只有统一发布 job 获得 OSS OIDC 写权限；
-仍使用本仓库版本标签的信任范围。上游制品上传需要另行配置 `chentu/*` 和 `apeiron/blobs/*` 权限，
-现有 CLI 的 `apeiron-cli/*` 权限不能替代它们。
+每个目标使用最终 CLI 编译引用的公开 Chentu 包安装，核对节点数量、角色、Ready、架构和原生 Ubuntu 版本，
+检查四种应用运行镜像摘要、持久 Keycloak operator 凭据、CA 校验的 HTTPS，以及真实 IAM 密码 token 登录。
+SSO 配置重启 K3s 后会等待服务恢复。scode 按需启动，因此创建临时 Pod 检查镜像和可执行文件版本，完成后删除。
 
-发行前必须通过公开固定下载引用完成四个目标的安装验收；使用显式私有部署包的开发验收不能替代它。
-当前草稿仍需接通 Chentu 原生材料与正式签名构建自动化、固定引用 PR 生成、正式发行输入和专用 runner 配置。
-合同测试或私有候选安装通过，均不代表 `0.2.1` 已满足公开发布条件。
+上述基线不包含浏览器 PKCE/会话、模型调用、应用或存储故障切换、可选组件及完全断网验收。
+三 server 的基础安装通过不等于完整 HA。使用私有开发部署包的旧测试不能替代公开固定引用的发行验收。
+`scripts/smoke-native-host.py` 的主机启动检查也不算安装验收。
+
+## 重试与发布状态
+
+未开始上传最终发行文件时，可以在同一标签调用 `Unified release` 并指定原成功 build run ID。
+一旦写入最终不可变发行文件，必须重跑原 Unified release 的失败 job，保留原 run ID 和验收记录，
+不能重新 dispatch 后覆盖同版本 `distribution.json`。固定引用 PR 若已创建，准备脚本会报告现有 PR；
+若推送分支后创建 PR 失败，维护者应从该固定分支恢复 PR，不强推改写已生成的候选。
+
+当前实现补齐了上游准备、签名、不可变上传、固定引用 PR 和临时 ECS 验收代码。
+首次主分支完整运行、受限 ARM runner 注册及四目标公开下载安装仍须以真实 CI 结果验收。
+在这些结果产生前，不启用发布就绪变量，不声称正式 `0.2.1` 已可用。

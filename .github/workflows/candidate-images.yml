@@ -9,6 +9,9 @@ on:
       chentu_revision:
         required: true
         type: string
+      release_version:
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -32,13 +35,15 @@ jobs:
         env:
           APEIRON_REVISION: ${{ inputs.apeiron_revision }}
           CHENTU_REVISION: ${{ inputs.chentu_revision }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          export GITHUB_RUN_CREATED_AT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+          GITHUB_RUN_CREATED_AT=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .created_at)
+          export GITHUB_RUN_CREATED_AT
           bun scripts/prepare-candidate.js "$RUNNER_TEMP/candidate"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: candidate-identity
+          name: image-candidate-identity
           path: ${{ runner.temp }}/candidate
           retention-days: 7
 

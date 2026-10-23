@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import APPS from '../runtime/assets/apps.json';
 import { buildSupport } from './lib/rust';
 import { fixtureModels } from '../test/fixtures';
+import { parseReleaseVersion } from './lib/release-version.js';
 const directory = await mkdtemp(join(tmpdir(), 'apeiron-install-plan-'));
 async function run(args) {
     const child = Bun.spawn(args, { stdout: 'pipe', stderr: 'pipe' });
@@ -35,7 +36,8 @@ try {
             return value;
         };
         const version = pin('VERSION');
-        assert.match(version, /^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$/);
+        // The historical default remains readable until its pin PR is merged.
+        if (version !== '0.1.0-rc.5') parseReleaseVersion(version);
         const archive = join(directory, 'chentu.tar.gz');
         await download(`https://${pin('HOST')}/chentu/releases/${version}/chentu-${version}.tar.gz`, archive, pin('DIGEST'));
         await run(['tar', '-xzf', archive, '-C', directory]);

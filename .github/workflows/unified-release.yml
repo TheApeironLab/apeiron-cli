@@ -13,7 +13,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: unified-release-${{ github.ref }}
+  group: unified-release
   cancel-in-progress: false
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           ACCEPTANCE_READY: ${{ vars.RELEASE_ACCEPTANCE_READY }}
         run: |
           bun scripts/check-release-run.js
-          test "$ACCEPTANCE_READY" = true || { echo '::error::Configure all four disposable acceptance runners before releasing.'; exit 1; }
+          test "$ACCEPTANCE_READY" = true || { echo '::error::Configure both ARM64 runners and native ECS leases before releasing.'; exit 1; }
       - name: Validate the reviewed distribution inputs against compiled pins
         run: bun scripts/check-distribution-source.js release/distribution-input.json
       - id: version
@@ -57,36 +57,13 @@ jobs:
       fail-fast: false
       matrix:
         target: [k3d-darwin-arm64, k3d-linux-arm64, k3s-single-amd64, k3s-multi-amd64]
-    # These labels refer exclusively to disposable acceptance machines, never
-    # production or the existing shared development clusters. PRs cannot run here.
-    runs-on: [self-hosted, apeiron-release, '${{ matrix.target }}']
-    timeout-minutes: 110
-    concurrency:
-      group: release-acceptance-${{ matrix.target }}
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: 1.3.14
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: candidate
-          path: ${{ runner.temp }}/release
-      - name: Install the exact candidate and verify the live cluster
-        env:
-          ACCEPTANCE_TARGET: ${{ matrix.target }}
-        run: bun scripts/accept-distribution.js "$ACCEPTANCE_TARGET" "$RUNNER_TEMP/release" "$PWD/release/distribution-input.json" "$RUNNER_TEMP/acceptance-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: acceptance-${{ matrix.target }}
-          path: ${{ runner.temp }}/acceptance-${{ github.run_id }}-${{ github.run_attempt }}/${{ matrix.target }}.json
-          if-no-files-found: error
-          retention-days: 30
-      # Raw configs, kubeconfigs, tokens and installation logs remain private on
-      # the disposable runner. Only the bounded result receipt is uploaded.
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    uses: TheApeironLab/apeiron-cli/.github/workflows/release-acceptance.yml@main
+    with:
+      target: ${{ matrix.target }}
 
   publish:
     needs: [candidate, acceptance]
