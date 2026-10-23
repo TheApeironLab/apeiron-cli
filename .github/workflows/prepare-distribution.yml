@@ -301,6 +301,8 @@ jobs:
       - uses: aliyun/setup-aliyun-cli-action@09a5f86915bb556e27bf050e9a5e339aeb073df5
         with:
           version: 3.3.23
+      - name: Select the pinned CLI and initialize OSS before uploads
+        run: bash scripts/prepare-release-aliyun.sh
       - name: Upload immutable objects and verify their public bytes
         run: bun scripts/publish-deployment.js "$RUNNER_TEMP/package/upload-plan.json"
         env:
