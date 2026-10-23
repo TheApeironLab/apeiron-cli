@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      registry-matrix: ${{ steps.plan.outputs.registry-matrix }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -38,7 +39,9 @@ jobs:
                   raise ValueError('Optional source must be on reviewed main: '+repo)
           matrix={'include':[{'component':name,'repository':item['source'],'revision':lock['sources'][item['source']],'architecture':arch}
                              for name,item in lock['images'].items() for arch in ('amd64','arm64')]}
-          with open(os.environ['GITHUB_OUTPUT'],'a') as output: output.write('matrix='+json.dumps(matrix,separators=(',',':'))+'\n')
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('matrix='+json.dumps(matrix,separators=(',',':'))+'\n')
+              output.write('registry-matrix='+json.dumps({'component':list(lock['registryImages'])},separators=(',',':'))+'\n')
           PY
   images:
     needs: identity
@@ -73,6 +76,11 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  source-sftpgo:
+    needs: identity
+    if: ${{ !inputs.registry_only }}
+    uses: ./.github/workflows/prepare-sftpgo.yml
+
   registry-images:
     needs: identity
     # Jammy's Skopeo lacks --preserve-digests. Match the real export smoke job.
@@ -83,8 +91,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        component: [sftpgo, gpustack]
+      matrix: ${{ fromJSON(needs.identity.outputs.registry-matrix) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
