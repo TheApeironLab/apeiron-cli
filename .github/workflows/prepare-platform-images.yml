@@ -75,7 +75,8 @@ jobs:
 
   registry-images:
     needs: identity
-    runs-on: ubuntu-22.04
+    # Jammy's Skopeo lacks --preserve-digests. Match the real export smoke job.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: read
