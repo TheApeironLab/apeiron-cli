@@ -132,6 +132,10 @@
 <div class="field"><label class="field-label" for="tunnel-port">ECS 隧道端口</label><input id="tunnel-port" type="text" value="19444" inputmode="numeric"><p class="hint">仅监听 ECS 的 127.0.0.1；每个部署使用独立端口。</p></div></details></div>
 <p class="hint">公网入口需已安装 Caddy，开放 TCP 80 / 443。SSH 首次连接需确认主机指纹。公网 IP 不等于入口可达，部署前会检查 DNS，部署后检查 HTTPS。</p></div></section>
 <div id="entry-field" class="field"><label id="entry-label" class="field-label" for="entry-ip">入口 IP</label><input id="entry-ip" type="text" required placeholder="例如 192.168.1.100" inputmode="decimal" list="entry-addresses" autocomplete="off"><datalist id="entry-addresses"></datalist><p id="entry-note" class="hint"></p></div>
+<section id="gpustack-settings" class="machine-probe" hidden aria-labelledby="gpustack-title"><div class="probe-heading"><h2 id="gpustack-title">GPUStack 主机</h2></div>
+<p class="hint">连接已部署的 GPUStack 服务。此处配置集群访问入口；GPU 驱动、主机服务和模型权重需在 GPU 主机上准备。</p>
+<div class="field"><label class="field-label" for="gpustack-host">GPU 主机 IP</label><input id="gpustack-host" type="text" maxlength="45" placeholder="例如 192.168.1.20" autocomplete="off"></div>
+<div class="field"><label class="field-label" for="gpustack-port">GPUStack 服务端口</label><input id="gpustack-port" type="number" min="1" max="65535" value="80"></div></section>
 <section class="machine-probe" aria-labelledby="models-title"><div class="probe-heading"><h2 id="models-title">既有模型服务</h2></div>
 <section id="model-settings">
 <div class="field"><label class="field-label" for="model-provider">Provider</label><input id="model-provider" type="text" maxlength="64" value="bailian" placeholder="例如 bailian" autocomplete="off"><p class="hint">必填；使用小写字母、数字、点、下划线或短横线，以字母或数字开头。</p></div>
@@ -969,9 +973,13 @@ ${access.domain}      A    ${access.entryIp}`;
   function selectedApps() {
     return Array.from(document.querySelectorAll('[name="app"]:checked')).map((input) => input.value);
   }
+  function gpuInput() {
+    return selectedApps().includes("gpustack") ? { host: get("gpustack-host").value.trim(), port: Number(get("gpustack-port").value) } : null;
+  }
   function updateSelection() {
     get("selected-count").textContent = `\u5DF2\u9009\u62E9 ${selectedApps().length} \u4E2A\u5E94\u7528\uFF08${apps.filter((app) => app.required).length} \u4E2A\u5FC5\u9009\uFF09`;
     const selected = selectedApps();
+    get("gpustack-settings").hidden = !selected.includes("gpustack");
     for (const button of document.querySelectorAll("[data-scenario]")) {
       const wanted = scenarioApps(button.dataset.scenario);
       button.setAttribute("aria-pressed", String(wanted.length === selected.length && wanted.every((id) => selected.includes(id))));
@@ -1092,6 +1100,10 @@ ${access.domain}      A    ${access.entryIp}`;
       return !1;
     }
     if (step === 3) {
+      if (selectedApps().includes("gpustack") && (!get("gpustack-host").value.trim() || !get("gpustack-port").reportValidity() || !get("gpustack-port").value)) {
+        showError("\u8BF7\u586B\u5199 GPUStack \u4E3B\u673A IP \u548C\u670D\u52A1\u7AEF\u53E3\u3002");
+        return !1;
+      }
       if (!slug.reportValidity() || !domain.reportValidity())
         return !1;
       if (!validDomain()) {
@@ -1828,7 +1840,7 @@ ${access.domain}      A    ${access.entryIp}`;
       const response = await fetch(endpoint("deploy"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelInput(), deployment: target() })
+        body: JSON.stringify({ revision, slug: slug.value.trim(), apps: selectedApps(), models: modelInput(), gpustack: gpuInput(), deployment: target() })
       }), result = await response.json();
       if (!response.ok || !result.config)
         throw Error(result.error || "\u542F\u52A8\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u914D\u7F6E\u3002");
@@ -1866,6 +1878,10 @@ ${access.domain}      A    ${access.entryIp}`;
         slug.readOnly = !0;
       }
       const savedModel = result.config?.models;
+      if (result.config?.gpustack) {
+        get("gpustack-host").value = result.config.gpustack.host;
+        get("gpustack-port").value = result.config.gpustack.port;
+      }
       if (savedModel) {
         modelProvider.value = savedModel.provider || "";
         modelUrl.value = savedModel.baseUrl;

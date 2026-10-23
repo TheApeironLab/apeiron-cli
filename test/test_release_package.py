@@ -31,7 +31,9 @@ class DistributionPackage(unittest.TestCase):
             self.put(directory, 'chentu/driver.sh', runtime)
             self.put(directory, 'setup/release-manifest.json', json.dumps(manifest).encode())
             self.put(directory, 'resource.bin', b'platform bytes')
-            catalog = {'schemaVersion': 1, 'targets': {profile: {}}, 'components': {'core': {'files': ['resource.bin']}},
+            components = {name: {'files': ['resource.bin'], 'requires': []}
+                          for releases in package.scope.application_releases().values() for name in releases}
+            catalog = {'schemaVersion': 1, 'targets': {profile: {}}, 'components': components,
                        'files': [{'path': 'resource.bin', **package.identity(directory / 'resource.bin')}]}
             self.put(directory, 'chentu/setup/install.json', json.dumps(catalog).encode())
             metadata = {'schemaVersion': 1, 'kind': 'chentu-deployment', 'version': '0.2.1', 'revision': 'c' * 40,
@@ -106,6 +108,28 @@ class DistributionPackage(unittest.TestCase):
         (self.root / 'link').symlink_to(self.root / 'k3d-arm64', target_is_directory=True)
         with self.assertRaises(ValueError):
             package.safe_file(self.root, 'link/resource.bin')
+
+    def test_basic_package_cannot_be_published_as_wizard_distribution(self):
+        directory = self.outputs['k3d-arm64']
+        path = directory / 'chentu/setup/install.json'
+        catalog = json.loads(path.read_text())
+        del catalog['components']['task']
+        path.write_text(json.dumps(catalog))
+        self.sums(directory)
+        with self.assertRaisesRegex(ValueError, 'missing component: task'):
+            package.combine(self.outputs, self.candidate, self.root / 'incomplete')
+        self.assertFalse((self.root / 'incomplete').exists())
+
+    def test_optional_application_dependency_and_resource_must_be_delivered(self):
+        directory = self.outputs['k3s-amd64']
+        path = directory / 'chentu/setup/install.json'
+        catalog = json.loads(path.read_text())
+        catalog['components']['langfuse']['requires'] = ['clickhouse']
+        with self.assertRaisesRegex(ValueError, 'missing component: clickhouse'):
+            package.scope.validate_catalog(catalog)
+        catalog['components']['clickhouse'] = {'requires': [], 'files': ['clickhouse.tar']}
+        with self.assertRaisesRegex(ValueError, 'missing resource: clickhouse.tar'):
+            package.scope.validate_catalog(catalog)
 
 
 if __name__ == '__main__':

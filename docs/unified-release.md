@@ -40,6 +40,22 @@ CLI 仓库固定交付组合、构建四平台二进制、执行安装验收并�
 接收端、System Skills、Chentu 源码或旧 sandbox 签名；这些由准备工作流从固定来源重新生成。
 修改 seed 必须重新核对材料闭包、上传不可变内容并通过配方 PR 更新摘要。
 
+公开包的应用范围由 `runtime/assets/apps.json` 决定，`applicationScope: wizard` 包含全部
+可选应用及其依赖。准备入口先检查 seed 中的组件与资源；构建 profile 和组合归档时再检查一次。
+`requiredComponents` 只列基础根组件，不能用它缩减向导承诺的应用范围。ARM64 profile 出包后使用
+真实 Rust 规划器、Helmfile 和 check.py 验证逐个可选应用及全部应用组合，保留基础、Task、Langfuse、
+Grafana 的原有断言。检查容器没有网络，不把渲染成功视为运行验收通过。
+
+首次补齐平台材料时，`Prepare optional application images` 从 `release/platform-images.json`
+指定的已合并源码和正式 Dockerfile 构建 Zygos API/Web/Worker/EvalScope 与 Browser 的 AMD64、ARM64
+镜像。工作流仅保留镜像归档、源提交、配方摘要和归档摘要；不发布通道，也不自动替换平台 seed。
+这些镜像与其他应用材料通过 Chentu publisher 的闭包验证后，才能冻结并提交新的 seed 摘要。
+当前基础 seed 尚未包含全量应用，准备入口会拒绝它；不得为了继续发布而删减向导范围或跳过检查。
+
+GPUStack 沿用 Chentu 的独立 GPU 主机契约：向导收集 GPU 主机 IP 和服务端口，部署集群中的
+Service/Endpoints/Ingress。GPU 驱动、主机服务、模型权重由 GPU 主机单独准备。配置与镜像检查、
+实际入口/SSO 验收、模型推理验收分别记录，CPU 安装测试不能代替 GPU 推理测试。
+
 `release/signing-key.asc` 仅包含公钥。正式私钥不进入 Git；`recipe.json` 固定其完整指纹。
 Chentu 归档旁保留 `.asc` 和 `provenance.json`，后者记录原始候选及两种 profile 的完整来源和构建工具摘要。
 同版本重试应复用成功的 Actions artifacts，只重跑失败 job；重新构建得到不同字节不能覆盖同版本对象。

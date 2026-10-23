@@ -146,6 +146,10 @@ export function renderPage(nonce) {
 <div class="field"><label class="field-label" for="tunnel-port">ECS 隧道端口</label><input id="tunnel-port" type="text" value="19444" inputmode="numeric"><p class="hint">仅监听 ECS 的 127.0.0.1；每个部署使用独立端口。</p></div></details></div>
 <p class="hint">公网入口需已安装 Caddy，开放 TCP 80 / 443。SSH 首次连接需确认主机指纹。公网 IP 不等于入口可达，部署前会检查 DNS，部署后检查 HTTPS。</p></div></section>
 <div id="entry-field" class="field"><label id="entry-label" class="field-label" for="entry-ip">入口 IP</label><input id="entry-ip" type="text" required placeholder="例如 192.168.1.100" inputmode="decimal" list="entry-addresses" autocomplete="off"><datalist id="entry-addresses"></datalist><p id="entry-note" class="hint"></p></div>
+<section id="gpustack-settings" class="machine-probe" hidden aria-labelledby="gpustack-title"><div class="probe-heading"><h2 id="gpustack-title">GPUStack 主机</h2></div>
+<p class="hint">连接已部署的 GPUStack 服务。此处配置集群访问入口；GPU 驱动、主机服务和模型权重需在 GPU 主机上准备。</p>
+<div class="field"><label class="field-label" for="gpustack-host">GPU 主机 IP</label><input id="gpustack-host" type="text" maxlength="45" placeholder="例如 192.168.1.20" autocomplete="off"></div>
+<div class="field"><label class="field-label" for="gpustack-port">GPUStack 服务端口</label><input id="gpustack-port" type="number" min="1" max="65535" value="80"></div></section>
 <section class="machine-probe" aria-labelledby="models-title"><div class="probe-heading"><h2 id="models-title">既有模型服务</h2></div>
 <section id="model-settings">
 <div class="field"><label class="field-label" for="model-provider">Provider</label><input id="model-provider" type="text" maxlength="64" value="bailian" placeholder="例如 bailian" autocomplete="off"><p class="hint">必填；使用小写字母、数字、点、下划线或短横线，以字母或数字开头。</p></div>

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "sources": {
+    "zygos": "7e5ef9abbbd464e841250561db1762285b763c89",
+    "chentu": "1e38479523ef903f04dcb689d845b545b9a8a9c9"
+  },
+  "images": {
+    "zygos-api": {
+      "source": "zygos",
+      "recipe": "deploy/offline/Dockerfile.api",
+      "context": "."
+    },
+    "zygos-web": {
+      "source": "zygos",
+      "recipe": "deploy/offline/Dockerfile.web",
+      "context": "."
+    },
+    "zygos-worker": {
+      "source": "zygos",
+      "recipe": "workers/python/Dockerfile",
+      "context": "workers/python"
+    },
+    "zygos-evalscope": {
+      "source": "zygos",
+      "recipe": "deploy/evalscope/Dockerfile",
+      "context": "."
+    },
+    "chrome-headless": {
+      "source": "chentu",
+      "recipe": "tests/lab/browser/headless.Dockerfile",
+      "context": "."
+    }
+  }
+}

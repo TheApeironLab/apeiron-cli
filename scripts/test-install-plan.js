@@ -23,9 +23,11 @@ async function download(url, path, digest, size) {
     if (size !== undefined) assert.equal(bytes.length, size, url);
 }
 try {
-    assert.equal(process.argv.length === 2 || process.argv.length === 4, true, 'Usage: bun scripts/test-install-plan.js [CHENTU_ROOT TOOLBOX_IMAGE]');
-    let root = process.argv[2] && resolve(process.argv[2]);
-    let image = process.argv[3];
+    const allApps = process.argv.includes('--all-apps');
+    const args = process.argv.slice(2).filter(arg => arg !== '--all-apps');
+    assert.equal(args.length === 0 || args.length === 2, true, 'Usage: bun scripts/test-install-plan.js [--all-apps] [CHENTU_ROOT TOOLBOX_IMAGE]');
+    let root = args[0] && resolve(args[0]);
+    let image = args[1];
     const target = `k3d-${process.arch === 'x64' ? 'amd64' : process.arch}`;
     if (!root) {
         // Read the runtime's exact pin, so CI cannot silently validate a different package.
@@ -67,21 +69,41 @@ try {
         }
         assert.equal((await run(['docker', 'image', 'inspect', image, '--format', '{{.Id}}'])).trim(), image);
     }
-    for (const extra of [[], ['task'], ['langfuse'], ['kps']]) {
+    const selections = [[], ['task'], ['langfuse'], ['kps']];
+    if (allApps) {
+        for (const app of APPS.filter(app => !app.required)) {
+            const closure = new Set();
+            function add(id) {
+                if (closure.has(id)) return;
+                closure.add(id);
+                for (const dependency of APPS.find(item => item.id === id).requires ?? []) add(dependency);
+            }
+            add(app.id);
+            if (!selections.some(selection => JSON.stringify(selection) === JSON.stringify([...closure]))) selections.push([...closure]);
+        }
+        selections.push(APPS.filter(app => !app.required).map(app => app.id));
+    }
+    for (const extra of selections) {
         const apps = [...required, ...extra];
         const plan = await buildSupport('plan', root, target, JSON.stringify(apps));
         const replacements = { __DOMAIN__: 'example.internal', __REGISTRY__: 'registry.example.internal', __NODE__: 'fixture-node', __WORK__: '/work/state', __BUNDLE__: '/work/bundle', __ARCH__: target.slice(4) };
         let text = JSON.stringify(plan.environment);
         for (const [from, to] of Object.entries(replacements)) text = text.replaceAll(from, to);
         const config = { schemaVersion: 2, slug: 'integration-team', apps, models: fixtureModels,
+            ...(apps.includes('gpustack') ? { gpustack: { host: '192.0.2.20', port: 8080 } } : {}),
             deployment: { offline: false, installation: { topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1', httpPort: 54320, httpsPort: 54321 } } };
+        // Match bootstrap's installation overrides before environment_for.
+        const installation = config.deployment.installation;
+        const planned = { ...JSON.parse(text), topology: installation.topology, architecture: target.slice(4),
+            publicHttpPort: installation.httpPort, publicHttpsPort: installation.httpsPort };
         await writeFile(join(directory, 'config.json'), JSON.stringify(config), { mode: 0o600 });
-        await writeFile(join(directory, 'planned.json'), text, { mode: 0o600 });
+        await writeFile(join(directory, 'planned.json'), JSON.stringify(planned), { mode: 0o600 });
         const environment = await buildSupport('environment', join(directory, 'config.json'), join(directory, 'planned.json'));
         await writeFile(join(directory, 'environment.json'), JSON.stringify(environment), { mode: 0o600 });
         const docker = ['docker', 'run', '--rm', '--pull', 'never', '--network', 'none',
             '-v', `${root}:/repo:ro`, '-v', `${directory}:/input:ro`, '-w', '/repo/deploy/helmfile',
-            '-e', 'CHENTU_ENV=/input/environment.json', '-e', 'PYTHONPATH=/repo/cli/src:/repo/deploy/helmfile/scripts'];
+            '-e', 'CHENTU_ENV=/input/environment.json', '-e', 'CHENTU_HELMFILE_DIR=/repo/deploy/helmfile',
+            '-e', 'PYTHONPATH=/repo/cli/src:/repo/deploy/helmfile/scripts'];
         const resolved = Bun.YAML.parse(await run([...docker, '--entrypoint', 'helmfile', image,
             '--environment', 'single-k3d', '--file', 'helmfile.yaml.gotmpl', 'print-env'])).values;
         for (const app of APPS) {
