@@ -30,5 +30,9 @@
       "recipe": "tests/lab/browser/headless.Dockerfile",
       "context": "."
     }
+  },
+  "registryImages": {
+    "sftpgo": "ghcr.io/theapeironlab/sftpgo:2.7.6-chentu-pkce.3-multi-dev@sha256:06dbfec98afea4c97c5bdb7c963d86d00951a5d06a44c0fa2a990370c814cd85",
+    "gpustack": "ghcr.io/theapeironlab/gpustack:v2.2.3-chentu-pkce.1@sha256:c838ac49a031ef795fc32596c4fcdc37d9514d154fa8a13bc3f249921375a07b"
   }
 }

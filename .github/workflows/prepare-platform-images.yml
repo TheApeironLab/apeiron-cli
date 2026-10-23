@@ -2,6 +2,11 @@ name: Prepare optional application images
 
 on:
   workflow_dispatch:
+    inputs:
+      registry_only:
+        description: Export the pinned registry images without repeating source builds
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,6 +42,7 @@ jobs:
           PY
   images:
     needs: identity
+    if: ${{ !inputs.registry_only }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.identity.outputs.matrix) }}
@@ -64,5 +70,42 @@ jobs:
         with:
           name: platform-${{ matrix.component }}-${{ matrix.architecture }}
           path: ${{ runner.temp }}/image
+          compression-level: 0
+          retention-days: 7
+
+  registry-images:
+    needs: identity
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: read
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [sftpgo, gpustack]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install registry exporter
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+      - name: Authenticate with this job's temporary read credential
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/registry-auth.json
+        run: printf '%s' "$GH_TOKEN" | skopeo login --authfile "$REGISTRY_AUTH_FILE" --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+      - name: Export and verify all architectures at the locked digest
+        env:
+          COMPONENT: ${{ matrix.component }}
+          REGISTRY_AUTH_FILE: ${{ runner.temp }}/registry-auth.json
+        run: python3 scripts/export-platform-image.py --component "$COMPONENT" --out "$RUNNER_TEMP/export"
+      - name: Remove temporary registry credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/registry-auth.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: platform-${{ matrix.component }}-oci
+          path: ${{ runner.temp }}/export
           compression-level: 0
           retention-days: 7
