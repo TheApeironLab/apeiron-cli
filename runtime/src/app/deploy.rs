@@ -618,6 +618,12 @@ impl Deployment {
             }
         };
         if let Some(record) = record {
+            if record.get("appOperation").is_some() {
+                *owner.0.status.lock().unwrap() = json!({"kind":"application-operation",
+                    "phase":"interrupted","events":[],"resumable":false,"observationAvailable":false,
+                    "message":"发现应用操作记录。将读取其固定 Chentu 接口；不能作为首装重新同步。"});
+                return Ok(owner);
+            }
             *owner.0.status.lock().unwrap() = json!({"phase":"interrupted","events":[],
                 "message":if record["succeeded"] == true {"发现已成功部署的记录。恢复访问配置前将核对配置、安装包、资源和集群身份。"} else {"发现已完成集群引导的部署记录。继续前将核对配置、安装包、集群身份与运行中的命令，并重新执行 Helm 同步。"},
                 "completedRecovery":record["succeeded"] == true,

@@ -5,6 +5,16 @@ use std::{collections::BTreeSet, fs, path::PathBuf};
 
 const HELP: &str = "apeiron app <install|update|uninstall> <app> --instance <name> [--bundle-dir /absolute/package] [--dry-run]\napeiron app update <app-a> <app-b> ... --instance <name> [--bundle-dir /absolute/package] [--dry-run]\napeiron app list --instance <name>\n\nUse --config /absolute/config.json instead of --instance when needed.\ninstall: add one application; shared dependencies must already be installed.\nupdate: sync selected applications from one fixed package, ordered by native Helmfile. Joint updates require a package with native application labels.\nuninstall: remove services, retain PVCs, credentials, databases and objects; requires --yes.\nOlder releases must first be updated to record data-retention policies.\n--dry-run validates and previews without changing cluster resources or instance configuration.\nThe package must support app lifecycle and retain other installed components' artifacts.\nInterrupted operations are retried with the same command and package. No automatic rollback.\n";
 
+fn legacy_retry(record: &Value) -> Result<()> {
+    if record["appOperation"].get("facts").is_some() {
+        return Err(fail(
+            "应用操作由持久执行器管理；请用 apeiron operation status 核对事实。原 app 重试入口不能重放此操作或代替配置提交。",
+            5,
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct Request {
     action: String,
@@ -507,6 +517,7 @@ pub fn run(args: &[String]) -> Result<()> {
     resume::inactive(&record)?;
     let operation = json!({"action":req.action,"app":req.app,"bundle":desired["deployment"]["bundleDir"]});
     if pending.is_some() {
+        legacy_retry(&record)?;
         if record["appOperation"]["request"] != operation
             || (record["appOperation"]["beforeHash"] != resume::config_hash(current)
                 && record["configHash"] != resume::config_hash(current))
@@ -687,6 +698,15 @@ pub fn run(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn managed_operation_facts_never_fall_back_to_legacy_sync_even_after_executor_exit() {
+        for phase in ["prepared", "running", "verifying", "needs-reconciliation", "succeeded"] {
+            let record = json!({"appOperation":{"facts":{"phase":phase},"applied":phase == "succeeded"}});
+            assert_eq!(legacy_retry(&record).unwrap_err().code, 5);
+        }
+        assert!(legacy_retry(&json!({"appOperation":{"request":{"action":"update"}}})).is_ok());
+    }
+
     fn current() -> Value {
         json!({"schemaVersion":2,"slug":"example-team","apps":["apeiron","ci","gateway","git","nexus","ontology","vasi","zygos"]})
     }

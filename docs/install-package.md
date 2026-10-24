@@ -171,6 +171,7 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 - 远程使用：工作站执行 `ssh -L 3210:127.0.0.1:3210 <user>@<host>`，然后打开 `http://127.0.0.1:3210/<url 行中的路径>`；POST 的 `Host` 与 `Origin` 均为 `http://127.0.0.1:3210`。
 - 部署请求体 = `GET api/config` 的 `config` 叠加 `deployment.installation{topology,domain,entryIp,httpPort,httpsPort,ha,nodes,sshUser,sshKey,sshPort}`、`apps` 与 `revision`；K3d 的端口须与注册表登记一致（创建实例时由服务端分配）。
 - `GET api/deployment.stages[]` 元素为 `{id, state, detail}`，`id ∈ check/cluster/nexus/import/applications/access`，`state ∈ pending/active/done/skipped/failed/cancelled`；中断用 `POST api/deployment/stop {}`，续跑 `POST api/deployment/resume {revision}`，重跑 `POST api/deployment/retry {revision}`。
+- 新 Chentu 应用检查点通过同一只读进程 API 供 CLI 和向导观察：`GET api/operation/status`、`GET api/operation/events/<sequence>`。`api/deployment` 在此场景返回 `kind: application-operation`、实际操作事实与事件，分别展示执行、业务验收和配置提交，不提供 init 重试/停止按钮；旧记录明确显示不支持，不接管或补造完成。实际应用提交至持久执行器及配套续行仍须独立验收。
 - 应用目录随安装包发布（`install.json` 的 `applications`，来自 Chentu `deploy/helmfile/applications.yaml`）；向导在第一步选定安装包后用 `POST api/applications {deployment}` 读取。不在目录中的 ID（如 `keycloak`）被 `安装包的应用目录不包含：<id>。` 明确拒绝；资源目录缺少对应组件时在 `check` 阶段以“安装包缺少组件：<id>”拒绝。
 
 访问页读取 `keycloak/keycloak-operator` 的持久工作空间账号（默认 `platform-owner`），

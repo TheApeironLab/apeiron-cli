@@ -1021,7 +1021,53 @@ export function initWizard(supportsK3sHost) {
         });
         get('deployment-stages').replaceChildren(...items);
     }
+    function renderApplicationOperation(status) {
+        currentDeployment = status;
+        pairedSelect.disabled = true;
+        form.hidden = true;
+        for (const id of ['form-heading', 'home', 'instances', 'verification', 'access-complete',
+            'deployment-stages', 'deployment-current-stage', 'stop-deployment', 'retry-deployment',
+            'edit', 'view-deployment', 'configure-access', 'to-verification', 'back-access'])
+            get(id).hidden = true;
+        get('deployment').hidden = false;
+        get('finish-actions').hidden = false;
+        get('finish').hidden = false;
+        get('finish').disabled = false;
+        const operation = status.operation;
+        const titles = { prepared: '应用操作已准备。', running: '应用操作正在执行。',
+            verifying: '应用正在验收。', 'needs-reconciliation': '应用操作需要核对。', failed: '应用操作失败。' };
+        get('deployment-title').textContent = operation?.configurationCommitted ? '应用操作已提交。'
+            : operation?.applied ? '应用验收通过，配置待提交。'
+            : titles[status.phase] || '应用操作状态暂不可用。';
+        get('deployment-message').textContent = operation
+            ? `应用：${operation.applications.join('、')} · 操作：${operation.operationId}` : status.message;
+        get('deployment-stage-title').textContent = '操作结果';
+        get('deployment-stage-note').textContent = operation?.configurationCommitted ? '业务验收与配置提交均已完成。'
+            : operation?.applied ? '业务验收已通过，等待提交实例配置。' : '依据执行器的实际记录展示；同步完成后仍需业务验收。';
+        get('deployment-events').replaceChildren(...status.events.map(event => {
+            const line = document.createElement('span');
+            line.textContent = `${event.sequence} · ${event.phase}\n`;
+            return line;
+        }));
+        get('deployment-log').textContent = operation?.executor
+            ? `${operation.executor.ActiveState} / ${operation.executor.SubState}` : '—';
+        get('deployment-exit').textContent = operation?.executor?.ExecMainStatus ?? '—';
+        get('deployment-time').textContent = '—';
+        get('deployment-environment').textContent = operation?.configurationCommitted ? '已提交' : '尚未提交';
+        get('open-log').hidden = true;
+        get('download-log').hidden = true;
+        get('deployment-note').textContent = '关闭页面不会停止已交给执行器的任务。执行、业务验收和配置提交分别记录；需要核对时保留现场，不能通过重新部署来重放迁移。';
+        renderProgress(5);
+        clearTimeout(timer);
+        if (['prepared', 'running', 'verifying'].includes(status.phase))
+            timer = setTimeout(() => { void poll(); }, 1000);
+    }
     function renderDeployment(status) {
+        if (status.kind === 'application-operation') {
+            renderApplicationOperation(status);
+            return;
+        }
+        get('deployment-stages').hidden = false;
         pairedSelect.disabled = true;
         currentDeployment = status;
         form.hidden = true;

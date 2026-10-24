@@ -13,8 +13,11 @@ fn unsupported() -> Error {
 }
 
 fn query(record: &Value, checkpoint: &Path, action: &str, after: Option<u64>, cancel: &Cancellation) -> Result<Value> {
-    if record["appOperation"]["api"]["schemaVersion"] != 1
-        || !record["appOperation"]["api"]["operations"]
+    let capability = record["appOperation"]
+        .get("api")
+        .unwrap_or(&record["appOperation"]["execution"]["api"]);
+    if capability["schemaVersion"] != 1
+        || !capability["operations"]
             .as_array()
             .is_some_and(|ops| ops.contains(&json!(action)))
         || !record["appOperation"]["facts"].is_object()
@@ -131,14 +134,19 @@ pub fn run(args: &[String]) -> Result<()> {
         (None, Some(path)) => process::config_path(Some(path))?,
         _ => return Err(fail("Choose exactly one --instance or --config", 2)),
     };
-    let record = resume::recovery(&path)?.ok_or_else(unsupported)?;
+    let result = observe(&path, &pos[0], after, &Cancellation::default())?;
+    output(result, &options, &format!("apeiron.operation-{}.v1", pos[0]))
+}
+
+/// Shared transport for the CLI and wizard. Both read Chentu's same process API.
+pub(crate) fn observe(path: &Path, action: &str, after: Option<u64>, cancel: &Cancellation) -> Result<Value> {
+    let record = resume::recovery(path)?.ok_or_else(unsupported)?;
     let checkpoint = if resume::location(&path).exists() {
         resume::location(&path)
     } else {
         resume::completed_location(&path)
     };
-    let result = query(&record, &checkpoint, &pos[0], after, &Cancellation::default())?;
-    output(result, &options, &format!("apeiron.operation-{}.v1", pos[0]))
+    query(&record, &checkpoint, action, after, cancel)
 }
 
 #[cfg(test)]
@@ -190,7 +198,7 @@ else
 fi
 "#);
         let api = t.write("cli/src/chentu/application_operation.py", "# fixed adapter\n");
-        let record = json!({"target":{"runner":"native","root":t.0},"environment":{"PATH":"/usr/bin:/bin"},
+        let mut record = json!({"target":{"runner":"native","root":t.0},"environment":{"PATH":"/usr/bin:/bin"},
             "appOperation":{"api":{"schemaVersion":1,"operations":["status","events"]},"facts":{"operationId":"one"}},
             "files":{entry.to_str().unwrap():resume::digest(&entry).unwrap(),api.to_str().unwrap():resume::digest(&api).unwrap()}});
         let checkpoint = t.0.join("checkpoint.json");
@@ -198,6 +206,8 @@ fi
         assert_eq!(result["phase"], "verifying");
         assert_eq!(result["configurationCommitted"], false);
         assert!(result.get("secret").is_none());
+        let capability = record["appOperation"].as_object_mut().unwrap().remove("api").unwrap();
+        record["appOperation"]["execution"] = json!({"api":capability});
         assert_eq!(
             query(&record, &checkpoint, "events", Some(7), &Cancellation::default()).unwrap()["lastSequence"],
             7

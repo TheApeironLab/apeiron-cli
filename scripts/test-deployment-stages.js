@@ -117,6 +117,30 @@ try {
     await page.getByText('注册表中有 0 个实例。', { exact: true }).waitFor();
     assert.equal(await page.getByRole('button', { name: '创建并开始配置', exact: true }).isEnabled(), true);
     assert.equal(await page.getByRole('button', { name: '查看实例列表', exact: true }).isEnabled(), true);
+    status = { kind: 'application-operation', phase: 'verifying', observationAvailable: true,
+        operation: { operationId: 'app-one', applications: ['apeiron'], phase: 'verifying', applied: false, configurationCommitted: false },
+        events: [{ sequence: 1, phase: 'running' }, { sequence: 2, phase: 'verifying' }] };
+    await page.reload();
+    await page.getByRole('heading', { name: '应用正在验收。', exact: true }).waitFor();
+    for (const id of ['retry-deployment', 'stop-deployment', 'edit', 'deployment-stages'])
+        assert.equal(await page.locator('#' + id).isVisible(), false, `${id} cannot replay an application task`);
+    await page.getByText('查看部署日志', { exact: true }).click();
+    assert.match(await page.locator('#deployment-events').innerText(), /2 · verifying/);
+    assert.match(await page.locator('#deployment-note').innerText(), /业务验收和配置提交分别记录/);
+    status.operation.applied = true; status.operation.phase = status.phase = 'succeeded';
+    await page.reload();
+    await page.getByRole('heading', { name: '应用验收通过，配置待提交。', exact: true }).waitFor();
+    status.operation.configurationCommitted = true;
+    await page.reload();
+    await page.getByRole('heading', { name: '应用操作已提交。', exact: true }).waitFor();
+    status.operation.applied = status.operation.configurationCommitted = false;
+    status.phase = 'needs-reconciliation';
+    await page.reload();
+    await page.getByRole('heading', { name: '应用操作需要核对。', exact: true }).waitFor();
+    await page.screenshot({ path: join(directory, 'application-reconciliation.png'), fullPage: true });
+    assert.equal(await page.locator('#retry-deployment').isVisible(), false);
+    assert.equal(resumes, 2, 'Application observation never resumes init');
+    assert.equal(retries, 1, 'Application observation never retries init');
     assert.deepEqual(errors, []);
     console.log(`PASS six deployment stages: live transitions, reload, failure, retry reset, cancellation, interrupted-run continuation, completion, safe text, mobile; screenshots: ${directory}`);
 } finally {

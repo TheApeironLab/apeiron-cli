@@ -102,6 +102,33 @@ pub fn advertise_host(value: &str) -> Result<String> {
     Ok(value.to_ascii_lowercase())
 }
 impl State {
+    fn deployment_view(&self) -> Result<Value> {
+        let path = self.path();
+        let record = match resume::recovery(&path) {
+            Ok(Some(record)) => record,
+            // restore already exposes a blocked record without making the
+            // wizard unavailable. Observation must preserve that behavior.
+            Ok(None) | Err(_) => return Ok(self.deployment.snapshot()),
+        };
+        if record.get("appOperation").is_none() {
+            return Ok(self.deployment.snapshot());
+        }
+        // The wizard never turns an application checkpoint into an init retry.
+        // Observe via the exact transport used by `apeiron operation`.
+        let status = match operations::observe(&path, "status", None, &self.cancel) {
+            Ok(status) => status,
+            Err(error) => {
+                return Ok(json!({"kind":"application-operation","phase":"interrupted",
+                "observationAvailable":false,"message":error.message,"events":[],"resumable":false}))
+            }
+        };
+        let events = operations::observe(&path, "events", Some(0), &self.cancel)?;
+        Ok(
+            json!({"kind":"application-operation","phase":status.get("observedPhase").unwrap_or(&status["phase"]),
+            "operation":status,"events":events["events"],"observationAvailable":true,"resumable":false}),
+        )
+    }
+
     fn busy(&self) -> Result<()> {
         if self.stop.load(Ordering::Acquire) || self.deployment.active() || self.access.active() {
             Err(fail("部署、配置或测试正在进行，请稍后重试。", 409))
@@ -269,11 +296,26 @@ impl State {
                     data["path"] = json!(path);
                     data["host"] = discovery::host();
                     data["defaults"] = config::defaults();
-                    data["deployment"] = self.deployment.snapshot();
+                    data["deployment"] = self.deployment_view()?;
                     data["instance"] = self.current_instance(&path);
                     Ok(Reply::json(data, 200))
                 }
-                "api/deployment" => Ok(Reply::json(self.deployment.snapshot(), 200)),
+                "api/deployment" => Ok(Reply::json(self.deployment_view()?, 200)),
+                "api/operation/status" => Ok(Reply::json(
+                    operations::observe(&path, "status", None, &self.cancel)?,
+                    200,
+                )),
+                _ if route.starts_with("api/operation/events/") => {
+                    let after = route
+                        .strip_prefix("api/operation/events/")
+                        .unwrap()
+                        .parse::<u64>()
+                        .map_err(|_| fail("Invalid operation event cursor", 400))?;
+                    Ok(Reply::json(
+                        operations::observe(&path, "events", Some(after), &self.cancel)?,
+                        200,
+                    ))
+                }
                 "api/access" => Ok(Reply::json(
                     json!({"capability":access::capability(),"status":self.access.snapshot()}),
                     200,
@@ -838,6 +880,70 @@ mod contracts {
             assert!(advertise_host(value).is_err(), "{value}");
         }
     }
+    #[test]
+    fn application_operation_views_share_the_cli_transport_and_never_adopt_legacy_metadata() {
+        let temp = crate::app::contracts::Temp::new();
+        let path = temp.0.join("config.json");
+        let package = temp.0.join("package");
+        let entry = temp.write("package/deploy/helmfile/run.sh", r#"set -eu
+test "$1" = operation
+if [ "$2" = status ]; then
+ printf '%s' '{"schema":"chentu.application-operation-status.v1","operationId":"one","phase":"verifying","applications":["apeiron"],"applied":false,"configurationCommitted":false,"readOnly":true}'
+else
+ printf '%s' '{"schema":"chentu.application-operation-events.v1","operationId":"one","events":[{"sequence":1,"phase":"running"},{"sequence":2,"phase":"verifying"}],"lastSequence":2,"readOnly":true}'
+fi
+"#);
+        let api = temp.write(
+            "package/cli/src/chentu/application_operation.py",
+            "# protocol fixture\n",
+        );
+        let directory = temp.0.join("deployments/run-0000000000000001");
+        std::fs::create_dir_all(&directory).unwrap();
+        let mut record = json!({"schemaVersion":1,"configPath":path,"configHash":"0".repeat(64),
+            "cliSha256":"0".repeat(64),"checkpoint":"bootstrap-complete","ownerPid":std::process::id(),
+            "commandActive":false,"finished":false,"clusterUid":"fixture-uid","directory":directory,"plan":null,
+            "target":{"runner":"native","root":package,"environment":temp.0.join("environment.yaml"),"kubeconfig":temp.0.join("absent-kubeconfig")},
+            "environment":{"PATH":"/usr/bin:/bin"},
+            "files":{entry.to_str().unwrap():resume::digest(&entry).unwrap(),api.to_str().unwrap():resume::digest(&api).unwrap()},
+            "appOperation":{"operationId":"one","api":{"schemaVersion":1,"operations":["status","events"]},
+                "facts":{"operationId":"one"}}});
+        resume::write(&resume::location(&path), &record).unwrap();
+        let mut server = start_gateway(path.clone(), "fixture".into()).unwrap();
+        let client = reqwest::blocking::Client::new();
+        let get = |route: &str| -> Value {
+            client
+                .get(format!("{}api/{route}", server.url()))
+                .send()
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .json()
+                .unwrap()
+        };
+        let status = get("operation/status");
+        assert_eq!(status["phase"], "verifying");
+        assert_eq!(status["applied"], false);
+        assert_eq!(status["configurationCommitted"], false);
+        assert_eq!(get("operation/events/1")["lastSequence"], 2);
+        let view = get("deployment");
+        assert_eq!(view["kind"], "application-operation");
+        assert_eq!(view["operation"], status);
+        assert_eq!(view["events"][1]["phase"], "verifying");
+        assert_eq!(get("config")["deployment"]["operation"], status);
+        assert!(!PathBuf::from(format!("{}.installation-owner", path.display())).exists());
+        record["appOperation"].as_object_mut().unwrap().remove("api");
+        resume::write(&resume::location(&path), &record).unwrap();
+        let view = get("deployment");
+        assert_eq!(view["observationAvailable"], false);
+        assert_eq!(view["resumable"], false);
+        assert!(view["message"]
+            .as_str()
+            .unwrap()
+            .contains("UNSUPPORTED_OPERATION_CHECKPOINT"));
+        assert_eq!(resume::load(&path).unwrap().unwrap(), record);
+        server.stop();
+    }
+
     #[test]
     fn forwarded_loopback_hosts_reach_the_wizard_and_foreign_hosts_do_not() {
         let temp = crate::app::contracts::Temp::new();

@@ -434,7 +434,9 @@ apeiron app uninstall zygos --instance my-team --yes
 及 `apeiron operation events --instance my-team --after 12 --json` 只读观察；也支持显式 `--config`。
 两者复用同一检查点和包内入口，不查询集群、不取安装锁、不重试或接管操作。
 旧检查点明确返回 `UNSUPPORTED_OPERATION_CHECKPOINT`。`verifying`、应用验收和配置提交
-分别显示；该观察入口不表示 app 命令已经交给后台执行器。
+分别显示；向导也通过同一进程接口展示这些事实和事件，刷新不会重试安装。
+持久记录拒绝回落到旧 app 同步重试入口，业务验收通过但配置未提交时继续显示待提交。
+该观察入口不表示 app 命令已经交给后台执行器，实际提交和资格核验接线仍在开发中。
 更新及卸载后重装保留运维配置，只推进所选应用的镜像与 Chart。安装/卸载另同步 Apeiron 的应用目录。
 新 Chentu 的 Nexus-first 应用路径复用现有 Nexus，不同步引导依赖、切换注册表或重启节点；
 旧包继续按其自身驱动契约执行，包兼容预检不能省略。

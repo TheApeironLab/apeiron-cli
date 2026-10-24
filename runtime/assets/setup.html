@@ -1171,7 +1171,68 @@ ${access.domain}      A    ${access.entryIp}`;
     });
     get("deployment-stages").replaceChildren(...items);
   }
+  function renderApplicationOperation(status) {
+    currentDeployment = status;
+    pairedSelect.disabled = !0;
+    form.hidden = !0;
+    for (const id of [
+      "form-heading",
+      "home",
+      "instances",
+      "verification",
+      "access-complete",
+      "deployment-stages",
+      "deployment-current-stage",
+      "stop-deployment",
+      "retry-deployment",
+      "edit",
+      "view-deployment",
+      "configure-access",
+      "to-verification",
+      "back-access"
+    ])
+      get(id).hidden = !0;
+    get("deployment").hidden = !1;
+    get("finish-actions").hidden = !1;
+    get("finish").hidden = !1;
+    get("finish").disabled = !1;
+    const operation = status.operation, titles = {
+      prepared: "\u5E94\u7528\u64CD\u4F5C\u5DF2\u51C6\u5907\u3002",
+      running: "\u5E94\u7528\u64CD\u4F5C\u6B63\u5728\u6267\u884C\u3002",
+      verifying: "\u5E94\u7528\u6B63\u5728\u9A8C\u6536\u3002",
+      "needs-reconciliation": "\u5E94\u7528\u64CD\u4F5C\u9700\u8981\u6838\u5BF9\u3002",
+      failed: "\u5E94\u7528\u64CD\u4F5C\u5931\u8D25\u3002"
+    };
+    get("deployment-title").textContent = operation?.configurationCommitted ? "\u5E94\u7528\u64CD\u4F5C\u5DF2\u63D0\u4EA4\u3002" : operation?.applied ? "\u5E94\u7528\u9A8C\u6536\u901A\u8FC7\uFF0C\u914D\u7F6E\u5F85\u63D0\u4EA4\u3002" : titles[status.phase] || "\u5E94\u7528\u64CD\u4F5C\u72B6\u6001\u6682\u4E0D\u53EF\u7528\u3002";
+    get("deployment-message").textContent = operation ? `\u5E94\u7528\uFF1A${operation.applications.join("\u3001")} \xB7 \u64CD\u4F5C\uFF1A${operation.operationId}` : status.message;
+    get("deployment-stage-title").textContent = "\u64CD\u4F5C\u7ED3\u679C";
+    get("deployment-stage-note").textContent = operation?.configurationCommitted ? "\u4E1A\u52A1\u9A8C\u6536\u4E0E\u914D\u7F6E\u63D0\u4EA4\u5747\u5DF2\u5B8C\u6210\u3002" : operation?.applied ? "\u4E1A\u52A1\u9A8C\u6536\u5DF2\u901A\u8FC7\uFF0C\u7B49\u5F85\u63D0\u4EA4\u5B9E\u4F8B\u914D\u7F6E\u3002" : "\u4F9D\u636E\u6267\u884C\u5668\u7684\u5B9E\u9645\u8BB0\u5F55\u5C55\u793A\uFF1B\u540C\u6B65\u5B8C\u6210\u540E\u4ECD\u9700\u4E1A\u52A1\u9A8C\u6536\u3002";
+    get("deployment-events").replaceChildren(...status.events.map((event) => {
+      const line = document.createElement("span");
+      line.textContent = `${event.sequence} \xB7 ${event.phase}
+`;
+      return line;
+    }));
+    get("deployment-log").textContent = operation?.executor ? `${operation.executor.ActiveState} / ${operation.executor.SubState}` : "\u2014";
+    get("deployment-exit").textContent = operation?.executor?.ExecMainStatus ?? "\u2014";
+    get("deployment-time").textContent = "\u2014";
+    get("deployment-environment").textContent = operation?.configurationCommitted ? "\u5DF2\u63D0\u4EA4" : "\u5C1A\u672A\u63D0\u4EA4";
+    get("open-log").hidden = !0;
+    get("download-log").hidden = !0;
+    get("deployment-note").textContent = "\u5173\u95ED\u9875\u9762\u4E0D\u4F1A\u505C\u6B62\u5DF2\u4EA4\u7ED9\u6267\u884C\u5668\u7684\u4EFB\u52A1\u3002\u6267\u884C\u3001\u4E1A\u52A1\u9A8C\u6536\u548C\u914D\u7F6E\u63D0\u4EA4\u5206\u522B\u8BB0\u5F55\uFF1B\u9700\u8981\u6838\u5BF9\u65F6\u4FDD\u7559\u73B0\u573A\uFF0C\u4E0D\u80FD\u901A\u8FC7\u91CD\u65B0\u90E8\u7F72\u6765\u91CD\u653E\u8FC1\u79FB\u3002";
+    renderProgress(5);
+    clearTimeout(timer);
+    if (["prepared", "running", "verifying"].includes(status.phase))
+      timer = setTimeout(() => {
+        poll();
+      }, 1000);
+  }
   function renderDeployment(status) {
+    if (status.kind === "application-operation") {
+      renderApplicationOperation(status);
+      return;
+    }
+    get("deployment-stages").hidden = !1;
     pairedSelect.disabled = !0;
     currentDeployment = status;
     form.hidden = !0;
