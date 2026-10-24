@@ -2,6 +2,9 @@ import { parseReleaseVersion } from './release-version.js';
 
 // `applications` is the pinned package's {ID: releases} (distribution-input.json).
 export function acceptanceScope(version, applications) {
+  if (Object.keys(applications ?? {}).length === 0 || !Object.values(applications).every(releases =>
+      Array.isArray(releases) && releases.length > 0 && releases.every(name => typeof name === 'string')))
+    throw new Error('Distribution must list its applications; pin a newer nightly');
   // The current nightly deferral does not reduce stable release coverage.
   const deferredApplications = parseReleaseVersion(version).channel === 'nightly' ? ['gpustack'] : [];
   const selected = Object.entries(applications).filter(([id]) => !deferredApplications.includes(id));

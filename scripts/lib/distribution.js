@@ -25,8 +25,6 @@ export function validateDistribution(input, release) {
       requireValue(/^[a-z0-9][a-z0-9.:-]*(?:\/[a-z0-9][a-z0-9._/-]*)?@sha256:[a-f0-9]{64}$/.test(images?.[component]?.[arch] || ''), `Missing immutable ${component}/${arch} image`);
     }
   }
-  requireValue(Object.keys(input.applications ?? {}).length > 0 && Object.values(input.applications).every(releases =>
-    Array.isArray(releases) && releases.length > 0 && releases.every(name => typeof name === 'string')), 'Distribution must list its applications');
   const chentu = input.chentu;
   requireValue(chentu?.version === input.version && sha(chentu.revision) && digest(chentu.sha256), 'Chentu requires matching version, commit and archive digest');
   requireValue(chentu.url === `https://downloads.apeironlab.cn/chentu/releases/${input.version}/chentu-${input.version}.tar.gz`, 'Unexpected Chentu archive URL');
@@ -38,7 +36,7 @@ export function publicDistribution(input) {
   // Explicit projection: a local builder's credentials/configuration cannot
   // accidentally ride along when a distribution input is made public.
   return { schemaVersion: 1, version: input.version,
-    applications: Object.fromEntries(Object.entries(input.applications).map(([id, releases]) => [id, [...releases]])),
+    ...(input.applications && { applications: Object.fromEntries(Object.entries(input.applications).map(([id, releases]) => [id, [...releases]])) }),
     apeiron: { version: input.apeiron.version, revision: input.apeiron.revision,
       images: Object.fromEntries(['backend', 'app', 'ops', 'scode'].map(name => [name,
         { amd64: input.apeiron.images[name].amd64, arm64: input.apeiron.images[name].arm64 }])) },
