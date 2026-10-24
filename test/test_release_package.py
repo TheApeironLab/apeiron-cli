@@ -32,7 +32,7 @@ class DistributionPackage(unittest.TestCase):
             source = {'chentu': {'commit': 'c' * 40}, 'apeiron': {'commit': 'a' * 40, 'version': '0.2.1'},
                       'apeironCli': {'commit': 'd' * 40}, 'systemSkills': {'commit': 'b' * 40}}
             manifest = {'release': '0.2.1', 'profiles': {profile: {'architecture': arch}}, 'sources': source,
-                        'artifacts': [{'kind': 'image', 'image': {'sourceReference': f'apeiron/{name}:0.2.1', 'targetDigest': 'sha256:' + 'e' * 64}} for name in ('backend', 'app', 'ops', 'scode')]}
+                        'artifacts': []}
             self.put(directory, 'chentu/driver.sh', runtime)
             plugin = b'{"name":"fixture-plugin"}\n'
             self.put(directory, 'chentu/.claude-plugin/plugin.json', plugin)
@@ -40,6 +40,9 @@ class DistributionPackage(unittest.TestCase):
             self.put(directory, 'resource.bin', b'platform bytes')
             components = {name: {'files': ['resource.bin'], 'requires': []}
                           for releases in package.scope.application_releases().values() for name in releases}
+            components['apeiron']['images'] = [{'file': 'resource.bin', 'reference': f'apeiron/{name}:0.2.1',
+                                                'digest': 'sha256:' + 'e' * 64}
+                                               for name in package.APEIRON_IMAGES]
             catalog = {'schemaVersion': 1, 'targets': {profile: {}}, 'components': components,
                        'files': [{'path': 'resource.bin', **package.identity(directory / 'resource.bin')}]}
             self.put(directory, 'chentu/setup/install.json', json.dumps(catalog).encode())
