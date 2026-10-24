@@ -3,12 +3,13 @@
 use super::{deploy::Context, process::Cancellation, *};
 use std::{collections::BTreeSet, fs, path::PathBuf};
 
-const HELP: &str = "apeiron app <install|update|uninstall> <app> --instance <name> [--bundle-dir /absolute/package] [--dry-run]\napeiron app list --instance <name>\n\nUse --config /absolute/config.json instead of --instance when needed.\ninstall: add one application; shared dependencies must already be installed.\nupdate: sync the application's pinned version from the current or specified package.\nuninstall: remove services, retain PVCs, credentials, databases and objects; requires --yes.\nOlder releases must first be updated to record data-retention policies.\n--dry-run validates and previews without changing cluster resources or instance configuration.\nThe package must support app lifecycle and retain other installed components' artifacts.\nInterrupted operations are retried with the same command and package. No automatic rollback.\n";
+const HELP: &str = "apeiron app <install|update|uninstall> <app> --instance <name> [--bundle-dir /absolute/package] [--dry-run]\napeiron app update <app-a> <app-b> ... --instance <name> [--bundle-dir /absolute/package] [--dry-run]\napeiron app list --instance <name>\n\nUse --config /absolute/config.json instead of --instance when needed.\ninstall: add one application; shared dependencies must already be installed.\nupdate: sync selected applications from one fixed package, ordered by native Helmfile. Joint updates require a package with native application labels.\nuninstall: remove services, retain PVCs, credentials, databases and objects; requires --yes.\nOlder releases must first be updated to record data-retention policies.\n--dry-run validates and previews without changing cluster resources or instance configuration.\nThe package must support app lifecycle and retain other installed components' artifacts.\nInterrupted operations are retried with the same command and package. No automatic rollback.\n";
 
 #[derive(Clone, Debug, PartialEq)]
 struct Request {
     action: String,
     app: String,
+    apps: Vec<String>,
     releases: Vec<String>,
 }
 fn request(action: &str, app: &str, current: &Value) -> Result<(Request, Value)> {
@@ -69,9 +70,43 @@ fn request(action: &str, app: &str, current: &Value) -> Result<(Request, Value)>
         Request {
             action: action.into(),
             app: app.into(),
+            apps: vec![app.into()],
             releases,
         },
         desired,
+    ))
+}
+
+fn selected_request(action: &str, apps: &[String], current: &Value) -> Result<(Request, Value)> {
+    if apps.len() == 1 {
+        return request(action, &apps[0], current);
+    }
+    if action != "update" || apps.is_empty() {
+        return Err(fail(
+            "Joint selection is supported by app update; install/uninstall select one application",
+            2,
+        ));
+    }
+    let mut names = apps.to_vec();
+    names.sort();
+    names.dedup();
+    if names.len() != apps.len() {
+        return Err(fail("Select each application once", 2));
+    }
+    let mut releases = BTreeSet::new();
+    for app in &names {
+        // Preserve all existing catalog, installed-selection and dependency guards.
+        let (selection, _) = request(action, app, current)?;
+        releases.extend(selection.releases);
+    }
+    Ok((
+        Request {
+            action: action.into(),
+            app: names.join(","),
+            apps: names,
+            releases: releases.into_iter().collect(),
+        },
+        current.clone(),
     ))
 }
 
@@ -114,7 +149,7 @@ fn compatible(old: &Value, new: &Value, selected: &[String], active: &Value) -> 
             .collect()
     };
     if artifacts(old) != artifacts(new) {
-        return Err(fail("Package changes shared services or other installed applications; use a compatible app package or apeiron init for a platform upgrade", 2));
+        return Err(fail("Package changes shared services or unselected applications; select related applications explicitly or complete separate shared-service maintenance", 2));
     }
     Ok(())
 }
@@ -141,8 +176,10 @@ fn source_package(
         effective["apps"] = current["apps"].clone();
     }
     // Uninstall retry still needs a declaration for the removed release.
-    if !effective["apps"].as_array().unwrap().contains(&json!(req.app)) {
-        effective["apps"].as_array_mut().unwrap().push(json!(req.app));
+    for app in &req.apps {
+        if !effective["apps"].as_array().unwrap().contains(&json!(app)) {
+            effective["apps"].as_array_mut().unwrap().push(json!(app));
+        }
     }
     let root = resources::resolve(&effective["deployment"], &c.cancel, &|m| c.event(m))?;
     let key = format!(
@@ -345,6 +382,30 @@ fn invoke(context: &Context, args: &[String], root: &Path, env: &BTreeMap<String
     })
 }
 
+fn driver_plan(directory: &Path) -> Value {
+    fs::read_to_string(directory.join("install.log"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .rfind(|value| value["schema"] == "chentu.app-plan.v1")
+        .unwrap_or(Value::Null)
+}
+
+fn validate_scope(req: &Request, plan: &Value) -> Result<()> {
+    let releases = plan["releases"]
+        .as_array()
+        .ok_or_else(|| fail("Package did not return an application plan", 2))?;
+    let names: BTreeSet<&str> = releases.iter().filter_map(|r| r["name"].as_str()).collect();
+    let expected: BTreeSet<&str> = req.releases.iter().map(String::as_str).collect();
+    if plan["operation"] != req.action || names != expected || releases.len() != expected.len() {
+        return Err(fail(
+            "Package native application selection differs from the requested scope; no changes applied",
+            2,
+        ));
+    }
+    Ok(())
+}
+
 pub fn run(args: &[String]) -> Result<()> {
     let (pos, options) = parse(
         args,
@@ -369,7 +430,7 @@ pub fn run(args: &[String]) -> Result<()> {
             "apeiron.apps.v1",
         );
     }
-    if pos.len() != 2 {
+    if pos.len() < 2 {
         return Err(fail(HELP, 2));
     }
     if pos[0] == "uninstall" && !options.contains_key("yes") && !options.contains_key("dry-run") {
@@ -389,7 +450,7 @@ pub fn run(args: &[String]) -> Result<()> {
     resume::bind_executable()?;
     let saved = config::read(&path)?;
     let current = &saved["config"];
-    let (req, mut desired) = request(&pos[0], &pos[1], current)?;
+    let (req, mut desired) = selected_request(&pos[0], &pos[1..], current)?;
     if let Some(bundle) = options.get("bundle-dir") {
         if !Path::new(bundle).is_absolute() {
             return Err(fail("--bundle-dir must be absolute", 2));
@@ -458,23 +519,26 @@ pub fn run(args: &[String]) -> Result<()> {
         "deploy/helmfile/run.sh"
     });
     let mut command = vec![script.to_string_lossy().into_owned(), "app".into(), req.action.clone()];
-    command.extend(req.releases.clone());
+    if req.apps.len() > 1 {
+        // Product groups are resolved by the package's native Helmfile inventory.
+        // Older packages refuse this flag during read-only preflight.
+        command.push("--applications".into());
+        command.extend(req.apps.clone());
+    } else {
+        command.extend(req.releases.clone());
+    }
     let mut preview = command.clone();
     preview.push("--dry-run".into());
     // Planning queries the live Helm graph and retention before creating a pending
     // mutation record. A failed preflight leaves the instance untouched.
     if record["appOperation"]["applied"] != true || pending.is_none() {
         invoke(&context, &preview, root, &env)?;
+        validate_scope(&req, &driver_plan(&directory))?;
     }
     if options.contains_key("dry-run") {
-        let live_plan = fs::read_to_string(directory.join("install.log"))
-            .unwrap_or_default()
-            .lines()
-            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-            .rfind(|v| v["schema"] == "chentu.app-plan.v1")
-            .unwrap_or(Value::Null);
+        let live_plan = driver_plan(&directory);
         return output(
-            json!({"operation":req.action,"app":req.app,"releases":req.releases,
+            json!({"operation":req.action,"app":req.app,"applications":req.apps,"releases":req.releases,
             "dryRun":true,"retainData":true,"plan":live_plan,"log":directory.join("install.log")}),
             &options,
             "apeiron.app-operation.v1",
@@ -555,7 +619,8 @@ pub fn run(args: &[String]) -> Result<()> {
     }
     result?;
     output(
-        json!({"operation":req.action,"app":req.app,"status":"succeeded","dataRetained":true}),
+        json!({"operation":req.action,"app":req.app,"applications":req.apps,
+               "status":"succeeded","dataRetained":true}),
         &options,
         "apeiron.app-operation.v1",
     )
@@ -587,6 +652,42 @@ mod tests {
             .unwrap_err()
             .message
             .contains("dependency git"));
+    }
+    #[test]
+    fn joint_updates_have_stable_scope_and_preserve_instance_selection() {
+        let apps = vec!["ci".into(), "git".into()];
+        let (req, desired) = selected_request("update", &apps, &current()).unwrap();
+        assert_eq!(desired, current());
+        assert_eq!(req.apps, ["ci", "git"]);
+        assert_eq!(req.releases, ["git", "woodpecker"]);
+        assert_eq!(
+            selected_request("update", &["git".into(), "ci".into()], &current())
+                .unwrap()
+                .0,
+            req
+        );
+        for (action, names) in [
+            ("install", apps.clone()),
+            ("uninstall", apps.clone()),
+            ("update", vec!["git".into(), "git".into()]),
+            ("update", vec!["git".into(), "task".into()]),
+        ] {
+            assert!(selected_request(action, &names, &current()).is_err());
+        }
+    }
+    #[test]
+    fn native_plan_must_match_requested_scope_before_creating_mutation_record() {
+        let (req, _) = selected_request("update", &["git".into(), "ci".into()], &current()).unwrap();
+        let mut plan = json!({"operation":"update", "releases":[{"name":"git"},{"name":"woodpecker"}]});
+        assert!(validate_scope(&req, &plan).is_ok());
+        plan["releases"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"name":"postgres"}));
+        assert!(validate_scope(&req, &plan).is_err());
+        plan["releases"] = json!([{"name":"git"},{"name":"git"}]);
+        assert!(validate_scope(&req, &plan).is_err());
+        assert!(validate_scope(&req, &Value::Null).is_err());
     }
     #[test]
     fn required_unknown_and_missing_updates_fail_without_dropping_other_apps() {
@@ -627,6 +728,24 @@ mod tests {
         new["artifacts"][1]["sha256"] = json!("changed-database");
         assert!(compatible(&old, &new, &selected, &active).is_err());
         new["artifacts"].as_array_mut().unwrap().pop();
+        assert!(compatible(&old, &new, &selected, &active).is_err());
+    }
+    #[test]
+    fn joint_update_allows_both_selected_artifacts_and_keeps_shared_guard() {
+        let old = json!({"components":{
+            "git":{"artifacts":["git"]}, "woodpecker":{"artifacts":["ci"]},
+            "postgres":{"artifacts":["db"]}},"artifacts":[
+                {"id":"git","name":"git","kind":"image","sha256":"old-git"},
+                {"id":"ci","name":"ci","kind":"image","sha256":"old-ci"},
+                {"id":"db","name":"postgres","kind":"chart","sha256":"old-db"}]});
+        let mut new = old.clone();
+        new["artifacts"][0]["sha256"] = json!("next-git");
+        new["artifacts"][1]["sha256"] = json!("next-ci");
+        let active = json!(["git", "woodpecker", "postgres"]);
+        assert!(compatible(&old, &new, &["git".into()], &active).is_err());
+        let selected = vec!["git".into(), "woodpecker".into()];
+        assert!(compatible(&old, &new, &selected, &active).is_ok());
+        new["artifacts"][2]["sha256"] = json!("changed-db");
         assert!(compatible(&old, &new, &selected, &active).is_err());
     }
     #[test]

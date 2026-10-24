@@ -414,6 +414,7 @@ apeiron app list --instance my-team
 apeiron app install zygos --instance my-team --bundle-dir /absolute/chentu-package --dry-run
 apeiron app install zygos --instance my-team --bundle-dir /absolute/chentu-package
 apeiron app update zygos --instance my-team --bundle-dir /absolute/next-package
+apeiron app update git ci --instance my-team --bundle-dir /absolute/next-package --dry-run
 apeiron app uninstall zygos --instance my-team --dry-run
 apeiron app uninstall zygos --instance my-team --yes
 ```
@@ -421,7 +422,12 @@ apeiron app uninstall zygos --instance my-team --yes
 也可使用 `--config /absolute/config.json`。程序仍是 Rust 单文件，运行不需要 Bun/Node。
 安装包须包含新版 Chentu 的应用生命周期入口，已有集群与资源身份会先被核验。
 `install` 追加应用，依赖应用和共享服务须已安装；`update` 同步当前或指定包中固定的版本，
-不会自动选择公网 latest。单应用包不得同时改变其它已安装组件的制品；整体升级使用安装向导。
+不会自动选择公网 latest。应用包不得隐式改变未选应用或共享服务；关联应用须显式联合选择，
+共享服务变更使用独立维护流程。
+`app update` 可明确选择多个已安装应用，使用同一包、安装锁与 `appOperation` 检查点。
+联合范围由新包的主 Helmfile `application` 标签展开并在预览时与请求核对，原生 needs 决定执行顺序；
+旧包或范围不一致在修改前拒绝。未选应用和共享服务的制品兼容守卫继续生效，
+不因联合选择而自动更新共享依赖。联合更新可能部分成功，失败后按同一选择与包核查重试。
 更新及卸载后重装保留运维配置，只推进所选应用的镜像与 Chart。安装/卸载另同步 Apeiron 的应用目录。
 Nexus-first 的资源导入仍会校验并同步既有证书组件和 Nexus，版本须与当前平台兼容。
 
