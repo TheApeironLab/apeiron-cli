@@ -543,7 +543,7 @@ pub fn run(args: &[String]) -> Result<()> {
         req.app,
         directory.join("install.log").display()
     );
-    let (target, env, plan, bundle) = if pending.is_some() {
+    let (target, mut env, plan, bundle) = if pending.is_some() {
         (
             record["target"].clone(),
             serde_json::from_value(record["environment"].clone()).unwrap(),
@@ -594,11 +594,24 @@ pub fn run(args: &[String]) -> Result<()> {
     if config::read(&path)?["revision"] != saved["revision"] {
         return Err(fail("Instance configuration changed; retry", 5));
     }
-    let operation_record = if pending.is_some() {
+    let mut operation_record = if pending.is_some() {
         record["appOperation"].clone()
     } else {
         json!({"request":operation,"beforeHash":resume::config_hash(current),"lockToken":token})
     };
+    // One persistent identity owns migration Jobs across exact-command retries.
+    // It is derived from the existing lock token, not the invoking process PID.
+    let operation_id = format!("app-{}", &config::hash(token.as_bytes())[..24]);
+    if operation_record["operationId"]
+        .as_str()
+        .is_some_and(|id| id != operation_id)
+    {
+        return Err(fail(
+            "Application operation identity changed; reconcile before retrying",
+            5,
+        ));
+    }
+    operation_record["operationId"] = json!(operation_id);
     let mut checkpoint = if pending.is_some() {
         record.clone()
     } else {
@@ -613,6 +626,8 @@ pub fn run(args: &[String]) -> Result<()> {
         )?
     };
     checkpoint["appOperation"] = operation_record;
+    env.insert("CHENTU_APP_OPERATION_ID".into(), operation_id.clone());
+    checkpoint["environment"]["CHENTU_APP_OPERATION_ID"] = json!(operation_id);
     checkpoint["ownerPid"] = json!(std::process::id());
     checkpoint["finished"] = json!(false);
     resume::write(&resume::location(&path), &checkpoint)?;

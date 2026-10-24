@@ -529,6 +529,124 @@ mod tests {
         (temp, config, record)
     }
     #[test]
+    fn application_retry_process_fixture() {
+        let Some(root) = std::env::var_os("APEIRON_APP_RETRY_FIXTURE") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let result = crate::app::applications::run(&[
+            "update".into(),
+            "zygos".into(),
+            "--config".into(),
+            root.join("config.json").to_string_lossy().into_owned(),
+        ]);
+        let result = match result {
+            Ok(()) => json!({"code":0,"pid":std::process::id()}),
+            Err(error) => json!({"code":error.code,"message":error.message,"pid":std::process::id()}),
+        };
+        write(&root.join("app-result.json"), &result).unwrap();
+    }
+
+    #[test]
+    fn application_failure_and_new_process_retry_preserve_identity_and_reject_tampering() {
+        let (temp, mut config, original) = fixture();
+        config.as_object_mut().unwrap().remove("models");
+        config["schemaVersion"] = json!(2);
+        config["apps"] = json!(["nexus", "vasi", "apeiron", "zygos", "gateway"]);
+        config["deployment"]["bundleDir"] = json!(temp.0.join("resources"));
+        config = config::validate(&config, &Value::Null).unwrap();
+        let path = temp.0.join("config.json");
+        write(&path, &config).unwrap();
+        let driver = temp.write(
+            "source/deploy/helmfile/run.sh",
+            r#"#!/bin/sh
+case "$*" in
+  *--dry-run*) printf '%s\n' '{"schema":"chentu.app-plan.v1","operation":"update","releases":[{"name":"zygos"}]}'; exit 0 ;;
+esac
+printf '%s\n' "$CHENTU_APP_OPERATION_ID" >> "$APP_RETRY_IDS"
+test -f "$APP_RETRY_SUCCESS" || exit 23
+"#,
+        );
+        let package = temp.0.join("source/chentu-package.json");
+        let mut manifest = resources::json_file(&package, 65536).unwrap();
+        manifest["files"]["deploy/helmfile/run.sh"] = json!(digest(&driver).unwrap());
+        fs::write(package, manifest.to_string()).unwrap();
+        let mut env: BTreeMap<String, String> = serde_json::from_value(original["environment"].clone()).unwrap();
+        env.insert(
+            "APP_RETRY_IDS".into(),
+            temp.0.join("app-ids").to_string_lossy().into_owned(),
+        );
+        env.insert(
+            "APP_RETRY_SUCCESS".into(),
+            temp.0.join("app-success").to_string_lossy().into_owned(),
+        );
+        let directory = Path::new(original["directory"].as_str().unwrap());
+        let mut record = checkpoint(
+            &path,
+            &config,
+            directory,
+            &original["target"],
+            &env,
+            (&original["plan"], Path::new(original["bundle"].as_str().unwrap())),
+            &Cancellation::default(),
+        )
+        .unwrap();
+        record["finished"] = json!(true);
+        record["appOperation"] = json!({
+            "request":{"action":"update","app":"zygos","bundle":config["deployment"]["bundleDir"]},
+            "beforeHash":config_hash(&config),"lockToken":"fixture-original-application-lock"
+        });
+        write(&location(&path), &record).unwrap();
+        let run = || {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "app::resume::tests::application_retry_process_fixture",
+                    "--nocapture",
+                ])
+                .env("APEIRON_APP_RETRY_FIXTURE", &temp.0)
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            resources::json_file(&temp.0.join("app-result.json"), 65536).unwrap()
+        };
+        let failed = run();
+        assert_eq!(failed["code"], 500, "{failed}");
+        assert!(failed["message"].as_str().unwrap().contains("退出码 23"));
+        let checkpoint = load(&path).unwrap().unwrap();
+        let id = checkpoint["appOperation"]["operationId"].as_str().unwrap();
+        assert!(id.starts_with("app-"));
+        assert_eq!(checkpoint["environment"]["CHENTU_APP_OPERATION_ID"], id);
+        assert_eq!(fs::read_to_string(temp.0.join("app-ids")).unwrap(), format!("{id}\n"));
+        assert!(!completed_location(&path).exists());
+        let mut tampered = checkpoint.clone();
+        tampered["appOperation"]["operationId"] = json!("app-unrelated-operation");
+        write(&location(&path), &tampered).unwrap();
+        let rejected = run();
+        assert_eq!(rejected["code"], 5, "{rejected}");
+        assert!(rejected["message"].as_str().unwrap().contains("identity changed"));
+        assert_eq!(fs::read_to_string(temp.0.join("app-ids")).unwrap(), format!("{id}\n"));
+        assert_eq!(config::read(&path).unwrap()["config"], config);
+        write(&location(&path), &checkpoint).unwrap();
+        temp.write("app-success", "allow the original operation to finish");
+        let succeeded = run();
+        assert_eq!(succeeded["code"], 0, "{succeeded}");
+        assert_ne!(failed["pid"], succeeded["pid"]);
+        assert_eq!(
+            fs::read_to_string(temp.0.join("app-ids")).unwrap(),
+            format!("{id}\n{id}\n")
+        );
+        assert!(load(&path).unwrap().is_none());
+        let completed = recovery(&path).unwrap().unwrap();
+        assert_eq!(completed["appOperation"]["operationId"], id);
+        assert_eq!(completed["environment"]["CHENTU_APP_OPERATION_ID"], id);
+        assert_eq!(completed["appOperation"]["applied"], true);
+        assert_eq!(completed["clusterUid"], original["clusterUid"]);
+        assert_eq!(config::read(&path).unwrap()["config"], config);
+        assert!(!temp.0.join("sync-marker").exists());
+    }
+
+    #[test]
     fn recovery_restart_fixture() {
         let Some(root) = std::env::var_os("APEIRON_RESTART_FIXTURE") else {
             return;
