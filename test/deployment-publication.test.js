@@ -12,12 +12,14 @@ test('deployment upload refuses changed local bytes and never writes a conflicti
   expect(writes).toBe(0);
 });
 test('deployment upload reads bytes back, rejects racing writes and preserves exact retries', async () => {
-  let reads = 0, writes = 0, command;
-  const dependencies = { fileIdentity: async () => expected, publicIdentity: async () => ++reads === 1 ? null : expected,
+  let reads = 0, writes = 0, command, methods = [];
+  const dependencies = { fileIdentity: async () => expected,
+    publicIdentity: async (url, method) => { methods.push(method); return ++reads === 1 ? null : expected; },
     run: async args => { writes++; command = args; } };
   expect(await publishImmutable('/artifact', key, expected, dependencies)).toEndWith(key);
   expect(writes).toBe(1);
   expect(reads).toBe(2);
+  expect(methods).toEqual(['HEAD', undefined]);
   expect(command).toContain('--forbid-overwrite');
   expect(command.slice(0, 4)).toEqual(['aliyun', 'ossutil', 'api', 'put-object']);
   expect(command).not.toContain('--force');

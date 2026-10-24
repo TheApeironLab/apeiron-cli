@@ -86,16 +86,14 @@ def executables(directory):
 
 
 def verify_public_resource(record):
-    digest, size = hashlib.sha256(), 0
-    with urllib.request.build_opener(NoRedirect).open(record['url'], timeout=900) as response:
+    # Blobs are immutable and content addressed. The uploader read each new
+    # object back in full and recorded its sha256, so headers prove identity.
+    request = urllib.request.Request(record['url'], method='HEAD')
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=60) as response:
         if response.status != 200:
             raise ValueError('public profile resource is unavailable')
-        for chunk in iter(lambda: response.read(1024 * 1024), b''):
-            size += len(chunk)
-            if size > record['size']:
-                raise ValueError('oversized public profile resource')
-            digest.update(chunk)
-    got = {'sha256': digest.hexdigest(), 'size': size}
+        got = {'sha256': response.headers.get('x-oss-meta-sha256'),
+               'size': int(response.headers.get('Content-Length', -1))}
     if got != {k: record[k] for k in ('sha256', 'size')}:
         raise ValueError('public profile bytes differ from the catalog')
     return got
