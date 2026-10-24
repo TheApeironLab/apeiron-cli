@@ -51,6 +51,9 @@ jobs:
           VERSION: ${{ steps.recipe.outputs.version }}
         run: |
           case "$PROFILE" in k3s-arm64) arch=arm64 ubuntu=noble ;; *) exit 1 ;; esac
+          # build.sh reads YAML with jq-style yq or PyYAML; the runner's yq is the Go one.
+          sudo apt-get install -y -q python3-yaml >/dev/null
+          sudo rm -f "$(command -v yq)"
           bash chentu/bundle/build.sh --out "$RUNNER_TEMP/host" --arch "$arch" --ubuntu "$ubuntu" --version "$VERSION"
       - name: Compose the seed from the pinned K3d seed and the host material
         env:
