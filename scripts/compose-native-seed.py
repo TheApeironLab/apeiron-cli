@@ -37,6 +37,9 @@ def compose(host, k3d, template, profile, out):
         relative = path.relative_to(host).as_posix()
         if SKIP.match(relative) or (relative.startswith('k3s/') and relative not in k3s):
             continue
+        # apt leaves its empty lock and partial/ next to the downloaded packages.
+        if relative.startswith('debs/') and not re.fullmatch(r'debs/[^/]+\.deb', relative):
+            continue
         got = package.identity(path)
         if relative.startswith('debs/'):
             relative = f"debs/sha256-{got['sha256']}.deb"
