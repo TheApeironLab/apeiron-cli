@@ -164,3 +164,9 @@ SSO 配置重启 K3s 后会等待服务恢复。scode 按需启动，因此创�
 当前实现补齐了上游准备、签名、不可变上传、固定引用 PR 和临时 ECS 验收代码。
 首次主分支完整运行、受限 ARM runner 注册及四目标公开下载安装仍须以真实 CI 结果验收。
 在这些结果产生前，不启用发布就绪变量，不声称正式 `0.2.1` 已可用。
+
+
+应用镜像转换先调用固定 Chentu 的 `image_archive_identity`，区分 Docker config ID、
+OCI manifest ID 与 index ID，并验证所选平台及完整运行内容。既有回环 registry 转换后
+使用该 configDigest 核对输出，来源 image ID 与身份类型进入 buildProvenance；不把不同
+摘要域作字符串相等比较。原生材料仍只接收目标摘要匹配的纯 OCI 布局，不重新构建镜像。

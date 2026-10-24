@@ -65,6 +65,23 @@ def archive_layout(layout, output):
                 archive.addfile(info, stream)
 
 
+def convert_application_image(archive, image_id, architecture, registry, reference, layout, hosted, native_images):
+    """Convert through the existing loopback transport with a verified source identity."""
+    if not registry.startswith('127.0.0.1:') or not registry.split(':')[1].isdigit():
+        raise ValueError('image conversion registry must be loopback')
+    identity, _ = hosted.image_archive_identity(archive, image_id, architecture)
+    remote = f'{registry}/{reference}'
+    run(['crane', 'push', '--insecure', archive, remote])
+    digest = run(['crane', 'digest', '--insecure', remote])
+    run(['crane', 'pull', '--insecure', '--format=oci', remote, layout])
+    native_images.annotate(layout, reference, digest, architecture)
+    manifest = json.loads((layout / 'blobs/sha256' / digest[7:]).read_text())
+    if manifest['config']['digest'] != identity['configDigest']:
+        raise ValueError('OCI image config differs from the measured source archive')
+    config = json.loads((layout / 'blobs/sha256' / manifest['config']['digest'][7:]).read_text())
+    return digest, config, identity
+
+
 def render_values(values, arch, scope):
     text = json.dumps(values)
     for old, new in {'__REGISTRY__': '${REGISTRY}', '__BUNDLE__': '${BUNDLE_DIR}',
@@ -148,16 +165,11 @@ def prepare(args):
         with gzip.open(archive, 'rb') as source, plain.open('xb') as target:
             shutil.copyfileobj(source, target)
         reference = f'apeiron/{name}:{version}'
-        remote = f'{args.registry}/{reference}'
-        run(['crane', 'push', '--insecure', plain, remote])
-        digest = run(['crane', 'digest', '--insecure', remote])
         layout = args.out / f'oci-{name}'
-        run(['crane', 'pull', '--insecure', '--format=oci', remote, layout])
-        native_images.annotate(layout, reference, digest, arch)
-        manifest = json.loads((layout / 'blobs/sha256' / digest[7:]).read_text())
-        config = json.loads((layout / 'blobs/sha256' / manifest['config']['digest'][7:]).read_text())
+        digest, config, identity = convert_application_image(
+            plain, proof['imageId'], arch, args.registry, reference, layout, hosted, native_images)
         labels = config['config']['Labels']
-        if (manifest['config']['digest'] != proof['imageId'] or labels['org.opencontainers.image.revision'] != proof['revision']
+        if (labels['org.opencontainers.image.revision'] != proof['revision']
                 or labels['org.opencontainers.image.version'] != version):
             raise ValueError('OCI image identity differs from the measured build')
         relative = f'images/apeiron_{name}_{version}.tar'
@@ -167,7 +179,8 @@ def prepare(args):
         receipts.append({'components': ['apeiron'], 'file': relative, 'reference': reference, 'digest': digest,
                          'buildProvenance': {'source': {'repository': 'https://github.com/TheApeironLab/apeiron', 'commit': proof['revision'], 'clean': True},
                                              'recipe': {'file': proof['recipe']['path'], 'sha256': proof['recipe']['sha256']},
-                                             'platform': 'linux/' + arch, 'archive': proof['archive']}})
+                                             'platform': 'linux/' + arch, 'archive': proof['archive'],
+                                             'imageIdentity': {'sourceId': proof['imageId'], **identity}}})
     local = {'apeironVersion': 'v' + version, 'scodeVersion': recipe['sudocode']['version'], 'sourceRevision': candidate['sources']['apeiron']}
     shutil.copytree(args.clients / 'local-computer', material / 'local-computer', dirs_exist_ok=True)
     receipts.append({'components': ['apeiron'], 'files': validate_material(material, local), 'localComputer': local})
