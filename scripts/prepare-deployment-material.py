@@ -37,14 +37,24 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError('release blob redirects are not accepted')
 
 
-def download(record, output):
+def download(record, output, cache=None):
     if record['url'] != files.PUBLIC + 'apeiron/blobs/sha256/' + record['sha256']:
         raise ValueError('platform resources require content addressed public URLs')
     output.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.build_opener(NoRedirect).open(record['url'], timeout=900) as response, output.open('xb') as target:
-        shutil.copyfileobj(response, target)
-    if files.identity(output) != {key: record[key] for key in ('sha256', 'size')}:
-        raise ValueError('downloaded platform bytes differ from the reviewed lock')
+    expected = {key: record[key] for key in ('sha256', 'size')}
+    cached = cache / record['sha256'] if cache else None
+    # A CI cache entry is untrusted input: reuse it only when its bytes match the lock.
+    if cached and cached.is_file() and files.identity(cached) == expected:
+        os.link(cached, output)
+    else:
+        with urllib.request.build_opener(NoRedirect).open(record['url'], timeout=900) as response, output.open('xb') as target:
+            shutil.copyfileobj(response, target)
+        if files.identity(output) != expected:
+            raise ValueError('downloaded platform bytes differ from the reviewed lock')
+        if cached:
+            cache.mkdir(parents=True, exist_ok=True)
+            cached.unlink(missing_ok=True)
+            os.link(output, cached)
     mode = record.get('mode', 0o644)
     if mode not in (0o644, 0o755):
         raise ValueError('unsupported platform resource permissions')
@@ -106,7 +116,9 @@ def prepare(args):
     material = args.out / 'material'
     material.mkdir()
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(download, record, files.safe_file(material, name)) for name, record in seed['assets'].items()]
+        # Only image archives are cached: they are most of the bytes and are never rewritten in place.
+        futures = [executor.submit(download, record, files.safe_file(material, name), args.cache if name.startswith('images/') else None)
+                   for name, record in seed['assets'].items()]
         for future in futures:
             future.result()
     # Regenerate source-derived operator files from the reviewed Chentu commit.
@@ -252,5 +264,6 @@ if __name__ == '__main__':
     p.add_argument('--registry', required=True)
     p.add_argument('--sandbox', type=Path)
     p.add_argument('--gnupghome', type=Path)
+    p.add_argument('--cache', type=Path, help='verified reusable copies of seed image archives, by sha256')
     p.add_argument('--signing-key')
     print(json.dumps(prepare(p.parse_args())))

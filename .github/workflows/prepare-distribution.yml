@@ -229,6 +229,18 @@ jobs:
       - name: Prepare the authenticated Debian sandbox closure
         if: startsWith(matrix.profile, 'k3s-')
         run: uv run --project chentu/cli --locked python chentu/bundle/prepare_sandbox_apt.py --output "$RUNNER_TEMP/sandbox" --architecture "${{ matrix.architecture }}"
+      # Both ARM seeds pin the same ~7.7 GB of image archives; a cache avoids
+      # downloading them from OSS on every run. The amd64 images would not also
+      # fit in the 10 GB repository cache. Entries are verified by sha256 on use.
+      - name: Key the shared ARM seed image cache
+        if: matrix.architecture == 'arm64'
+        id: seed-images
+        run: echo "key=$(python3 -c 'import json; p = json.load(open("coordinator/release/recipe.json"))["platforms"]; print(p["k3d-arm64"]["sha256"][:16] + "-" + p["k3s-arm64"]["sha256"][:16])')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: matrix.architecture == 'arm64'
+        with:
+          path: ${{ runner.temp }}/seed-images
+          key: seed-images-arm64-${{ steps.seed-images.outputs.key }}
       - name: Prepare exact material and invoke the official Chentu publisher
         env:
           PROFILE: ${{ matrix.profile }}
@@ -237,7 +249,7 @@ jobs:
           docker run -d --name release-converter -p 127.0.0.1:5500:5000 registry:2
           extra=()
           if [ "${PROFILE#k3s-}" != "$PROFILE" ]; then extra=(--sandbox "$RUNNER_TEMP/sandbox/debs" --gnupghome "$RUNNER_TEMP/gnupg" --signing-key "$CHENTU_SIGNING_FINGERPRINT"); fi
-          uv run --project chentu/cli --locked python coordinator/scripts/prepare-deployment-material.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --lock coordinator/release/recipe.json --images "$RUNNER_TEMP/images" --clients "$RUNNER_TEMP/clients" --skills "$PWD/skills" --skills-bundle "$RUNNER_TEMP/skills/system-skills.bundle" --out "$RUNNER_TEMP/prepared" --profile "$PROFILE" --registry 127.0.0.1:5500 "${extra[@]}"
+          uv run --project chentu/cli --locked python coordinator/scripts/prepare-deployment-material.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --lock coordinator/release/recipe.json --images "$RUNNER_TEMP/images" --clients "$RUNNER_TEMP/clients" --skills "$PWD/skills" --skills-bundle "$RUNNER_TEMP/skills/system-skills.bundle" --out "$RUNNER_TEMP/prepared" --profile "$PROFILE" --registry 127.0.0.1:5500 --cache "$RUNNER_TEMP/seed-images" "${extra[@]}"
           export PATH="$RUNNER_TEMP/prepared/bin:$RUNNER_TEMP/prepared/material/bin:$PATH"
           uv run --project chentu/cli --locked python coordinator/scripts/build-deployment-profile.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --prepared "$RUNNER_TEMP/prepared" --builder "$RUNNER_TEMP/builder" --out "$RUNNER_TEMP/profile" --lock coordinator/release/recipe.json --profile "$PROFILE"
           if [ "$PROFILE" = k3d-arm64 ]; then
