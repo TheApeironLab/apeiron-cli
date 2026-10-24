@@ -226,7 +226,7 @@ pub fn guard(config: &Path) -> Result<fs::File> {
         Err(fail("此平台不支持安全部署恢复锁。", 409))
     }
 }
-fn digest(path: &Path) -> Result<String> {
+pub(crate) fn digest(path: &Path) -> Result<String> {
     Ok(config::hash(&resources::read(path, 64 * 1024 * 1024)?))
 }
 fn executable() -> Result<&'static fs::File> {
@@ -394,12 +394,7 @@ pub fn validate(record: &Value, config: &Value, cancel: &Cancellation) -> Result
     {
         return Err(error());
     }
-    for (path, expected) in record["files"].as_object().ok_or_else(error)? {
-        cancel.check()?;
-        if expected != &digest(Path::new(path))? {
-            return Err(error());
-        }
-    }
+    validate_files(record, cancel)?;
     let env: BTreeMap<String, String> = serde_json::from_value(record["environment"].clone()).map_err(|_| error())?;
     if record["plan"].is_object() {
         resources::prepare_files(
@@ -437,6 +432,22 @@ pub fn validate(record: &Value, config: &Value, cancel: &Cancellation) -> Result
         return Err(error());
     }
     Ok(env)
+}
+
+/// Metadata observation must also verify its implementation, without contacting
+/// Kubernetes, downloading resources or acquiring an installation owner lease.
+pub(crate) fn validate_files(record: &Value, cancel: &Cancellation) -> Result<()> {
+    let files = record["files"].as_object().ok_or_else(error)?;
+    if files.is_empty() {
+        return Err(error());
+    }
+    for (path, expected) in files {
+        cancel.check()?;
+        if expected != &digest(Path::new(path))? {
+            return Err(error());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(all(test, unix))]

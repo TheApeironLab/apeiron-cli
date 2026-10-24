@@ -11,6 +11,7 @@ mod discovery;
 pub(crate) mod distribution;
 mod instances;
 mod models;
+mod operations;
 mod pairing;
 mod process;
 mod register;
@@ -205,6 +206,7 @@ pub fn run() -> Option<i32> {
     }
     let result = match module {
         "app" => applications::run(&args[1..]),
+        "operation" => operations::run(&args[1..]),
         "chat" => chat::run(&args[1..]),
         "register" => register::run(&args[1..]),
         "init" => wizard::run(&args[1..]),
@@ -224,7 +226,7 @@ pub fn run() -> Option<i32> {
             Ok(())
         }
         "--help" | "-h" | "describe" => {
-            println!("schema=apeiron.v1\ncommand\tusage\napp\tapeiron app --help — install, update and uninstall applications\nsso\tapeiron sso login --server <URL> — platform SSO\ntask\tapeiron task --help — tasks, projects and workspaces\niam\tapeiron iam --help — organization, members and App access\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nzygos\tapeiron zygos --help — datasets, training, models and evaluations\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
+            println!("schema=apeiron.v1\ncommand\tusage\napp\tapeiron app --help — install, update and uninstall applications\noperation\tapeiron operation status|events — read-only application operation facts\nsso\tapeiron sso login --server <URL> — platform SSO\ntask\tapeiron task --help — tasks, projects and workspaces\niam\tapeiron iam --help — organization, members and App access\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nzygos\tapeiron zygos --help — datasets, training, models and evaluations\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
             Ok(())
         }
         _ => forward(module, &args[1..]),
