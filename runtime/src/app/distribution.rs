@@ -38,28 +38,16 @@ fn closure(components: &Value, roots: &BTreeSet<String>) -> Result<BTreeSet<Stri
     }
     Ok(done)
 }
-fn digest(value: &Value) -> bool {
-    config::matches(r"^sha256:[a-f0-9]{64}$", value.as_str().unwrap_or(""))
-}
 fn text(value: &Value) -> bool {
     value
         .as_str()
         .is_some_and(|s| !s.trim().is_empty() && s.len() < 512 && !s.contains(['\n', '\r']))
 }
-fn target_path(value: &Value, image: bool) -> bool {
+fn target_path(value: &Value) -> bool {
     let Some(path) = value.as_str() else {
         return false;
     };
-    let repository = if image {
-        path.split_once(':').map_or(path, |(p, _)| p)
-    } else {
-        path
-    };
-    resources::safe_relative(repository)
-        && (!image || !repository.split('/').next().unwrap_or("").contains('.'))
-        && !path.contains("//")
-        && !path.contains('@')
-        && (!image || config::matches(r"^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]+)?$", path))
+    resources::safe_relative(path) && !path.contains("//") && !path.contains('@')
 }
 
 fn native_package_path(artifact: &Value, architecture: &str) -> bool {
@@ -100,10 +88,10 @@ pub fn topology_declared(key: &str, supported: &BTreeSet<String>, topology: &str
 }
 pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, topology: &str) -> Result<()> {
     let capability = &plan["target"]["nexusFirst"];
-    if capability["schemaVersion"] != 1 || capability["manifest"] != MANIFEST {
+    if capability["schemaVersion"] != 2 || capability["manifest"] != MANIFEST {
         return Err(invalid("安装目标未声明受支持的正式协议"));
     }
-    if manifest["schemaVersion"] != 1
+    if manifest["schemaVersion"] != 2
         || manifest["kind"] != "chentu-release"
         || !text(&manifest["release"])
         || manifest["toolchain"].as_object().is_none_or(|m| m.is_empty())
@@ -192,8 +180,8 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
         let id = artifact["id"].as_str().unwrap_or("");
         let file = files.get(id).ok_or_else(|| invalid("发布资源未列入安装文件目录"))?;
         let kind = artifact["kind"].as_str().unwrap_or("");
+        // Release manifest v2 lists no images: install.json holds their only identity.
         let format = match kind {
-            "image" => "docker",
             "chart" => "helm",
             "resource" | "tool" => "raw",
             "npm" => "npm",
@@ -211,7 +199,7 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
             || if ["apt", "pypi"].contains(&kind) {
                 !native_package_path(artifact, arch)
             } else {
-                !target_path(&artifact["targetPath"], kind == "image")
+                !target_path(&artifact["targetPath"])
             }
             || repositories.get(artifact["repository"].as_str().unwrap_or("")) != Some(&(format, "hosted"))
             || artifacts.insert(id, artifact).is_some()
@@ -222,15 +210,6 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
         if platforms.is_empty() || !platforms.iter().all(|p| p == "any" || p == &format!("linux/{arch}")) {
             return Err(invalid("资源架构与所选 profile 不一致"));
         }
-        if kind == "image"
-            && (!text(&artifact["image"]["sourceReference"])
-                || !digest(&artifact["image"]["sourceDigest"])
-                || !digest(&artifact["image"]["targetDigest"])
-                || artifact["image"]["architecture"] != arch
-                || artifact["image"]["targetPath"] != artifact["targetPath"])
-        {
-            return Err(invalid("镜像 source/target digest 或架构映射不完整"));
-        }
         if kind == "chart"
             && (artifact["chart"]["name"] != artifact["name"]
                 || artifact["chart"]["version"] != artifact["version"]
@@ -239,7 +218,21 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
             return Err(invalid("Chart 名称、版本或 release 归属缺失"));
         }
     }
-    if artifacts.len() + 1 != files.len() || !files.contains_key(MANIFEST) {
+    // Every installation file is either a hosted artifact, an image archive, or the manifest.
+    let image_files: BTreeSet<&str> = catalog["components"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter_map(|component| component["images"].as_array())
+        .flatten()
+        .filter_map(|image| image["file"].as_str())
+        .collect();
+    if artifacts.len() + image_files.len() + 1 != files.len()
+        || !files.contains_key(MANIFEST)
+        || image_files
+            .iter()
+            .any(|f| !files.contains_key(f) || artifacts.contains_key(f))
+    {
         return Err(invalid("统一发布清单必须覆盖每个安装文件，且清单自身必须校验"));
     }
     let mut bootstrap_ids = BTreeSet::new();
@@ -254,6 +247,7 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
         let ids = names(&component["artifacts"], "组件资源声明无效")?;
         let mut expected = names(&catalog["components"][name]["files"], "目录资源无效")?;
         expected.remove(MANIFEST);
+        expected.retain(|f| !image_files.contains(f.as_str()));
         if ids != expected || ids.iter().any(|id| !artifacts.contains_key(id.as_str())) {
             return Err(invalid("组件发布资源与安装目录不一致"));
         }
@@ -269,33 +263,14 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
             return Err(invalid("资源 bootstrap 标记与基础闭包不一致"));
         }
     }
+    // Bootstrap images are the images of the bootstrap components, from install.json.
     let mut bootstrap_images = Vec::new();
-    let mut mapped_images = BTreeSet::new();
-    let all_images = catalog["components"]
-        .as_object()
-        .unwrap()
-        .values()
-        .filter_map(|component| component["images"].as_array())
-        .flatten();
-    for image in all_images {
-        let id = image["file"].as_str().unwrap();
-        mapped_images.insert(id);
-        let artifact = artifacts.get(id).ok_or_else(|| invalid("镜像未列入发布清单"))?;
-        if artifact["kind"] != "image"
-            || artifact["image"]["targetPath"] != image["reference"]
-            || artifact["image"]["targetDigest"] != image["digest"]
-        {
-            return Err(invalid("镜像归档与发布 source/target 映射不一致"));
+    for name in &bootstrap {
+        for image in catalog["components"][name]["images"].as_array().into_iter().flatten() {
+            if !bootstrap_images.contains(&image["reference"]) {
+                bootstrap_images.push(image["reference"].clone());
+            }
         }
-        if bootstrap_ids.contains(id) && !bootstrap_images.contains(&image["reference"]) {
-            bootstrap_images.push(image["reference"].clone());
-        }
-    }
-    if artifacts
-        .iter()
-        .any(|(id, artifact)| artifact["kind"] == "image" && !mapped_images.contains(*id))
-    {
-        return Err(invalid("发布镜像缺少安装目录 reference/digest 映射"));
     }
     let mut selected_files = plan["files"].as_array().unwrap().clone();
     if !selected_files.iter().any(|f| f["path"] == MANIFEST) {
@@ -452,12 +427,9 @@ mod tests {
             let reference = format!("library/{name}:1.0");
             let digest = format!("sha256:{}", "a".repeat(64));
             files.push(json!({"path":file,"size":1,"sha256":"b".repeat(64)}));
-            artifacts.push(json!({"id":file,"file":file,"kind":"image","name":name,"version":"1.0",
-                "size":1,"sha256":"b".repeat(64),"repository":"docker-hosted","targetPath":reference,
-                "platforms":["linux/arm64"],"bootstrap":bootstrap,"image":{"sourceReference":format!("docker.io/{reference}"),
-                "sourceDigest":digest,"targetPath":reference,"targetDigest":digest,"architecture":"arm64"}}));
+            let _ = bootstrap; // bootstrap images follow the bootstrap components
             components[name] = json!({"requires":requires,"files":[file],"images":[{"file":file,"reference":reference,"digest":digest}]});
-            release_components[name] = json!({"requires":requires,"artifacts":[file]});
+            release_components[name] = json!({"requires":requires,"artifacts":[]});
         }
         let chart = json!({"id":"charts/nexus-1.0.tgz","file":"charts/nexus-1.0.tgz","kind":"chart","name":"nexus","version":"1.0",
             "size":2,"sha256":"c".repeat(64),"repository":"helm-hosted","targetPath":"nexus-1.0.tgz","platforms":["any"],"bootstrap":true,
@@ -472,7 +444,7 @@ mod tests {
             .unwrap()
             .push(chart["file"].clone());
         artifacts.push(chart);
-        let manifest = json!({"schemaVersion":1,"kind":"chentu-release","release":"0.2.0-nexus.1",
+        let manifest = json!({"schemaVersion":2,"kind":"chentu-release","release":"0.2.0-nexus.1",
             "sources":{"chentu":{"commit":"a".repeat(40)},"apeironCli":{"commit":"b".repeat(40)}},"toolchain":{"rust":"1.98.0"},
             "repositories":[{"name":"docker-hosted","format":"docker","type":"hosted","online":true},
                 {"name":"helm-hosted","format":"helm","type":"hosted","online":true},
@@ -482,7 +454,7 @@ mod tests {
             "components":release_components,"artifacts":artifacts});
         files.push(json!({"path":MANIFEST,"size":manifest.to_string().len(),"sha256":config::hash(manifest.to_string().as_bytes())}));
         let catalog = json!({"schemaVersion":1,"components":components,"files":files,"targets":{"k3d-arm64":{
-            "base":["nexus"],"deploymentTopology":true,"environment":{},"nexusFirst":{"schemaVersion":1,"manifest":MANIFEST,
+            "base":["nexus"],"deploymentTopology":true,"environment":{},"nexusFirst":{"schemaVersion":2,"manifest":MANIFEST,
             "supportedTopologies":["single-k3d"],"bootstrapComponents":["cert-manager","nexus"]}}}});
         let plan = resources::plan(&catalog, "k3d-arm64", &json!(["apeiron"])).unwrap();
         (manifest, catalog, plan)
@@ -640,20 +612,22 @@ mod tests {
         let cache = crate::app::contracts::Temp::new();
         let driver = b"official driver";
         root.write("deploy/helmfile/scripts/nexus_first.py", driver);
-        for artifact in manifest["artifacts"].as_array_mut().unwrap() {
-            let path = artifact["file"].as_str().unwrap().to_owned();
+        // Every installation file has bytes; hosted artifacts mirror their identity.
+        for file in catalog["files"].as_array_mut().unwrap() {
+            let path = file["path"].as_str().unwrap().to_owned();
+            if path == MANIFEST {
+                continue;
+            }
             let bytes = format!("fixture bytes for {path}");
             cache.write(&path, &bytes);
-            artifact["size"] = json!(bytes.len());
-            artifact["sha256"] = json!(config::hash(bytes.as_bytes()));
-            let file = catalog["files"]
-                .as_array_mut()
-                .unwrap()
-                .iter_mut()
-                .find(|f| f["path"] == path)
-                .unwrap();
-            file["size"] = artifact["size"].clone();
-            file["sha256"] = artifact["sha256"].clone();
+            file["size"] = json!(bytes.len());
+            file["sha256"] = json!(config::hash(bytes.as_bytes()));
+            for artifact in manifest["artifacts"].as_array_mut().unwrap() {
+                if artifact["file"] == path {
+                    artifact["size"] = file["size"].clone();
+                    artifact["sha256"] = file["sha256"].clone();
+                }
+            }
         }
         let manifest_bytes = manifest.to_string();
         cache.write(MANIFEST, &manifest_bytes);
@@ -826,7 +800,6 @@ mod tests {
             plan["bootstrapImages"],
             json!(["library/cert-manager:1.0", "library/nexus:1.0"])
         );
-        assert_eq!(plan["files"][0]["repository"], "docker-hosted");
     }
     #[test]
     fn native_hosted_requires_exact_platform_and_topology() {
@@ -911,16 +884,15 @@ mod tests {
     }
     #[test]
     fn source_chart_digest_platform_and_optional_resource_conflicts_are_rejected() {
-        for case in 0..8 {
+        for case in 0..6 {
             let (mut manifest, catalog, mut plan) = fixture();
             match case {
                 0 => manifest["sources"]["chentu"]["commit"] = json!("HEAD"),
-                1 => manifest["artifacts"][4]["chart"]["version"] = json!("latest"),
-                2 => manifest["artifacts"][0]["image"]["sourceDigest"] = json!("missing"),
-                3 => manifest["artifacts"][0]["image"]["targetDigest"] = json!(format!("sha256:{}", "d".repeat(64))),
-                4 => manifest["artifacts"][3]["sha256"] = json!("d".repeat(64)),
-                5 => manifest["artifacts"][0]["platforms"] = json!(["linux/amd64"]),
-                6 => manifest["artifacts"][3]["image"]["targetDigest"] = json!(format!("sha256:{}", "d".repeat(64))),
+                1 => manifest["artifacts"][0]["chart"]["version"] = json!("latest"),
+                2 => manifest["artifacts"][0]["sha256"] = json!("d".repeat(64)),
+                3 => manifest["artifacts"][0]["platforms"] = json!(["linux/amd64"]),
+                // Release manifest v2 refuses image artifacts: images belong to install.json.
+                4 => manifest["artifacts"][0]["kind"] = json!("image"),
                 _ => manifest["artifacts"].as_array_mut().unwrap().pop().map(|_| ()).unwrap(),
             }
             assert!(
@@ -1001,7 +973,7 @@ mod tests {
             "targetPath":"pool/l/libaudit1/libaudit1_1:3.0.7-1ubuntu0.1_amd64.deb"});
         assert!(native_package_path(&apt, "amd64"));
         assert!(!native_package_path(&apt, "arm64"));
-        assert!(!target_path(&apt["targetPath"], false));
+        assert!(!target_path(&apt["targetPath"]));
         apt["transport"] = json!("tar-v1");
         assert!(!native_package_path(&apt, "amd64"));
         let mut wheel = json!({"kind":"pypi","transport":"native","name":"annotated-types",

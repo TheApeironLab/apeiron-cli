@@ -77,7 +77,17 @@ fn request(action: &str, app: &str, current: &Value) -> Result<(Request, Value)>
 
 /// Reject an application package that would also change shared services or other
 /// installed applications. Source/CLI metadata may advance independently.
-fn compatible(old: &Value, new: &Value, selected: &[String], active: &Value) -> Result<()> {
+/// A package may only change the selected application: hosted artifacts of every other
+/// active component are byte-identical, and each of their images (install.json) is
+/// already installed (`images/install-manifest.json` of the current bundle).
+fn compatible(
+    old: &Value,
+    installed: &Value,
+    new: &Value,
+    catalog: &Value,
+    selected: &[String],
+    active: &Value,
+) -> Result<()> {
     let artifacts = |manifest: &Value| -> BTreeMap<String, Value> {
         let protected: BTreeSet<&str> = manifest["components"]
             .as_object()
@@ -97,7 +107,7 @@ fn compatible(old: &Value, new: &Value, selected: &[String], active: &Value) -> 
             .into_iter()
             .flatten()
             .filter(|a| protected.contains(a["id"].as_str().unwrap_or("")))
-            .filter(|a| a["kind"] == "image" || a["kind"] == "chart" || a["kind"] == "resource")
+            .filter(|a| a["kind"] == "chart" || a["kind"] == "resource")
             // The runtime source archive carries the lifecycle entry itself.
             // Its digest is verified by preparation, but can advance with CLI code.
             .filter(|a| {
@@ -113,7 +123,32 @@ fn compatible(old: &Value, new: &Value, selected: &[String], active: &Value) -> 
             })
             .collect()
     };
-    if artifacts(old) != artifacts(new) {
+    let present: BTreeSet<(String, String)> = installed
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|i| {
+            (
+                i["reference"].as_str().unwrap_or("").into(),
+                i["digest"].as_str().unwrap_or("").into(),
+            )
+        })
+        .collect();
+    let unchanged_images = catalog["components"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .all(|(name, component)| {
+            selected.contains(name)
+                || !active.as_array().is_some_and(|a| a.contains(&json!(name)))
+                || component["images"].as_array().into_iter().flatten().all(|i| {
+                    present.contains(&(
+                        i["reference"].as_str().unwrap_or("").into(),
+                        i["digest"].as_str().unwrap_or("").into(),
+                    ))
+                })
+        });
+    if artifacts(old) != artifacts(new) || !unchanged_images {
         return Err(fail("Package changes shared services or other installed applications; use a compatible app package or apeiron init for a platform upgrade", 2));
     }
     Ok(())
@@ -188,9 +223,15 @@ fn source_package(
         &Path::new(record["bundle"].as_str().unwrap()).join("setup/release-manifest.json"),
         16 * 1024 * 1024,
     )?;
+    let installed = resources::json_file(
+        &Path::new(record["bundle"].as_str().unwrap()).join("images/install-manifest.json"),
+        16 * 1024 * 1024,
+    )?;
     compatible(
         &old_manifest,
+        &installed,
         &plan["releaseManifest"],
+        &catalog,
         &req.releases,
         &plan["components"],
     )?;
@@ -623,11 +664,18 @@ mod tests {
         let selected = vec!["zygos".into()];
         let active = json!(["zygos", "postgres"]);
         new["artifacts"][0]["sha256"] = json!("next-app");
-        assert!(compatible(&old, &new, &selected, &active).is_ok());
+        assert!(compatible(&old, &json!([]), &new, &json!({}), &selected, &active).is_ok());
         new["artifacts"][1]["sha256"] = json!("changed-database");
-        assert!(compatible(&old, &new, &selected, &active).is_err());
+        assert!(compatible(&old, &json!([]), &new, &json!({}), &selected, &active).is_err());
         new["artifacts"].as_array_mut().unwrap().pop();
-        assert!(compatible(&old, &new, &selected, &active).is_err());
+        assert!(compatible(&old, &json!([]), &new, &json!({}), &selected, &active).is_err());
+        // Images come from install.json: another active component's image must be installed.
+        let catalog = json!({"components":{"zygos":{"images":[{"reference":"z:2","digest":"d2"}]},
+            "postgres":{"images":[{"reference":"pg:1","digest":"d1"}]}}});
+        let installed = json!([{"reference":"z:1","digest":"d0"},{"reference":"pg:1","digest":"d1"}]);
+        assert!(compatible(&old, &installed, &old, &catalog, &selected, &active).is_ok());
+        let changed = json!([{"reference":"z:1","digest":"d0"},{"reference":"pg:1","digest":"d9"}]);
+        assert!(compatible(&old, &changed, &old, &catalog, &selected, &active).is_err());
     }
     #[test]
     fn deployment_code_can_advance_but_shared_business_resources_cannot() {
@@ -641,9 +689,9 @@ mod tests {
         new["artifacts"][2]["sha256"] = json!("new-code");
         let selected = vec!["zygos".into()];
         let active = json!(["zygos", "postgres"]);
-        assert!(compatible(&old, &new, &selected, &active).is_ok());
+        assert!(compatible(&old, &json!([]), &new, &json!({}), &selected, &active).is_ok());
         new["artifacts"][3]["sha256"] = json!("new-skills");
-        assert!(compatible(&old, &new, &selected, &active).is_err());
+        assert!(compatible(&old, &json!([]), &new, &json!({}), &selected, &active).is_err());
     }
     #[test]
     fn image_upgrade_preserves_operator_storage_and_runtime_values() {

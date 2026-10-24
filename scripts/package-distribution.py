@@ -174,18 +174,16 @@ def combine(outputs, candidate, out):
         for component, detail in catalog["components"].items():
             if not set(detail["files"]) <= listed:
                 raise ValueError("component references missing material")
-        for item in manifest["artifacts"]:
-            if item.get("kind") != "image":
-                continue
+        # Image identities live only in install.json (release manifest v2 lists no images).
+        for item in {(i["reference"], i["digest"]) for c in catalog["components"].values()
+                     for i in c.get("images", [])}:
             for component in images:
-                reference = f"apeiron/{component}:{version}"
-                if item["image"]["sourceReference"] == reference:
-                    digest = item["image"]["targetDigest"]
-                    if not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
+                if item[0] == f"apeiron/{component}:{version}":
+                    if not re.fullmatch(r"sha256:[a-f0-9]{64}", item[1]):
                         raise ValueError("invalid platform manifest digest")
                     if PROFILES[profile] in images[component]:
                         raise ValueError("duplicate application image")
-                    images[component][PROFILES[profile]] = f"apeiron/{component}@{digest}"
+                    images[component][PROFILES[profile]] = f"apeiron/{component}@{item[1]}"
         runtime = {}
         for name, digest in package["files"].items():
             path = safe_file(directory / "chentu", name)
