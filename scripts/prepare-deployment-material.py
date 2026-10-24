@@ -101,7 +101,8 @@ def prepare(args):
     seed = json.loads(seed_path.read_text())
     if seed['schemaVersion'] != 2 or seed['kind'] != 'apeiron-platform-material' or seed['profile'] != args.profile:
         raise ValueError('wrong platform seed')
-    scope = required_components(recipe)
+    # The catalog is generated below; its application scope is the reviewed Chentu declaration.
+    scope = required_components(recipe, load('release_applications', root / 'cli/src/chentu/applications.py').load(root))
     material = args.out / 'material'
     material.mkdir()
     with ThreadPoolExecutor(max_workers=4) as executor:
