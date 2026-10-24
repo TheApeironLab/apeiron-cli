@@ -457,10 +457,15 @@ impl State {
                 // Applications come from the chosen package (offline directory or the pinned
                 // online release), so the wizard lists them only after step one.
                 self.busy()?;
-                let probe = json!({"slug":"applications","apps":[],"deployment":input["deployment"]});
-                let deployment = config::validate(&probe, &Value::Null)?["deployment"].clone();
-                let root = resources::resolve(&deployment, &self.cancel, &|_| {})?;
-                let family = if deployment["runner"] == "docker" {
+                // Step one only: the package source, before domain or nodes are filled in.
+                let d = &input["deployment"];
+                let bundle = d["bundleDir"].as_str().unwrap_or("");
+                if !bundle.is_empty() && !Path::new(bundle).is_absolute() {
+                    return Err(fail("bundleDir 必须是绝对路径。", 400));
+                }
+                let source = json!({"offline":d["offline"] == true,"bundleDir":bundle});
+                let root = resources::resolve(&source, &self.cancel, &|_| {})?;
+                let family = if d["installation"]["topology"] == "single-k3d" {
                     "k3d-"
                 } else {
                     "k3s-"

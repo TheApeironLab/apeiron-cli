@@ -958,6 +958,13 @@ export function initWizard(supportsK3sHost) {
             showError('请保留全部必选应用。');
             return false;
         }
+        if (step === 1) {
+            const missing = apps.find(app => selectedApps().includes(app.id) && app.requires.some(id => !selectedApps().includes(id)));
+            if (missing) {
+                showError(`${missing.name} 需要同时启用 ${missing.requires.map(id => apps.find(app => app.id === id)?.name ?? id).join('、')}。`);
+                return false;
+            }
+        }
         if (step === 3 && modelPassed !== modelFingerprint()) {
             showError('请先配置并测试快速和深度思考模型。');
             return false;

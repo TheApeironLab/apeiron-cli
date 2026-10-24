@@ -6,9 +6,10 @@ import { promisify } from 'node:util';
 export const requiredApps = ['nexus', 'vasi', 'apeiron', 'gateway'];
 // The applications a current package declares (Chentu deploy/helmfile/applications.yaml).
 const grouped = { kps: ['kps', 'loki', 'promtail'], browser: ['chrome-headless'], ci: ['woodpecker'] };
-export const applications = ['nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart',
-    'zygos', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']
-    .map(id => ({ id, name: id, description: id, required: requiredApps.includes(id), releases: grouped[id] ?? [id], requires: id === 'ci' ? ['git'] : [] }));
+export const applications = Object.entries({ nexus: 'Nexus', vasi: 'Vasi', ontology: 'Limani', apeiron: 'Apeiron', task: 'Task',
+    corpus: 'Corpus', matrix: 'Chat', files: 'Files', stalwart: '邮件', zygos: 'Zygos', gateway: 'Gateway', filer: 'Filer',
+    git: '代码仓库', gpustack: 'GPUStack', langfuse: 'Langfuse', kps: 'Grafana', browser: 'Browser', ci: 'CI' })
+    .map(([id, name]) => ({ id, name, description: name, required: requiredApps.includes(id), releases: grouped[id] ?? [id], requires: id === 'ci' ? ['git'] : [] }));
 export async function deploymentFixture(dir) {
     const root = join(dir, 'chentu fixture');
     const workDir = join(dir, 'work');

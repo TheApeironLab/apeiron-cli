@@ -527,12 +527,13 @@ pub fn declared_applications(root: &Path) -> Result<Vec<Value>> {
 pub fn package_applications(root: &Path, family: &str) -> Result<Value> {
     let release = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)
         .map_err(|_| fail("安装包缺少有效 setup/install.json 资源清单。", 400))?;
-    let catalog = release["catalogs"]
-        .as_object()
-        .and_then(|catalogs| catalogs.iter().find(|(key, _)| key.starts_with(family)))
-        .ok_or_else(|| fail("安装包不支持所选安装方式。", 400))?
-        .1;
-    Ok(json!(applications(catalog)?))
+    let catalog = match release["catalogs"].as_object() {
+        Some(catalogs) => catalogs.iter().find(|(key, _)| key.starts_with(family)).map(|(_, c)| c),
+        None => Some(&release), // single-target catalog, as resources::catalog accepts
+    };
+    Ok(json!(applications(
+        catalog.ok_or_else(|| fail("安装包不支持所选安装方式。", 400))?
+    )?))
 }
 /// Releases of the selected applications. Unknown IDs are refused by name, never
 /// dropped silently; required applications must stay selected.
