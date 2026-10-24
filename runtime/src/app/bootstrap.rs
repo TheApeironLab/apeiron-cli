@@ -408,24 +408,6 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
             serde_json::to_string(&enriched).unwrap().as_bytes(),
         )?;
         generated.push("images/install-manifest.json".into());
-        if !docker {
-            for (name, repeat) in [("images/manifest.txt", false), ("images/nexus-names.txt", true)] {
-                let data = enriched
-                    .iter()
-                    .filter(|i| i.get("bootstrap").is_none_or(|b| b == true))
-                    .map(|i| {
-                        let reference = i["reference"].as_str().unwrap();
-                        if repeat {
-                            format!("setup {reference} {reference}\n")
-                        } else {
-                            format!("setup {reference}\n")
-                        }
-                    })
-                    .collect::<String>();
-                write_managed(&bundle.join(name), data.as_bytes())?;
-                generated.push(name.into());
-            }
-        }
     }
     if let Some(selection) = plan.get("installSelection") {
         process::private_directory(&bundle.join("nexus"))?;
