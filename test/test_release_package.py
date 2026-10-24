@@ -157,8 +157,9 @@ class DistributionPackage(unittest.TestCase):
         return outputs
 
     def remote_response(self, data=b'platform bytes'):
-        response = io.BytesIO(data)
+        response = io.BytesIO()
         response.status = 200
+        response.headers = {'x-oss-meta-sha256': hashlib.sha256(data).hexdigest(), 'Content-Length': str(len(data))}
         return response
 
     def test_published_handoffs_produce_identical_archive_and_verify_shared_bytes_once(self):

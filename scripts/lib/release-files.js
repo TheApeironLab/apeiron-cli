@@ -12,10 +12,12 @@ export async function fileIdentity(path) {
   return { sha256: hash.digest('hex'), size: info.size };
 }
 
-export async function publicIdentity(url) {
-  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(3_600_000) });
+// HEAD trusts the sha256 metadata that the uploader set and then read back in full.
+export async function publicIdentity(url, method = 'GET') {
+  const response = await fetch(url, { method, redirect: 'error', signal: AbortSignal.timeout(3_600_000) });
   if (response.status === 404) return null;
-  if (response.status !== 200 || !response.body) throw new Error(`Cannot verify public artifact: HTTP ${response.status}`);
+  if (response.status !== 200 || !response.body && method === 'GET') throw new Error(`Cannot verify public artifact: HTTP ${response.status}`);
+  if (method === 'HEAD') return { sha256: response.headers.get('x-oss-meta-sha256'), size: Number(response.headers.get('content-length')) };
   const hash = createHash('sha256');
   let size = 0;
   for await (const chunk of response.body) { hash.update(chunk); size += chunk.length; }
@@ -49,7 +51,8 @@ export async function publishImmutable(path, key, expected, dependencies = {}) {
   if (key.startsWith('apeiron/blobs/') && !key.endsWith('/' + actual.sha256))
     throw new Error('Content address differs from artifact bytes');
   const url = `https://downloads.apeironlab.cn/${key}`;
-  const old = await remote(url);
+  // Existing objects passed a full read-back when created; do not download them again.
+  const old = await remote(url, 'HEAD');
   if (old !== null) {
     if (!sameIdentity(old, actual)) throw new Error('Immutable artifact already exists with different bytes');
     return url;
