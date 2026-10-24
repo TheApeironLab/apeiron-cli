@@ -15,7 +15,7 @@ import tarfile
 import urllib.request
 
 PUBLIC = "https://downloads.apeironlab.cn/"
-PROFILES = {"k3d-arm64": "arm64", "k3s-amd64": "amd64"}
+PROFILES = {"k3d-arm64": "arm64", "k3s-amd64": "amd64", "k3s-arm64": "arm64"}
 APEIRON_IMAGES = ("backend", "app", "ops", "scode")
 scope_spec = importlib.util.spec_from_file_location('distribution_scope', Path(__file__).with_name('distribution_scope.py'))
 scope = importlib.util.module_from_spec(scope_spec)
@@ -135,7 +135,7 @@ def read_profile(directory, verified_public=None):
 
 def combine(outputs, candidate, out):
     if set(outputs) != set(PROFILES):
-        raise ValueError("both ARM64 K3d and AMD64 native profiles are required")
+        raise ValueError("every release profile is required: " + ", ".join(sorted(PROFILES)))
     version = candidate["version"]
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-nightly\.[0-9]{8}\.[1-9][0-9]*)?", version):
         raise ValueError("invalid distribution version")
@@ -192,9 +192,10 @@ def combine(outputs, candidate, out):
                 if item[0] == f"apeiron/{component}:{version}":
                     if not re.fullmatch(r"sha256:[a-f0-9]{64}", item[1]):
                         raise ValueError("invalid platform manifest digest")
-                    if PROFILES[profile] in images[component]:
-                        raise ValueError("duplicate application image")
-                    images[component][PROFILES[profile]] = f"apeiron/{component}@{item[1]}"
+                    pinned = f"apeiron/{component}@{item[1]}"
+                    # Profiles of one architecture must carry the same application image.
+                    if images[component].setdefault(PROFILES[profile], pinned) != pinned:
+                        raise ValueError("profiles of one architecture differ in application image")
         runtime = {}
         listed = executables(directory)
         for name, digest in package["files"].items():
