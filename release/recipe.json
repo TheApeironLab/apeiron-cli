@@ -4,7 +4,7 @@
   "applicationScope": "wizard",
   "sources": {
     "apeiron": "229b9ba6c9b841fad74fdcb40fbcdf94f537dfc1",
-    "chentu": "87a874a13b4a5d71cf01b6ee4cd2ba59bfc443cd",
+    "chentu": "60e6fc6ac5909c97bb5845fac22a860cd2f02378",
     "systemSkills": "7fcdf6d69bfb7154e9ffa87d6b7b86b61fdee2af"
   },
   "sudocode": {
@@ -30,6 +30,11 @@
       "sha256": "bb1da554c83e87a5ae444ec73840f78a363c38524cfbd07cf1433490eb00c2b8",
       "size": 135067,
       "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/bb1da554c83e87a5ae444ec73840f78a363c38524cfbd07cf1433490eb00c2b8"
+    },
+    "k3s-arm64": {
+      "sha256": "c54cab932c22fff44bc148a184283257979ec3fe3f6b7a41133e83feb3263202",
+      "size": 135981,
+      "url": "https://downloads.apeironlab.cn/apeiron/blobs/sha256/c54cab932c22fff44bc148a184283257979ec3fe3f6b7a41133e83feb3263202"
     }
   }
 }

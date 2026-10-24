@@ -185,11 +185,11 @@ def prepare(args):
     apeiron = values.setdefault('apeiron', {})
     apeiron['image'] = {name: f'__REGISTRY__/apeiron/{name}:{version}' for name in files.APEIRON_IMAGES}
     apeiron.setdefault('systemSkills', {})['revision'] = skills
-    if arch == 'amd64':
+    if args.profile.startswith('k3s-'):
         if not args.sandbox or not args.gnupghome or not args.signing_key:
             raise ValueError('native material requires the prepared Debian pool and formal signing key')
         sandbox = load('release_sandbox', root / 'bundle/sandbox_apt.py')
-        sandbox.build(args.sandbox, material / 'sandbox-apt', version, args.gnupghome, args.signing_key)
+        sandbox.build(args.sandbox, material / 'sandbox-apt', version, args.gnupghome, args.signing_key, arch)
         receipts.append({'components': ['apeiron'], 'files': sorted(
             p.relative_to(material).as_posix() for p in (material / 'sandbox-apt').rglob('*') if p.is_file())})
         wheels = args.out / 'wheels'
@@ -237,7 +237,7 @@ def prepare(args):
         (args.out / 'toolbox-lineage.json').write_text(json.dumps(toolbox, indent=2) + '\n')
     else:
         roots = yaml.safe_load((root / 'bundle/sources.yaml').read_text())['debs']['host_packages']
-        command = [sys.executable, root / 'bundle/check_deb_closure.py', '--debs', material / 'debs', '--architecture', 'amd64', '--receipt', args.out / 'host-deb-proof.json']
+        command = [sys.executable, root / 'bundle/check_deb_closure.py', '--debs', material / 'debs', '--architecture', arch, '--receipt', args.out / 'host-deb-proof.json']
         for name in roots:
             command += ['--require', name]
         run(command)
