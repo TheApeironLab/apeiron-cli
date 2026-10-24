@@ -119,13 +119,12 @@ pub fn validate(manifest: &Value, catalog: &Value, plan: &mut Value, key: &str, 
             supported.iter().cloned().collect::<Vec<_>>().join("、")
         )));
     }
-    if key == "k3s-amd64"
-        && plan["target"]["hostPlatform"]
-            != json!({
-                "os":"ubuntu", "version":"22.04", "architecture":"amd64"
-            })
+    // Chentu declares each native target's host platform; the CLI only checks it is coherent.
+    let host = &plan["target"]["hostPlatform"];
+    if key.starts_with("k3s-")
+        && (host["os"] != "ubuntu" || !host["version"].is_string() || host["architecture"] != arch)
     {
-        return Err(invalid("原生 Nexus 分发必须声明 Ubuntu 22.04 AMD64"));
+        return Err(invalid("原生 Nexus 分发必须声明与目标架构一致的 Ubuntu hostPlatform"));
     }
     let components = manifest["components"]
         .as_object()
@@ -351,8 +350,10 @@ fn validate_management_platform(
             plan["target"]["nexusFirst"]["supportedTopologies"] == json!(["single-k3d"])
                 && machine["os"]["name"].as_str().is_some_and(|name| !name.is_empty())
         }
-        ("linux", "amd64", "amd64", "k3s-amd64", "multi-k3s" | "single-k3s") => {
-            plan["target"]["hostPlatform"] == json!({"os":"ubuntu","version":"22.04","architecture":"amd64"})
+        ("linux", native, runtime, _, "multi-k3s" | "single-k3s")
+            if native == runtime && key == format!("k3s-{native}") =>
+        {
+            plan["target"]["hostPlatform"]["architecture"] == native
                 && discovery::validate_platform(
                     &plan["target"],
                     &[json!({"os":machine["os"]["name"],"version":machine["os"]["version"],"architecture":arch})],
@@ -362,7 +363,7 @@ fn validate_management_platform(
         _ => false,
     };
     if !supported {
-        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 或 Linux ARM64/AMD64 / single-k3d，或 Ubuntu 22.04 AMD64 / single-k3s、multi-k3s"));
+        return Err(invalid("管理机平台与安装目标不匹配；正式 Nexus 分发要求 macOS ARM64 或 Linux ARM64/AMD64 / single-k3d，或与安装包 hostPlatform 一致的 Ubuntu / single-k3s、multi-k3s"));
     }
     Ok(())
 }
@@ -545,6 +546,14 @@ mod tests {
                 assert!(validate_management_platform(&k3d, "k3d-arm64", "single-k3d", "linux", &linux).is_err());
             }
         }
+        // k3s-arm64 (DGX Spark): the package's own Ubuntu 24.04 ARM64 platform.
+        let mut arm = native.clone();
+        arm["target"]["hostPlatform"] = json!({"os":"ubuntu","version":"24.04","architecture":"arm64"});
+        let spark = management_machine("Ubuntu", "24.04", "aarch64", "aarch64");
+        validate_management_platform(&arm, "k3s-arm64", "single-k3s", "linux", &spark).unwrap();
+        let old = management_machine("Ubuntu", "22.04", "aarch64", "aarch64");
+        assert!(validate_management_platform(&arm, "k3s-arm64", "single-k3s", "linux", &old).is_err());
+        assert!(validate_management_platform(&arm, "k3s-amd64", "single-k3s", "linux", &spark).is_err());
         let mac = management_machine("macOS", "26.0", "arm64", "aarch64");
         validate_management_platform(&k3d, "k3d-arm64", "single-k3d", "macos", &mac).unwrap();
         assert!(validate_management_platform(&native, "k3s-amd64", "multi-k3s", "macos", &mac).is_err());
@@ -809,7 +818,8 @@ mod tests {
         // The publisher's supportedTopologies list decides; this fixture only declares multi-k3s.
         let error = validate(&manifest, &catalog, &mut plan, "k3s-amd64", "single-k3s").unwrap_err();
         assert!(error.message.contains("k3s-amd64 支持：multi-k3s"), "{}", error.message);
-        plan["target"]["hostPlatform"]["version"] = json!("24.04");
+        // Chentu owns the version; the CLI rejects a platform for another architecture.
+        plan["target"]["hostPlatform"]["architecture"] = json!("arm64");
         assert!(validate(&manifest, &catalog, &mut plan, "k3s-amd64", "multi-k3s").is_err());
     }
     #[test]

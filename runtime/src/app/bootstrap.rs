@@ -300,7 +300,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         && plan["target"]["operatorTools"] == true
         && cfg!(target_os = "linux")
         && discovery::architecture(std::env::consts::ARCH) == arch;
-    if bundled && key == "k3s-amd64" {
+    if bundled {
         check_offline_operator(&target, c)?;
     }
     if !docker && !bundled {
