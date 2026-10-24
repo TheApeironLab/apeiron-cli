@@ -14,8 +14,9 @@ p.add_argument('--profile', choices=['k3d-arm64', 'k3s-amd64'], required=True)
 a = p.parse_args()
 identity = json.loads(a.candidate.read_text())
 recipe = json.loads(a.lock.read_text())
-scope = required_components(recipe)
-validate_catalog(json.loads((a.prepared / 'material/chentu/setup/install.json').read_text()), scope)
+catalog = json.loads((a.prepared / 'material/chentu/setup/install.json').read_text())
+scope = required_components(recipe, catalog)
+validate_catalog(catalog, scope)
 arch = 'amd64' if a.profile == 'k3s-amd64' else 'arm64'
 command = [sys.executable, str(a.chentu / 'bundle/hosted_release.py'), '--material', str(a.prepared / 'material'),
     '--out', str(a.out), '--release', identity['version'], '--profile', a.profile, '--arch', arch,

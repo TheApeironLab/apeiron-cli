@@ -266,7 +266,6 @@ impl State {
                     if let Some(slug) = &self.gateway {
                         data["gateway"] = json!({"slug":slug});
                     }
-                    data["apps"] = config::apps();
                     data["path"] = json!(path);
                     data["host"] = discovery::host();
                     data["defaults"] = config::defaults();
@@ -453,6 +452,20 @@ impl State {
                     return Ok(Reply::json(public, 202));
                 }
                 public
+            }
+            "api/applications" => {
+                // Applications come from the chosen package (offline directory or the pinned
+                // online release), so the wizard lists them only after step one.
+                self.busy()?;
+                let probe = json!({"slug":"applications","apps":[],"deployment":input["deployment"]});
+                let deployment = config::validate(&probe, &Value::Null)?["deployment"].clone();
+                let root = resources::resolve(&deployment, &self.cancel, &|_| {})?;
+                let family = if deployment["runner"] == "docker" {
+                    "k3d-"
+                } else {
+                    "k3s-"
+                };
+                json!({"apps":resources::package_applications(&root, family)?})
             }
             "api/preflight" => {
                 // Read-only coexistence/port preflight for the summary step; nothing is saved.

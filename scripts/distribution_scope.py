@@ -43,20 +43,22 @@ def platform_build_provenance(catalog, architecture):
     return result
 
 
-def application_releases():
-    apps = json.loads((Path(__file__).parents[1] / 'runtime/assets/apps.json').read_text())
-    return {app['id']: app.get('releases', [app['id']]) for app in apps}
+def application_releases(catalog):
+    """The catalog's applications (Chentu applications.yaml) as {ID: releases}."""
+    if not isinstance(catalog.get('applications'), list):
+        raise ValueError('catalog has no application declaration; pin a newer Chentu')
+    return {app['id']: app['releases'] for app in catalog['applications']}
 
 
-def required_components(recipe):
+def required_components(recipe, catalog):
     if recipe.get('applicationScope') != 'wizard':
         raise ValueError('public distribution requires the complete wizard application scope')
     return sorted(set(recipe['requiredComponents']) | {
-        release for releases in application_releases().values() for release in releases})
+        release for releases in application_releases(catalog).values() for release in releases})
 
 
 def validate_catalog(catalog, required=None):
-    required = required or sorted({release for releases in application_releases().values() for release in releases})
+    required = required or sorted({release for releases in application_releases(catalog).values() for release in releases})
     components = catalog['components']
     files = {item['path'] for item in catalog['files']}
     if components.get('gpustack', {}).get('images') or any(path.startswith(GPU_HOST_ARCHIVE_PREFIXES) for path in files):

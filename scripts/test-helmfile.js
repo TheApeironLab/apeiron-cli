@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import APPS from '../runtime/assets/apps.json';
 import { buildSupport } from './lib/rust';
 const [rootArg, image] = process.argv.slice(2);
 if (!rootArg || !image)
@@ -13,9 +12,10 @@ const toolboxImage = image;
 const dir = await mkdtemp(join(tmpdir(), 'apeiron-helmfile-check-'));
 try {
     const source = await readFile(join(root, 'deploy/helmfile/environment.example.yaml'), 'utf8');
-    const config = { schemaVersion: 2, slug: 'integration-team', apps: APPS.filter(app => app.selected).map(app => app.id) };
+    const APPS = Bun.YAML.parse(await readFile(join(root, 'deploy/helmfile/applications.yaml'), 'utf8')).applications;
+    const config = { schemaVersion: 2, slug: 'integration-team', apps: APPS.filter(app => app.required).map(app => app.id) };
     await writeFile(join(dir, 'config.json'), JSON.stringify(config), { mode: 0o600 });
-    const values = await buildSupport('environment', join(dir, 'config.json'), join(root, 'deploy/helmfile/environment.example.yaml'));
+    const values = await buildSupport('environment', root, join(dir, 'config.json'), join(root, 'deploy/helmfile/environment.example.yaml'));
     await writeFile(join(dir, 'environment.yaml'), JSON.stringify(values), { mode: 0o600 });
     async function helmfile(command) {
         const child = Bun.spawn(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'helmfile',
@@ -29,11 +29,10 @@ try {
     const resolved = (await helmfile('print-env')).values;
     assert.equal(resolved.tenantSlug, config.slug);
     for (const app of APPS)
-        assert.equal(resolved.releases[app.id].enabled, config.apps.includes(app.id), app.name);
+        for (const name of app.releases ?? [app.id])
+            assert.equal(resolved.releases[name].enabled, config.apps.includes(app.id), app.name);
     assert.equal(resolved.releases.postgres.values.tls.enabled, true);
     assert.equal(resolved.releases.apeiron.values.image.backend.includes('YOUR_VERSION'), true);
-    for (const name of ['kps', 'loki', 'promtail'])
-        assert.equal(resolved.releases[name].enabled, false);
     const inventory = (await helmfile('build')).releases;
     const enabled = new Set(inventory.map(r => r.namespace + '/' + r.name));
     for (const release of inventory)

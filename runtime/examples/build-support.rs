@@ -9,13 +9,15 @@ fn main() {
         Some("catalog") if args.len() == 2 => app::resources::catalog(std::path::Path::new(&args[1]), ""),
         Some("plan") if args.len() == 4 => (|| {
             let catalog = app::resources::catalog(std::path::Path::new(&args[1]), &args[2])?;
-            let apps = serde_json::from_str(&args[3]).map_err(|_| app::fail("Invalid apps JSON", 2))?;
-            app::resources::plan(&catalog, &args[2], &app::config::components(&apps))
+            let apps: serde_json::Value =
+                serde_json::from_str(&args[3]).map_err(|_| app::fail("Invalid apps JSON", 2))?;
+            app::resources::plan(&catalog, &args[2], &apps)
         })(),
-        Some("environment") if args.len() == 3 => (|| {
-            let config = app::resources::json_file(std::path::Path::new(&args[1]), 1024 * 1024)?;
-            let values = app::resources::yaml(std::path::Path::new(&args[2]))?;
-            app::deploy::environment_for(&config, values)
+        Some("environment") if args.len() == 4 => (|| {
+            let declared = app::resources::declared_applications(std::path::Path::new(&args[1]))?;
+            let config = app::resources::json_file(std::path::Path::new(&args[2]), 1024 * 1024)?;
+            let values = app::resources::yaml(std::path::Path::new(&args[3]))?;
+            app::deploy::environment_for(&config, &declared, values)
         })(),
         Some("validate-release") if args.len() == 6 => (|| {
             let root = std::path::Path::new(&args[1]);
@@ -40,7 +42,7 @@ fn main() {
             Ok(serde_json::Value::Null)
         })(),
         _ => Err(app::fail(
-            "Usage: build-support catalog ROOT | plan ROOT TARGET APPS_JSON | environment CONFIG VALUES | prepare-files PLAN BASE MODE | validate-release CHENTU_ROOT RESOURCE_ROOT PROFILE TOPOLOGY APPS_JSON",
+            "Usage: build-support catalog ROOT | plan ROOT TARGET APPS_JSON | environment CHENTU_ROOT CONFIG VALUES | prepare-files PLAN BASE MODE | validate-release CHENTU_ROOT RESOURCE_ROOT PROFILE TOPOLOGY APPS_JSON",
             2,
         )),
     };

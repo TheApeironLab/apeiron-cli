@@ -12,7 +12,7 @@ const inputBytes = await readFile(inputPath);
 const input = validateDistribution(JSON.parse(inputBytes), release);
 const receipts = await Promise.all(Object.keys(acceptanceTargets).map(async target =>
   JSON.parse(await readFile(join(receiptsPath, `${target}.json`), 'utf8'))));
-validateAcceptanceSet(receipts, release, hash(inputBytes), process.env.GITHUB_RUN_ID);
+validateAcceptanceSet(receipts, release, hash(inputBytes), process.env.GITHUB_RUN_ID, input.applications);
 const keys = ['schemaVersion', 'version', 'revision', 'target', 'distributionSha256', 'archiveSha256', 'runId',
   'os', 'arch', 'topology', 'osRelease', 'servers', 'agents', 'applications', 'deferredApplications'];
 const distribution = { ...publicDistribution(input), cli: { revision: release.revision, files: release.files },

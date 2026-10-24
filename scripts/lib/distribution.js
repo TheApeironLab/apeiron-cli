@@ -25,6 +25,8 @@ export function validateDistribution(input, release) {
       requireValue(/^[a-z0-9][a-z0-9.:-]*(?:\/[a-z0-9][a-z0-9._/-]*)?@sha256:[a-f0-9]{64}$/.test(images?.[component]?.[arch] || ''), `Missing immutable ${component}/${arch} image`);
     }
   }
+  requireValue(Object.keys(input.applications ?? {}).length > 0 && Object.values(input.applications).every(releases =>
+    Array.isArray(releases) && releases.length > 0 && releases.every(name => typeof name === 'string')), 'Distribution must list its applications');
   const chentu = input.chentu;
   requireValue(chentu?.version === input.version && sha(chentu.revision) && digest(chentu.sha256), 'Chentu requires matching version, commit and archive digest');
   requireValue(chentu.url === `https://downloads.apeironlab.cn/chentu/releases/${input.version}/chentu-${input.version}.tar.gz`, 'Unexpected Chentu archive URL');
@@ -36,13 +38,14 @@ export function publicDistribution(input) {
   // Explicit projection: a local builder's credentials/configuration cannot
   // accidentally ride along when a distribution input is made public.
   return { schemaVersion: 1, version: input.version,
+    applications: Object.fromEntries(Object.entries(input.applications).map(([id, releases]) => [id, [...releases]])),
     apeiron: { version: input.apeiron.version, revision: input.apeiron.revision,
       images: Object.fromEntries(['backend', 'app', 'ops', 'scode'].map(name => [name,
         { amd64: input.apeiron.images[name].amd64, arm64: input.apeiron.images[name].arm64 }])) },
     chentu: { version: input.chentu.version, revision: input.chentu.revision, sha256: input.chentu.sha256, url: input.chentu.url } };
 }
 
-export function validateAcceptance(receipt, release, distributionHash, runId) {
+export function validateAcceptance(receipt, release, distributionHash, runId, applications) {
   const target = acceptanceTargets[receipt?.target];
   requireValue(target, 'Unknown acceptance target');
   requireValue(receipt.schemaVersion === 1 && receipt.version === release.version && receipt.revision === release.revision,
@@ -55,17 +58,17 @@ export function validateAcceptance(receipt, release, distributionHash, runId) {
     'Acceptance host/topology mismatch');
   if (target.topology !== 'single-k3d') requireValue(receipt.osRelease === 'ubuntu:22.04', 'Native acceptance requires Ubuntu 22.04');
   requireValue(receipt.servers === target.servers && receipt.agents === 0, 'Acceptance node count mismatch');
-  validateApplicationScope(receipt.applications, release.version);
-  requireValue(JSON.stringify(receipt.deferredApplications) === JSON.stringify(acceptanceScope(release.version).deferredApplications), 'Acceptance must explicitly record deferred applications');
+  validateApplicationScope(receipt.applications, release.version, applications);
+  requireValue(JSON.stringify(receipt.deferredApplications) === JSON.stringify(acceptanceScope(release.version, applications).deferredApplications), 'Acceptance must explicitly record deferred applications');
   requireValue(acceptanceChecks.every(name => receipt.checks?.[name] === true), 'Incomplete acceptance checks');
   return receipt;
 }
 
-export function validateAcceptanceSet(receipts, release, distributionHash, runId) {
+export function validateAcceptanceSet(receipts, release, distributionHash, runId, applications) {
   requireValue(Array.isArray(receipts) && receipts.length === Object.keys(acceptanceTargets).length, 'All four deployment targets must pass');
   const seen = new Set();
   for (const receipt of receipts) {
-    validateAcceptance(receipt, release, distributionHash, runId);
+    validateAcceptance(receipt, release, distributionHash, runId, applications);
     requireValue(!seen.has(receipt.target), 'Duplicate acceptance target');
     seen.add(receipt.target);
   }

@@ -28,7 +28,7 @@ if (revision.exitCode !== 0 || manifest.version !== version || manifest.baseVers
 const distribution = validateDistribution(JSON.parse(await readFile(join(out, 'distribution.json'), 'utf8')), manifest);
 if (distribution.cli?.revision !== manifest.revision || JSON.stringify(distribution.cli.files) !== JSON.stringify(manifest.files))
     throw new Error('Distribution CLI artifacts mismatch');
-validateAcceptanceSet(distribution.acceptance, manifest, distribution.inputSha256, process.env.GITHUB_RUN_ID);
+validateAcceptanceSet(distribution.acceptance, manifest, distribution.inputSha256, process.env.GITHUB_RUN_ID, distribution.applications);
 const required = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'].map(t => `apeiron-${version}-${t}.tar.gz`);
 const names = [...required, 'install.sh', 'release.json', 'distribution.json', 'SHA256SUMS'];
 const sums = new Map((await readFile(join(out, 'SHA256SUMS'), 'utf8')).trim().split('\n').map(line => {
@@ -73,7 +73,7 @@ for (const name of names)
 const existing = Bun.spawnSync(['gh', 'release', 'view', tag, '--repo', repo, '--json', 'isDraft'], { stdout: 'pipe', stderr: 'pipe' });
 if (existing.exitCode !== 0) {
     const notes = join(out, 'release-notes.md');
-    const scope = acceptanceScope(version);
+    const scope = acceptanceScope(version, distribution.applications);
     const coverage = `Installation acceptance covers ${scope.applications.length} applications on all four declared deployment targets. `
       + (scope.deferredApplications.length ? `Deferred acceptance: ${scope.deferredApplications.join(', ')} integration configuration remains available but is not part of this nightly's release acceptance. GPU host images are not distributed. ` : '')
       + 'This does not certify every application business journey, GPU inference, failover or disconnected installation. See distribution.json for the bound acceptance receipts.';

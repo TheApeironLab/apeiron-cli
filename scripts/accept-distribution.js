@@ -19,8 +19,8 @@ const release = await json(join(out, 'release.json'));
 const inputBytes = await readFile(inputPath);
 const distribution = validateDistribution(JSON.parse(inputBytes), release);
 const profile = await json(process.env.APEIRON_ACCEPTANCE_CONFIG);
-validateApplicationScope(profile.apps, release.version);
-const scope = acceptanceScope(release.version);
+validateApplicationScope(profile.apps, release.version, distribution.applications);
+const scope = acceptanceScope(release.version, distribution.applications);
 const installation = profile.deployment?.installation;
 if (installation?.topology !== target.topology || !profile.apps?.includes('apeiron')
     || profile.deployment.offline !== false || profile.deployment.root || profile.deployment.environment
@@ -176,7 +176,7 @@ try {
     os: process.platform, arch: process.arch, osRelease, topology: target.topology, servers, agents: nodes.length - servers,
     applications: [...profile.apps].sort(), deferredApplications: scope.deferredApplications,
     checks: { installation: true, nodes: true, images: true, credentials: true, https: true, login: true, applications: true, workloads: true } };
-  validateAcceptance(receipt, release, hash(inputBytes), process.env.GITHUB_RUN_ID);
+  validateAcceptance(receipt, release, hash(inputBytes), process.env.GITHUB_RUN_ID, distribution.applications);
   await writeFile(join(work, `${targetName}.json`), JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   console.log(`PASS ${targetName}: installation, nodes, durable credentials, HTTPS and IAM login`);
 } finally {

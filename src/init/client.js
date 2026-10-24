@@ -27,7 +27,9 @@ export function initWizard(supportsK3sHost) {
     let step = 0;
     let busy = false;
     let revision = null;
+    // The application catalog belongs to the chosen package: loaded when leaving step one.
     let apps = [];
+    let chosen = [];
     let timer;
     const endpoint = (name) => new URL('api/' + name, location.href).href;
     const error = get('error');
@@ -841,8 +843,8 @@ export function initWizard(supportsK3sHost) {
         const grid = get('app-grid');
         grid.replaceChildren();
         let previousGroup = '';
-        [...apps].sort((a, b) => Number(b.required) - Number(a.required) || Number(b.selected) - Number(a.selected)).forEach(app => {
-            const group = app.required ? '必选应用' : app.selected ? '可选应用 · 默认选中' : '其他可选应用 · 默认不选';
+        [...apps].sort((a, b) => Number(b.required) - Number(a.required)).forEach(app => {
+            const group = app.required ? '必选应用' : '可选应用';
             if (group !== previousGroup) {
                 const heading = document.createElement('h2');
                 heading.className = 'app-group';
@@ -955,13 +957,6 @@ export function initWizard(supportsK3sHost) {
         if (step === 1 && apps.some(app => app.required && !selectedApps().includes(app.id))) {
             showError('请保留全部必选应用。');
             return false;
-        }
-        if (step === 1) {
-            const missing = apps.find(app => selectedApps().includes(app.id) && (app.requires ?? []).some(id => !selectedApps().includes(id)));
-            if (missing) {
-                showError(`${missing.name} 需要同时启用 ${missing.requires.map(id => apps.find(app => app.id === id)?.name ?? id).join('、')}。`);
-                return false;
-            }
         }
         if (step === 3 && modelPassed !== modelFingerprint()) {
             showError('请先配置并测试快速和深度思考模型。');
@@ -1504,7 +1499,8 @@ export function initWizard(supportsK3sHost) {
         if (config)
             slug.value = config.slug;
         applyTarget(config?.deployment ?? defaults);
-        renderApps(config?.apps ?? apps.filter(app => app.selected).map(app => app.id));
+        chosen = config?.apps ?? [];
+        apps = [];
     }
     async function selectInstance(instance) {
         get('instances-status').textContent = `正在切换到 ${instance.name}…`;
@@ -1678,6 +1674,27 @@ export function initWizard(supportsK3sHost) {
         event.preventDefault();
         if (busy || !validate())
             return;
+        if (step === 0) {
+            setBusy(true);
+            next.textContent = '正在读取安装包…';
+            try {
+                const response = await fetch(endpoint('applications'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deployment: target() }) });
+                const result = await response.json();
+                if (!response.ok)
+                    throw new Error(result.error || '无法读取安装包的应用目录。');
+                if (apps.length)
+                    chosen = selectedApps();
+                apps = result.apps;
+                renderApps(chosen);
+            }
+            catch (cause) {
+                showError(cause instanceof Error ? cause.message : '无法读取安装包的应用目录。');
+                return;
+            }
+            finally {
+                setBusy(false);
+            }
+        }
         if (step < titles.length - 1) {
             step++;
             renderStep();
@@ -1716,7 +1733,6 @@ export function initWizard(supportsK3sHost) {
                 throw new Error('无法读取配置，请检查终端并重新运行 apeiron init。');
             const result = await response.json();
             connections = result.connections ?? [];
-            apps = result.apps;
             revision = result.revision;
             cliHost = result.host;
             defaults = result.defaults;
@@ -1744,7 +1760,7 @@ export function initWizard(supportsK3sHost) {
                 modelKey.placeholder = savedModelKey ? '已保存；留空保持不变' : '无鉴权服务可留空';
             }
             applyTarget(result.config?.deployment ?? result.defaults);
-            renderApps(result.config?.apps ?? apps.filter(app => app.selected).map(app => app.id));
+            chosen = result.config?.apps ?? [];
             get('loading').hidden = true;
             setBusy(false);
             if (result.deployment.phase !== 'idle') {

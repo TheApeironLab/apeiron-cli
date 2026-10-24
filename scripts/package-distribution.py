@@ -239,7 +239,12 @@ def combine(outputs, candidate, out):
     provenance.write_text(json.dumps({'schemaVersion': 1, 'candidate': candidate,
         'archive': {'file': archive.name, **record}, 'profiles': manifests}, indent=2) + '\n')
     blobs[f'chentu/releases/{version}/provenance.json'] = {'path': str(provenance.resolve()), **identity(provenance)}
+    # Acceptance must cover the package's applications; every profile shares one declaration.
+    applications = {json.dumps(scope.application_releases(c), sort_keys=True) for c in catalogs.values()}
+    if len(applications) != 1:
+        raise ValueError("profiles declare different applications")
     distribution = {"schemaVersion": 1, "version": version,
+                    "applications": json.loads(applications.pop()),
                     "apeiron": {"version": version, "revision": candidate["sources"]["apeiron"], "images": images},
                     "chentu": {"version": version, "revision": candidate["sources"]["chentu"],
                                "sha256": record["sha256"], "url": PUBLIC + key}}

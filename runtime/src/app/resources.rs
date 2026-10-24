@@ -496,6 +496,66 @@ pub fn merge(base: &mut Value, addition: &Value) -> Result<()> {
     }
     Ok(())
 }
+/// The package's applications (Chentu `applications.yaml` in install.json), each with
+/// `releases` and `requires` derived from Helmfile needs.
+pub fn applications(c: &Value) -> Result<&Vec<Value>> {
+    c["applications"]
+        .as_array()
+        .filter(|rows| {
+            rows.iter().all(|a| {
+                a["id"].is_string()
+                    && a["name"].is_string()
+                    && a["required"].is_boolean()
+                    && a["releases"]
+                        .as_array()
+                        .is_some_and(|r| !r.is_empty() && r.iter().all(Value::is_string))
+                    && a["requires"].as_array().is_some_and(|r| r.iter().all(Value::is_string))
+            })
+        })
+        .ok_or_else(|| fail("安装包缺少应用目录，请使用新版安装包。", 400))
+}
+/// A deployer checkout's own declaration (`deploy/helmfile/applications.yaml`), for
+/// existing clusters that are not installed from a package catalog.
+pub fn declared_applications(root: &Path) -> Result<Vec<Value>> {
+    yaml(&root.join("deploy/helmfile/applications.yaml"))?["applications"]
+        .as_array()
+        .cloned()
+        .ok_or_else(|| fail("部署程序缺少应用目录。", 400))
+}
+/// The applications of a package for a runtime family (`k3d-` or `k3s-`); every target of
+/// one package is built from the same Chentu declaration.
+pub fn package_applications(root: &Path, family: &str) -> Result<Value> {
+    let release = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)
+        .map_err(|_| fail("安装包缺少有效 setup/install.json 资源清单。", 400))?;
+    let catalog = release["catalogs"]
+        .as_object()
+        .and_then(|catalogs| catalogs.iter().find(|(key, _)| key.starts_with(family)))
+        .ok_or_else(|| fail("安装包不支持所选安装方式。", 400))?
+        .1;
+    Ok(json!(applications(catalog)?))
+}
+/// Releases of the selected applications. Unknown IDs are refused by name, never
+/// dropped silently; required applications must stay selected.
+pub fn releases(declared: &[Value], apps: &Value) -> Result<Vec<Value>> {
+    let ids = apps.as_array().ok_or_else(|| fail("应用列表无效。", 400))?;
+    if let Some(unknown) = ids.iter().find(|id| !declared.iter().any(|a| a["id"] == **id)) {
+        return Err(fail(
+            format!("安装包的应用目录不包含：{}。", unknown.as_str().unwrap_or("(非字符串)")),
+            400,
+        ));
+    }
+    if declared
+        .iter()
+        .any(|a| a["required"] == true && !ids.contains(&a["id"]))
+    {
+        return Err(fail("请保留必选应用。", 400));
+    }
+    Ok(declared
+        .iter()
+        .filter(|a| ids.contains(&a["id"]))
+        .flat_map(|a| a["releases"].as_array().unwrap().clone())
+        .collect())
+}
 pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
     let t = &c["targets"][target];
     if t["deploymentTopology"] != true || !t["environment"].is_object() || t["environment"].get("profile").is_some() {
@@ -519,43 +579,16 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
         done.push(name.into());
         Ok(())
     }
+    let declared = applications(c)?;
     let mut done = Vec::new();
     let base = t["base"].as_array().ok_or_else(|| fail("安装包缺少基础组件。", 400))?;
-    for name in base
-        .iter()
-        .chain(apps.as_array().ok_or_else(|| fail("应用列表无效。", 400))?)
-    {
+    for name in base.iter().chain(&releases(declared, apps)?) {
         visit(
             c,
             name.as_str().ok_or_else(|| fail("组件名称无效。", 400))?,
             &mut vec![],
             &mut done,
         )?;
-    }
-    // A wizard application can enable several Helmfile releases. Each release
-    // that has its own catalog component must contribute its artifacts before
-    // flags are enabled below. Older catalogs aggregate those artifacts into the
-    // primary component and do not declare the sibling components separately.
-    loop {
-        let mut additional = Vec::new();
-        for app in config::apps().as_array().unwrap() {
-            if !done.iter().any(|name| app["id"] == name.as_str()) {
-                continue;
-            }
-            if let Some(releases) = app["releases"].as_array() {
-                for name in releases.iter().filter_map(Value::as_str) {
-                    if c["components"].get(name).is_some() && !done.iter().any(|done| done == name) {
-                        additional.push(name.to_owned());
-                    }
-                }
-            }
-        }
-        if additional.is_empty() {
-            break;
-        }
-        for name in additional {
-            visit(c, &name, &mut vec![], &mut done)?;
-        }
     }
     let mut env = t["environment"].clone();
     let mut paths = std::collections::HashSet::new();
@@ -592,24 +625,15 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
     if !env["releases"].is_object() {
         return Err(fail("安装包 releases 必须是对象。", 400));
     }
-    for app in config::apps().as_array().unwrap() {
-        let names = app["releases"]
-            .as_array()
-            .cloned()
-            .unwrap_or_else(|| vec![app["id"].clone()]);
-        for name in names {
-            let key = name.as_str().unwrap();
-            let release = &mut env["releases"][key];
-            if release.is_null() {
-                *release = json!({});
-            }
-            if !release.is_object() {
-                return Err(fail("安装包应用配置必须是对象。", 400));
-            }
-            release["enabled"] = json!(done
-                .iter()
-                .any(|component| component == app["id"].as_str().unwrap() || component == key));
+    for name in declared.iter().flat_map(|app| app["releases"].as_array().unwrap()) {
+        let release = &mut env["releases"][name.as_str().unwrap()];
+        if release.is_null() {
+            *release = json!({});
         }
+        if !release.is_object() {
+            return Err(fail("安装包应用配置必须是对象。", 400));
+        }
+        release["enabled"] = json!(done.iter().any(|component| component == name));
     }
     let arch = target.rsplit('-').next().unwrap();
     if env.get("profile").is_some() || env.get("architecture").is_some_and(|a| a != "__ARCH__" && a != arch) {
@@ -656,7 +680,7 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
         return Err(fail("安装包没有可校验资源。", 400));
     }
     Ok(
-        json!({"components":done,"files":files,"target":t,"environment":env,"images":images.values().collect::<Vec<_>>()}),
+        json!({"components":done,"files":files,"target":t,"environment":env,"images":images.values().collect::<Vec<_>>(),"applications":declared}),
     )
 }
 fn resource_description(file: &Value) -> String {

@@ -455,7 +455,8 @@ mod tests {
         files.push(json!({"path":MANIFEST,"size":manifest.to_string().len(),"sha256":config::hash(manifest.to_string().as_bytes())}));
         let catalog = json!({"schemaVersion":1,"components":components,"files":files,"targets":{"k3d-arm64":{
             "base":["nexus"],"deploymentTopology":true,"environment":{},"nexusFirst":{"schemaVersion":2,"manifest":MANIFEST,
-            "supportedTopologies":["single-k3d"],"bootstrapComponents":["cert-manager","nexus"]}}}});
+            "supportedTopologies":["single-k3d"],"bootstrapComponents":["cert-manager","nexus"]}}},
+            "applications":[{"id":"apeiron","name":"Apeiron","required":false,"releases":["apeiron"],"requires":[]}]});
         let plan = resources::plan(&catalog, "k3d-arm64", &json!(["apeiron"])).unwrap();
         (manifest, catalog, plan)
     }
