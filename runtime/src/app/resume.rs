@@ -348,8 +348,6 @@ pub fn checkpoint(
     let generated = [
         "SHA256SUMS",
         "images/install-manifest.json",
-        "images/manifest.txt",
-        "images/nexus-names.txt",
         "nexus/install-selection.json",
     ];
     for relative in generated {
