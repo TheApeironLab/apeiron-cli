@@ -47,27 +47,9 @@ fn input(i: Value, offline: bool) -> Value {
 /// The application catalog a current package carries (Chentu applications.yaml).
 pub fn declared() -> Vec<Value> {
     let required = ["nexus", "vasi", "apeiron", "gateway"];
-    [
-        "nexus",
-        "vasi",
-        "ontology",
-        "apeiron",
-        "task",
-        "corpus",
-        "matrix",
-        "files",
-        "stalwart",
-        "zygos",
-        "gateway",
-        "filer",
-        "git",
-        "gpustack",
-        "langfuse",
-        "kps:kps,loki,promtail",
-        "browser:chrome-headless",
-        "ci:woodpecker",
-    ]
-    .iter()
+    "nexus vasi ontology apeiron task corpus matrix files stalwart zygos gateway filer git gpustack langfuse \
+     kps:kps,loki,promtail browser:chrome-headless ci:woodpecker"
+        .split_whitespace()
     .map(|row| {
         let (id, releases) = row.split_once(':').unwrap_or((row, row));
         json!({"id":id,"name":id,"required":required.contains(&id),"releases":releases.split(',').collect::<Vec<_>>(),
