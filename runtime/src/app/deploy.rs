@@ -491,7 +491,7 @@ impl Context {
 pub fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()
 }
-pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
+pub fn environment_for(config: &Value, applications: &[Value], mut values: Value) -> Result<Value> {
     if !values.is_object() || values.get("profile").is_some() {
         return Err(fail("环境文件必须是普通 YAML 对象，且不能包含 profile。", 400));
     }
@@ -518,7 +518,7 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
         values["releases"]["gpustack"]["values"]["gpuHost"] = gpu["host"].clone();
         values["releases"]["gpustack"]["values"]["gpuPort"] = gpu["port"].clone();
     }
-    for app in config::apps().as_array().unwrap() {
+    for app in applications {
         let names = app["releases"]
             .as_array()
             .cloned()
@@ -810,7 +810,11 @@ impl Deployment {
                 target = prepared.target.clone();
                 resources::write_yaml(
                     Path::new(target["environment"].as_str().unwrap()),
-                    &environment_for(&config, prepared.values.clone())?,
+                    &environment_for(
+                        &config,
+                        resources::applications(&prepared.plan)?,
+                        prepared.values.clone(),
+                    )?,
                 )?;
                 context.stage(1, "正在准备集群网络、存储和部署入口。");
                 // Port probing and cluster creation on this host are serialized
@@ -859,7 +863,8 @@ impl Deployment {
             }
             let output = directory.join("environment.yaml");
             if recovered.is_none() {
-                resources::write_yaml(&output, &environment_for(&config, resources::yaml(input)?)?)?;
+                let declared = resources::declared_applications(Path::new(target["root"].as_str().unwrap()))?;
+                resources::write_yaml(&output, &environment_for(&config, &declared, resources::yaml(input)?)?)?;
             } else if env.get("CHENTU_ENV") != Some(&output.to_string_lossy().into_owned()) {
                 return Err(fail("原部署环境路径不匹配，不能继续。", 409));
             }

@@ -44,7 +44,7 @@ System Skills、Chentu 源码或 sandbox；准备工作流用 Chentu `install_ca
 本次构建回执与 Helmfile inventory 直接生成 `install.json`，不读取或替换旧清单。
 修改 seed 必须重新核对材料闭包、上传不可变内容并通过配方 PR 更新摘要。
 
-公开包的应用范围由 `runtime/assets/apps.json` 决定，`applicationScope: wizard` 包含全部
+公开包的应用范围由 Chentu `deploy/helmfile/applications.yaml`（随 `install.json` 的 `applications` 发布）决定，`applicationScope: wizard` 包含全部
 可选应用及其依赖。准备入口检查生成的清单；构建 profile 和组合归档时再检查一次。
 `requiredComponents` 只列基础根组件，不能用它缩减向导承诺的应用范围。ARM64 profile 出包后使用
 真实 Rust 规划器、Helmfile 和 check.py 验证逐个可选应用及全部应用组合，保留基础、Task、Langfuse、

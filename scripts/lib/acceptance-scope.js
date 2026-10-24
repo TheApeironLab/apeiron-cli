@@ -1,18 +1,19 @@
-import { readFileSync } from 'node:fs';
-
-const catalog = JSON.parse(readFileSync(new URL('../../runtime/assets/apps.json', import.meta.url)));
 import { parseReleaseVersion } from './release-version.js';
 
-export function acceptanceScope(version) {
+// `applications` is the pinned package's {ID: releases} (distribution-input.json).
+export function acceptanceScope(version, applications) {
+  if (Object.keys(applications ?? {}).length === 0 || !Object.values(applications).every(releases =>
+      Array.isArray(releases) && releases.length > 0 && releases.every(name => typeof name === 'string')))
+    throw new Error('Distribution must list its applications; pin a newer nightly');
   // The current nightly deferral does not reduce stable release coverage.
   const deferredApplications = parseReleaseVersion(version).channel === 'nightly' ? ['gpustack'] : [];
-  const selected = catalog.filter(app => !deferredApplications.includes(app.id));
-  return { applications: selected.map(app => app.id).sort(), deferredApplications,
-    releases: [...new Set(selected.flatMap(app => app.releases || [app.id]))].sort() };
+  const selected = Object.entries(applications).filter(([id]) => !deferredApplications.includes(id));
+  return { applications: selected.map(([id]) => id).sort(), deferredApplications,
+    releases: [...new Set(selected.flatMap(([, releases]) => releases))].sort() };
 }
 
-export function validateApplicationScope(applications, version) {
-  const expected = acceptanceScope(version).applications;
+export function validateApplicationScope(applications, version, declared) {
+  const expected = acceptanceScope(version, declared).applications;
   if (!Array.isArray(applications) || applications.length !== expected.length
       || new Set(applications).size !== applications.length
       || expected.some(name => !applications.includes(name)))

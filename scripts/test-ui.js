@@ -300,7 +300,7 @@ try {
         assert.equal(await app(name).isEnabled(), true);
     }
     assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
-    assert.deepEqual(await page.locator('.app-group').allTextContents(), ['必选应用', '其他可选应用 · 默认不选']);
+    assert.deepEqual(await page.locator('.app-group').allTextContents(), ['必选应用', '可选应用']);
     assert.equal(await page.getByRole('button', { name: '仅必选', exact: true }).getAttribute('aria-pressed'), 'true');
     await page.locator('[data-scenario=required]').click();
     assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
@@ -455,7 +455,7 @@ try {
     assert.equal(saved.slug, 'example-team');
     assert.equal(saved.deployment.installation.entryIp, '127.0.0.1');
     assert.equal(saved.llm, undefined);
-    assert.deepEqual(saved.apps, ['nexus', 'vasi', 'ontology', 'apeiron', 'zygos', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']);
+    assert.deepEqual(saved.apps, ['apeiron', 'browser', 'ci', 'filer', 'gateway', 'git', 'gpustack', 'kps', 'langfuse', 'nexus', 'ontology', 'vasi', 'zygos']);
     assert.deepEqual(saved.gpustack, { host: '192.0.2.20', port: 8080 });
     assert.equal((await stat(path)).mode & 0o777, 0o600);
     const installCatalogPath = join(setup.root, 'setup/install.json');

@@ -266,7 +266,6 @@ impl State {
                     if let Some(slug) = &self.gateway {
                         data["gateway"] = json!({"slug":slug});
                     }
-                    data["apps"] = config::apps();
                     data["path"] = json!(path);
                     data["host"] = discovery::host();
                     data["defaults"] = config::defaults();
@@ -453,6 +452,25 @@ impl State {
                     return Ok(Reply::json(public, 202));
                 }
                 public
+            }
+            "api/applications" => {
+                // Applications come from the chosen package (offline directory or the pinned
+                // online release), so the wizard lists them only after step one.
+                self.busy()?;
+                // Step one only: the package source, before domain or nodes are filled in.
+                let d = &input["deployment"];
+                let bundle = d["bundleDir"].as_str().unwrap_or("");
+                if !bundle.is_empty() && !Path::new(bundle).is_absolute() {
+                    return Err(fail("bundleDir 必须是绝对路径。", 400));
+                }
+                let source = json!({"offline":d["offline"] == true,"bundleDir":bundle});
+                let root = resources::resolve(&source, &self.cancel, &|_| {})?;
+                let family = if d["installation"]["topology"] == "single-k3d" {
+                    "k3d-"
+                } else {
+                    "k3s-"
+                };
+                json!({"apps":resources::package_applications(&root, family)?})
             }
             "api/preflight" => {
                 // Read-only coexistence/port preflight for the summary step; nothing is saved.

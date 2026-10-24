@@ -22,23 +22,12 @@ test('app help documents retained data and requires an explicit target', () => {
   expect(cli('install', 'zygos').stderr).toContain('--instance or --config');
   expect(cli('install', 'zygos', '--instance', 'team', '--config', '/tmp/unused').code).toBe(2);
 });
-test('app list reads selected applications without claiming health or changing configuration', async () => {
-  const f = await fixture(); const result = cli('list', '--config', f.path, '--json');
-  expect(result.code).toBe(0);
-  const data = JSON.parse(result.stdout);
-  expect(data.items.find(a => a.id === 'zygos').selected).toBe(true);
-  expect(data.items.find(a => a.id === 'task').selected).toBe(false);
-  expect(data.note).toContain('not live health');
-  expect(await readFile(f.path, 'utf8')).toBe(f.bytes);
-  expect(await readdir(f.dir)).toEqual(['config.json']);
-});
-test('app removal confirmation, protected applications and dependencies fail before deployment', async () => {
+test('app list and requests read the installed package catalog and change nothing without an installation', async () => {
+  // Protected, dependency and unknown-ID rules against a catalog: applications.rs unit tests.
   const f = await fixture();
   expect(cli('uninstall', 'zygos', '--config', f.path).stderr).toContain('--yes');
-  expect(cli('uninstall', 'nexus', '--config', f.path, '--yes').stderr).toContain('cannot be uninstalled');
-  expect(cli('uninstall', 'git', '--config', f.path, '--yes').stderr).toContain('ci depends');
-  expect(cli('update', 'task', '--config', f.path).stderr).toContain('use app install');
-  expect(cli('install', 'unknown', '--config', f.path).stderr).toContain('Unknown application');
+  for (const args of [['list', '--json'], ['uninstall', 'nexus', '--yes'], ['update', 'task'], ['install', 'unknown']])
+    expect(cli(...args, '--config', f.path).stderr).toContain('No completed installation');
   expect(await readFile(f.path, 'utf8')).toBe(f.bytes);
   expect((await readdir(f.dir)).filter(n => n.includes('resume') || n === 'deployments')).toEqual([]);
 });

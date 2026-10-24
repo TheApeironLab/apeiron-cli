@@ -11,14 +11,12 @@ struct Request {
     app: String,
     releases: Vec<String>,
 }
-fn request(action: &str, app: &str, current: &Value) -> Result<(Request, Value)> {
+/// `declared` is the installed package's application catalog.
+fn request(action: &str, app: &str, current: &Value, declared: &[Value]) -> Result<(Request, Value)> {
     if !["install", "update", "uninstall"].contains(&action) {
         return Err(fail("Use app install, update or uninstall", 2));
     }
-    let catalog = config::apps();
-    let selected = catalog
-        .as_array()
-        .unwrap()
+    let selected = declared
         .iter()
         .find(|a| a["id"] == app)
         .ok_or_else(|| fail(format!("Unknown application: {app}"), 2))?;
@@ -33,7 +31,7 @@ fn request(action: &str, app: &str, current: &Value) -> Result<(Request, Value)>
     }
     let mut apps = old.clone();
     if action == "uninstall" {
-        for other in catalog.as_array().unwrap().iter().filter(|a| old.contains(&a["id"])) {
+        for other in declared.iter().filter(|a| old.contains(&a["id"])) {
             if other["requires"].as_array().is_some_and(|r| r.contains(&json!(app))) {
                 return Err(fail(
                     format!("{} depends on {app}; uninstall it first", other["id"].as_str().unwrap()),
@@ -60,8 +58,7 @@ fn request(action: &str, app: &str, current: &Value) -> Result<(Request, Value)>
     desired = config::validate(&desired, current)?;
     let releases = selected["releases"]
         .as_array()
-        .cloned()
-        .unwrap_or_else(|| vec![json!(app)])
+        .unwrap()
         .iter()
         .map(|r| r.as_str().unwrap().to_owned())
         .collect();
@@ -192,7 +189,7 @@ fn source_package(
             .ok_or_else(|| fail("Missing architecture", 2))?
     );
     let catalog = resources::catalog(&root, &key)?;
-    let mut plan = resources::plan(&catalog, &key, &config::components(&effective["apps"]))?;
+    let mut plan = resources::plan(&catalog, &key, &effective["apps"])?;
     let cache = PathBuf::from(
         effective["deployment"]["bundleDir"]
             .as_str()
@@ -297,7 +294,7 @@ fn source_package(
         .ok_or_else(|| fail("Missing bundle path", 2))?;
     relocate(&mut values, previous_bundle, &mounted_bundle);
     values["bundle"] = json!(mounted_bundle);
-    values = deploy::environment_for(&effective, values)?;
+    values = deploy::environment_for(&effective, resources::applications(&plan)?, values)?;
     let output = c.directory.join("environment.yaml");
     resources::write_yaml(&output, &values)?;
     let mut target = record["target"].clone();
@@ -401,9 +398,14 @@ pub fn run(args: &[String]) -> Result<()> {
         (None, Some(p)) => process::config_path(Some(p))?,
         _ => return Err(fail("Choose exactly one --instance or --config", 2)),
     };
+    let installed = || -> Result<Value> {
+        let record =
+            resume::recovery(&path)?.ok_or_else(|| fail("No completed installation; run apeiron init first", 2))?;
+        resources::applications(&record["plan"]).cloned().map(Value::from)
+    };
     if pos == ["list"] {
         let state = config::read(&path)?;
-        let rows=config::apps().as_array().unwrap().iter().map(|a| json!({"id":a["id"],"name":a["name"],"required":a["required"],"selected":state["config"]["apps"].as_array().is_some_and(|s|s.contains(&a["id"]))})).collect::<Vec<_>>();
+        let rows=installed()?.as_array().unwrap().iter().map(|a| json!({"id":a["id"],"name":a["name"],"required":a["required"],"selected":state["config"]["apps"].as_array().is_some_and(|s|s.contains(&a["id"]))})).collect::<Vec<_>>();
         return output(
             json!({"items":rows,"note":"selected is desired configuration, not live health"}),
             &options,
@@ -430,7 +432,7 @@ pub fn run(args: &[String]) -> Result<()> {
     resume::bind_executable()?;
     let saved = config::read(&path)?;
     let current = &saved["config"];
-    let (req, mut desired) = request(&pos[0], &pos[1], current)?;
+    let (req, mut desired) = request(&pos[0], &pos[1], current, installed()?.as_array().unwrap())?;
     if let Some(bundle) = options.get("bundle-dir") {
         if !Path::new(bundle).is_absolute() {
             return Err(fail("--bundle-dir must be absolute", 2));
@@ -606,25 +608,34 @@ pub fn run(args: &[String]) -> Result<()> {
 mod tests {
     use super::*;
     fn current() -> Value {
-        json!({"schemaVersion":2,"slug":"example-team","apps":["nexus","vasi","ontology","apeiron","zygos","gateway","git","ci"]})
+        json!({"schemaVersion":2,"slug":"example-team","apps":["apeiron","ci","gateway","git","nexus","ontology","vasi","zygos"]})
     }
     #[test]
     fn catalog_drives_application_release_mapping_and_dependencies() {
-        let (r, c) = request("install", "kps", &current()).unwrap();
+        let (r, c) = request("install", "kps", &current(), &contracts::declared()).unwrap();
         assert_eq!(r.releases, ["kps", "loki", "promtail"]);
         assert!(c["apps"].as_array().unwrap().contains(&json!("zygos")));
         assert_eq!(
-            request("install", "browser", &current()).unwrap().0.releases,
+            request("install", "browser", &current(), &contracts::declared())
+                .unwrap()
+                .0
+                .releases,
             ["chrome-headless"]
         );
-        assert_eq!(request("update", "ci", &current()).unwrap().0.releases, ["woodpecker"]);
-        assert!(request("uninstall", "git", &current())
+        assert_eq!(
+            request("update", "ci", &current(), &contracts::declared())
+                .unwrap()
+                .0
+                .releases,
+            ["woodpecker"]
+        );
+        assert!(request("uninstall", "git", &current(), &contracts::declared())
             .unwrap_err()
             .message
             .contains("ci depends"));
-        let (_, without_ci) = request("uninstall", "ci", &current()).unwrap();
-        let (_, without_git) = request("uninstall", "git", &without_ci).unwrap();
-        assert!(request("install", "ci", &without_git)
+        let (_, without_ci) = request("uninstall", "ci", &current(), &contracts::declared()).unwrap();
+        let (_, without_git) = request("uninstall", "git", &without_ci, &contracts::declared()).unwrap();
+        assert!(request("install", "ci", &without_git, &contracts::declared())
             .unwrap_err()
             .message
             .contains("dependency git"));
@@ -632,25 +643,28 @@ mod tests {
     #[test]
     fn required_unknown_and_missing_updates_fail_without_dropping_other_apps() {
         for app in ["nexus", "vasi", "gateway", "apeiron"] {
-            assert!(request("uninstall", app, &current()).is_err());
+            assert!(request("uninstall", app, &current(), &contracts::declared()).is_err());
         }
-        let (_, without_ontology) = request("uninstall", "ontology", &current()).unwrap();
+        let (_, without_ontology) = request("uninstall", "ontology", &current(), &contracts::declared()).unwrap();
         assert_eq!(
             without_ontology["apps"],
-            json!(["nexus", "vasi", "apeiron", "zygos", "gateway", "git", "ci"])
+            json!(["apeiron", "ci", "gateway", "git", "nexus", "vasi", "zygos"])
         );
         for app in ["unknown", "--all", "zygos;echo x"] {
-            assert!(request("install", app, &current()).is_err());
+            assert!(request("install", app, &current(), &contracts::declared()).is_err());
         }
-        assert!(request("update", "task", &current()).is_err());
-        let (_, removed) = request("uninstall", "zygos", &current()).unwrap();
+        assert!(request("update", "task", &current(), &contracts::declared()).is_err());
+        let (_, removed) = request("uninstall", "zygos", &current(), &contracts::declared()).unwrap();
         assert_eq!(
             removed["apps"],
-            json!(["nexus", "vasi", "ontology", "apeiron", "gateway", "git", "ci"])
+            json!(["apeiron", "ci", "gateway", "git", "nexus", "ontology", "vasi"])
         );
-        let (_, added) = request("install", "zygos", &removed).unwrap();
+        let (_, added) = request("install", "zygos", &removed, &contracts::declared()).unwrap();
         assert_eq!(added["apps"], current()["apps"]);
-        assert_eq!(request("install", "zygos", &added).unwrap().1, added);
+        assert_eq!(
+            request("install", "zygos", &added, &contracts::declared()).unwrap().1,
+            added
+        );
     }
     fn manifest() -> Value {
         json!({"components":{"zygos":{"artifacts":["app"]},"postgres":{"artifacts":["shared"]}},

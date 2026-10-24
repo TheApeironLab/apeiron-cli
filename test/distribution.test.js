@@ -5,12 +5,13 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { acceptanceTargets, acceptanceChecks, validateDistribution, validateAcceptanceSet, publicDistribution } from '../scripts/lib/distribution.js';
+const applications = { nexus: ['nexus'], vasi: ['vasi'], apeiron: ['apeiron'], gateway: ['gateway'], files: ['files'], gpustack: ['gpustack'], kps: ['kps', 'loki', 'promtail'] };
 
 const version = '0.2.1';
 const hash = 'd'.repeat(64);
 function fixture(version = '0.2.1') {
   const release = { version, revision: 'a'.repeat(40), files: {} };
-  const input = { schemaVersion: 1, version, apeiron: { version, revision: 'b'.repeat(40), images: {} },
+  const input = { schemaVersion: 1, version, applications, apeiron: { version, revision: 'b'.repeat(40), images: {} },
     chentu: { version, revision: 'c'.repeat(40), sha256: hash,
       url: `https://downloads.apeironlab.cn/chentu/releases/${version}/chentu-${version}.tar.gz` } };
   for (const name of ['backend', 'app', 'ops', 'scode']) input.apeiron.images[name] = { amd64: `registry.example/${name}@sha256:${hash}`, arm64: `registry.example/${name}@sha256:${hash}` };
@@ -18,7 +19,7 @@ function fixture(version = '0.2.1') {
     release.files[`apeiron-${version}-${t.cli}.tar.gz`] = { sha256: hash };
     return { schemaVersion: 1, version, revision: release.revision, target, distributionSha256: hash, archiveSha256: hash,
       runId: '123', os: t.os, arch: t.arch, topology: t.topology, osRelease: 'ubuntu:22.04', servers: t.servers, agents: 0,
-      applications: acceptanceScope(version).applications, deferredApplications: acceptanceScope(version).deferredApplications,
+      applications: acceptanceScope(version, applications).applications, deferredApplications: acceptanceScope(version, applications).deferredApplications,
       checks: Object.fromEntries(acceptanceChecks.map(name => [name, true])) };
   });
   return { release, input, receipts };
@@ -45,7 +46,7 @@ test('finalized public receipts retain application coverage and nightly deferral
     expect(await child.exited).toBe(0);
     const text = await readFile(join(out, 'distribution.json'), 'utf8');
     const result = JSON.parse(text);
-    validateAcceptanceSet(result.acceptance, release, inputHash, '123');
+    validateAcceptanceSet(result.acceptance, release, inputHash, '123', applications);
     expect(result.acceptance.every(r => r.deferredApplications.join() === 'gpustack')).toBe(true);
     expect(text).not.toContain('must-not-be-published');
   } finally { await rm(directory, { recursive: true, force: true }); }
@@ -63,10 +64,10 @@ test('one distribution binds all versions and requires images for both deploymen
 
 test('single-node success cannot replace multi-node or either K3d acceptance', () => {
   const { release, receipts } = fixture();
-  validateAcceptanceSet(receipts, release, hash, '123');
-  expect(() => validateAcceptanceSet(receipts.slice(0, 3), release, hash, '123')).toThrow();
+  validateAcceptanceSet(receipts, release, hash, '123', applications);
+  expect(() => validateAcceptanceSet(receipts.slice(0, 3), release, hash, '123', applications)).toThrow();
   receipts[3] = structuredClone(receipts[2]);
-  expect(() => validateAcceptanceSet(receipts, release, hash, '123')).toThrow('Duplicate');
+  expect(() => validateAcceptanceSet(receipts, release, hash, '123', applications)).toThrow('Duplicate');
 });
 
 test('stale, mixed or incomplete receipts cannot authorize publication', () => {
@@ -75,16 +76,16 @@ test('stale, mixed or incomplete receipts cannot authorize publication', () => {
     r => r.osRelease = 'ubuntu:24.04', r => r.topology = 'single-k3s']) {
     const { release, receipts } = fixture();
     mutate(receipts[3]);
-    expect(() => validateAcceptanceSet(receipts, release, hash, '123')).toThrow();
+    expect(() => validateAcceptanceSet(receipts, release, hash, '123', applications)).toThrow();
   }
 });
 
 test('a base-only or duplicated application receipt cannot authorize a full wizard release', () => {
-  for (const applications of [undefined, ['nexus', 'vasi', 'apeiron', 'gateway'],
-    [...acceptanceScope(version).applications, 'files'], acceptanceScope(version).applications.filter(name => name !== 'files')]) {
+  for (const covered of [undefined, ['nexus', 'vasi', 'apeiron', 'gateway'],
+    [...acceptanceScope(version, applications).applications, 'files'], acceptanceScope(version, applications).applications.filter(name => name !== 'files')]) {
     const { release, receipts } = fixture();
-    receipts[0].applications = applications;
-    expect(() => validateAcceptanceSet(receipts, release, hash, '123')).toThrow('every non-deferred wizard application');
+    receipts[0].applications = covered;
+    expect(() => validateAcceptanceSet(receipts, release, hash, '123', applications)).toThrow('every non-deferred wizard application');
   }
 });
 

@@ -171,7 +171,7 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 - 远程使用：工作站执行 `ssh -L 3210:127.0.0.1:3210 <user>@<host>`，然后打开 `http://127.0.0.1:3210/<url 行中的路径>`；POST 的 `Host` 与 `Origin` 均为 `http://127.0.0.1:3210`。
 - 部署请求体 = `GET api/config` 的 `config` 叠加 `deployment.installation{topology,domain,entryIp,httpPort,httpsPort,ha,nodes,sshUser,sshKey,sshPort}`、`apps` 与 `revision`；K3d 的端口须与注册表登记一致（创建实例时由服务端分配）。
 - `GET api/deployment.stages[]` 元素为 `{id, state, detail}`，`id ∈ check/cluster/nexus/import/applications/access`，`state ∈ pending/active/done/skipped/failed/cancelled`；中断用 `POST api/deployment/stop {}`，续跑 `POST api/deployment/resume {revision}`，重跑 `POST api/deployment/retry {revision}`。
-- 应用 ID 见 `runtime/assets/apps.json`：`matrix`=Chat；`browser`（Helm release `chrome-headless`）与 `ci`（`woodpecker`，要求同时启用 `git`）为可选、默认不选；不在目录中的 ID（如 `keycloak`）被 `应用目录不包含：<id>。` 明确拒绝；资源目录缺少对应组件时在 `check` 阶段以“安装包缺少组件：<id>”拒绝。
+- 应用目录随安装包发布（`install.json` 的 `applications`，来自 Chentu `deploy/helmfile/applications.yaml`）；向导在第一步选定安装包后用 `POST api/applications {deployment}` 读取。不在目录中的 ID（如 `keycloak`）被 `安装包的应用目录不包含：<id>。` 明确拒绝；资源目录缺少对应组件时在 `check` 阶段以“安装包缺少组件：<id>”拒绝。
 
 访问页读取 `keycloak/keycloak-operator` 的持久工作空间账号（默认 `platform-owner`），
 不把初次 IAM 管理引导账号作为应用登录账号。已修改 IAM 密码时使用新密码；

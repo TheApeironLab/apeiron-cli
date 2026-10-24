@@ -25,7 +25,8 @@ let httpsPort = await freePort();
 while (httpsPort === httpPort) httpsPort = await freePort();
 const domain = `release-${id}-${target.os}.apeironlab.internal`;
 const profile = { schemaVersion: 1, slug: `release-${process.env.GITHUB_RUN_ID}`,
-  apps: acceptanceScope(JSON.parse(await readFile(join(release, 'release.json'))).version).applications,
+  apps: acceptanceScope(JSON.parse(await readFile(join(release, 'release.json'))).version,
+    JSON.parse(await readFile(input)).applications).applications,
   models: { provider: 'fixture', baseUrl: 'https://models.example.internal/v1', apiKey: 'fixture-only-key', fast: 'fixture-chat', deep: 'fixture-chat' },
   deployment: { offline: false, installation: { topology: 'single-k3d', ha: false, nodes: [],
     domain, entryIp: '127.0.0.1', httpPort, httpsPort, sshKey: '', sshUser: '', sshPort: 22 } } };

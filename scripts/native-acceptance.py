@@ -114,7 +114,7 @@ def prepare(state_path, target, release, source):
         archive.add(Path(shutil.which('bun')).resolve(), arcname='bun', recursive=False)
         for name in ['release.json', f'apeiron-{version}-linux-x64.tar.gz']:
             archive.add(release / name, arcname='release/' + name, recursive=False)
-        for name in ['scripts/accept-distribution.js', 'scripts/lib/distribution.js', 'scripts/lib/release-version.js', 'scripts/lib/acceptance-scope.js', 'runtime/assets/apps.json', 'release/distribution-input.json']:
+        for name in ['scripts/accept-distribution.js', 'scripts/lib/distribution.js', 'scripts/lib/release-version.js', 'scripts/lib/acceptance-scope.js', 'release/distribution-input.json']:
             archive.add(source / name, arcname='code/' + name, recursive=False)
     transport_sha = hashlib.sha256(transport.read_bytes()).hexdigest()
     run(['aliyun', 'ossutil', 'api', 'put-object', '--bucket', BUCKET, '--key', state['object'], '--body', 'file://' + str(transport),
@@ -162,7 +162,7 @@ def prepare(state_path, target, release, source):
     remote = '/opt/apeiron-acceptance/' + lease
     profile = {'schemaVersion': 1, 'slug': 'release-' + run_id,
         'apps': json.loads(run(['bun', '-e',
-            "import {acceptanceScope} from './scripts/lib/acceptance-scope.js'; console.log(JSON.stringify(acceptanceScope(process.argv[1]).applications))", version], cwd=source)),
+            "import {acceptanceScope} from './scripts/lib/acceptance-scope.js'; const input = await Bun.file('release/distribution-input.json').json(); console.log(JSON.stringify(acceptanceScope(process.argv[1], input.applications).applications))", version], cwd=source)),
         # This full application matrix exercises installation and IAM, not model inference.
         'models': {'provider': 'fixture', 'baseUrl': 'https://models.example.internal/v1',
                    'apiKey': 'fixture-only-key', 'fast': 'fixture-chat', 'deep': 'fixture-chat'},

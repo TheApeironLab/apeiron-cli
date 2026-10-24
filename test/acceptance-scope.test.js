@@ -1,15 +1,16 @@
 import { expect, test } from 'bun:test';
 import { acceptanceScope, validateApplicationScope, workloadsReady } from '../scripts/lib/acceptance-scope.js';
+const applications = { nexus: ['nexus'], vasi: ['vasi'], apeiron: ['apeiron'], gateway: ['gateway'], files: ['files'], gpustack: ['gpustack'], kps: ['kps', 'loki', 'promtail'] };
 
 test('GPUStack deferral is explicit for nightly and cannot reduce stable acceptance', () => {
   const nightly = '0.2.1-nightly.20261023.123';
-  const scope = acceptanceScope(nightly);
+  const scope = acceptanceScope(nightly, applications);
   expect(scope.applications).not.toContain('gpustack');
   expect(scope.deferredApplications).toEqual(['gpustack']);
-  validateApplicationScope(scope.applications, nightly);
-  expect(() => validateApplicationScope(scope.applications, '0.2.1')).toThrow();
-  expect(acceptanceScope('0.2.1').applications).toContain('gpustack');
-  expect(acceptanceScope('0.2.1').deferredApplications).toEqual([]);
+  validateApplicationScope(scope.applications, nightly, applications);
+  expect(() => validateApplicationScope(scope.applications, '0.2.1', applications)).toThrow();
+  expect(acceptanceScope('0.2.1', applications).applications).toContain('gpustack');
+  expect(acceptanceScope('0.2.1', applications).deferredApplications).toEqual([]);
 });
 
 test('workload checks wait for observed rollout, ready replicas and current StatefulSet revision', () => {
