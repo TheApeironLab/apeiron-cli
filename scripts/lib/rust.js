@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 let built;
 export const buildSupport = (...args) => buildSupportWithEnv({}, ...args);
 export async function buildSupportWithEnv(env, ...args) {
@@ -7,7 +8,8 @@ export async function buildSupportWithEnv(env, ...args) {
     if (await build.exited) throw new Error(diagnostic);
   })();
   await built;
-  const child = Bun.spawn([new URL('../../target/debug/examples/build-support', import.meta.url).pathname, ...args], { stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } });
+  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : new URL('../../target', import.meta.url).pathname;
+  const child = Bun.spawn([resolve(target, 'debug/examples/build-support'), ...args], { stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...env } });
   const [out, err, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code) throw new Error(err.trim());
   return JSON.parse(out);

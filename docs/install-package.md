@@ -115,7 +115,7 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 继续保留原运行目录、日志、集群与凭据，不按进度条跳过应用，而是重新检查 Helm 未完成操作并执行同一官方同步入口。
 
 继续之前必须满足：CLI 二进制、配置、Chentu 源码与生成目录、所选资源、部署环境、inventory、kubeconfig 均保持检查点身份，实际集群 `kube-system` UID 一致。
-检查点仅保存摘要、制品坐标和本次部署路径，不复制模型密钥或 kubeconfig 内容。
+检查点仅保存摘要、制品坐标和本次部署路径，不复制模型密钥或 kubeconfig 内容。 检查点同时保留已验证安装包的应用声明，供后续单应用和联合更新使用；不会退回 CLI 内置目录。资源下载地址不保存在恢复记录中。
 旧进程、子进程组或工具箱尚未退出、生成子进程时状态不确定、并发恢复、文件或集群变化时均拒绝继续，不自动删除 Helm pending 记录、不杀死旧进程、不接管其他集群。
 
 检查点尚未产生的正常检查失败仍可修正后重新部署；集群引导中途硬退出、旧版本 CLI 的遗留安装、任意开发源码部署不自动恢复。
@@ -171,7 +171,7 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 - 远程使用：工作站执行 `ssh -L 3210:127.0.0.1:3210 <user>@<host>`，然后打开 `http://127.0.0.1:3210/<url 行中的路径>`；POST 的 `Host` 与 `Origin` 均为 `http://127.0.0.1:3210`。
 - 部署请求体 = `GET api/config` 的 `config` 叠加 `deployment.installation{topology,domain,entryIp,httpPort,httpsPort,ha,nodes,sshUser,sshKey,sshPort}`、`apps` 与 `revision`；K3d 的端口须与注册表登记一致（创建实例时由服务端分配）。
 - `GET api/deployment.stages[]` 元素为 `{id, state, detail}`，`id ∈ check/cluster/nexus/import/applications/access`，`state ∈ pending/active/done/skipped/failed/cancelled`；中断用 `POST api/deployment/stop {}`，续跑 `POST api/deployment/resume {revision}`，重跑 `POST api/deployment/retry {revision}`。
-- 应用 ID 见 `runtime/assets/apps.json`：`matrix`=Chat；`browser`（Helm release `chrome-headless`）与 `ci`（`woodpecker`，要求同时启用 `git`）为可选、默认不选；不在目录中的 ID（如 `keycloak`）被 `应用目录不包含：<id>。` 明确拒绝；资源目录缺少对应组件时在 `check` 阶段以“安装包缺少组件：<id>”拒绝。
+- 应用目录随安装包发布（`install.json` 的 `applications`，来自 Chentu `deploy/helmfile/applications.yaml`）；向导在第一步选定安装包后用 `POST api/applications {deployment}` 读取。不在目录中的 ID（如 `keycloak`）被 `安装包的应用目录不包含：<id>。` 明确拒绝；资源目录缺少对应组件时在 `check` 阶段以“安装包缺少组件：<id>”拒绝。
 
 访问页读取 `keycloak/keycloak-operator` 的持久工作空间账号（默认 `platform-owner`），
 不把初次 IAM 管理引导账号作为应用登录账号。已修改 IAM 密码时使用新密码；

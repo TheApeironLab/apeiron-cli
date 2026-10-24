@@ -38,12 +38,15 @@ class DistributionPackage(unittest.TestCase):
             self.put(directory, 'chentu/.claude-plugin/plugin.json', plugin)
             self.put(directory, 'setup/release-manifest.json', json.dumps(manifest).encode())
             self.put(directory, 'resource.bin', b'platform bytes')
+            applications = [{'id': 'apeiron', 'releases': ['apeiron']}, {'id': 'task', 'releases': ['task']},
+                            {'id': 'langfuse', 'releases': ['langfuse']},
+                            {'id': 'kps', 'releases': ['kps', 'loki', 'promtail']}]
             components = {name: {'files': ['resource.bin'], 'requires': []}
-                          for releases in package.scope.application_releases().values() for name in releases}
+                          for app in applications for name in app['releases']}
             components['apeiron']['images'] = [{'file': 'resource.bin', 'reference': f'apeiron/{name}:0.2.1',
                                                 'digest': 'sha256:' + 'e' * 64}
                                                for name in package.APEIRON_IMAGES]
-            catalog = {'schemaVersion': 1, 'targets': {profile: {}}, 'components': components,
+            catalog = {'schemaVersion': 1, 'targets': {profile: {}}, 'components': components, 'applications': applications,
                        'files': [{'path': 'resource.bin', **package.identity(directory / 'resource.bin')}]}
             self.put(directory, 'chentu/setup/install.json', json.dumps(catalog).encode())
             metadata = {'schemaVersion': 1, 'kind': 'chentu-deployment', 'version': '0.2.1', 'revision': 'c' * 40,

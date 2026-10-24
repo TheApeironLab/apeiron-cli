@@ -295,12 +295,12 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     }
     let key = format!("{}-{arch}", if docker { "k3d" } else { "k3s" });
     let catalog = resources::catalog(&root, &key)?;
-    let mut plan = resources::plan(&catalog, &key, &crate::app::config::components(&config["apps"]))?;
+    let mut plan = resources::plan(&catalog, &key, &config["apps"])?;
     let bundled = !docker
         && plan["target"]["operatorTools"] == true
         && cfg!(target_os = "linux")
         && discovery::architecture(std::env::consts::ARCH) == arch;
-    if bundled && key == "k3s-amd64" {
+    if bundled {
         check_offline_operator(&target, c)?;
     }
     if !docker && !bundled {

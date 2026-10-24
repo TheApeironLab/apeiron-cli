@@ -132,6 +132,7 @@ jobs:
         include:
           - { runner: ubuntu-22.04, profile: k3s-amd64, architecture: amd64, target: linux-x64, triple: x86_64-unknown-linux-musl }
           - { runner: ubuntu-24.04-arm, profile: k3d-arm64, architecture: arm64, target: linux-arm64, triple: aarch64-unknown-linux-musl }
+          - { runner: ubuntu-24.04-arm, profile: k3s-arm64, architecture: arm64, target: linux-arm64, triple: aarch64-unknown-linux-musl }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     steps:
@@ -218,7 +219,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/clients/local-computer/scode/$version"
           gh release download "$version" --repo sudoprivacy/sudocode --pattern scode-macos-arm64.tar.gz --pattern scode-macos-x64.tar.gz --pattern scode-linux-x64.tar.gz --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP/clients/local-computer/scode/$version"
       - name: Import the protected release signing identity
-        if: matrix.profile == 'k3s-amd64'
+        if: startsWith(matrix.profile, 'k3s-')
         working-directory: coordinator
         env:
           GNUPGHOME: ${{ runner.temp }}/gnupg
@@ -226,8 +227,8 @@ jobs:
           CHENTU_SIGNING_FINGERPRINT: ${{ vars.CHENTU_SIGNING_FINGERPRINT }}
         run: bash scripts/import-release-key.sh
       - name: Prepare the authenticated Debian sandbox closure
-        if: matrix.profile == 'k3s-amd64'
-        run: uv run --project chentu/cli --locked python chentu/bundle/prepare_sandbox_apt.py --output "$RUNNER_TEMP/sandbox"
+        if: startsWith(matrix.profile, 'k3s-')
+        run: uv run --project chentu/cli --locked python chentu/bundle/prepare_sandbox_apt.py --output "$RUNNER_TEMP/sandbox" --architecture "${{ matrix.architecture }}"
       - name: Prepare exact material and invoke the official Chentu publisher
         env:
           PROFILE: ${{ matrix.profile }}
@@ -235,7 +236,7 @@ jobs:
         run: |
           docker run -d --name release-converter -p 127.0.0.1:5500:5000 registry:2
           extra=()
-          if [ "$PROFILE" = k3s-amd64 ]; then extra=(--sandbox "$RUNNER_TEMP/sandbox/debs" --gnupghome "$RUNNER_TEMP/gnupg" --signing-key "$CHENTU_SIGNING_FINGERPRINT"); fi
+          if [ "${PROFILE#k3s-}" != "$PROFILE" ]; then extra=(--sandbox "$RUNNER_TEMP/sandbox/debs" --gnupghome "$RUNNER_TEMP/gnupg" --signing-key "$CHENTU_SIGNING_FINGERPRINT"); fi
           uv run --project chentu/cli --locked python coordinator/scripts/prepare-deployment-material.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --lock coordinator/release/recipe.json --images "$RUNNER_TEMP/images" --clients "$RUNNER_TEMP/clients" --skills "$PWD/skills" --skills-bundle "$RUNNER_TEMP/skills/system-skills.bundle" --out "$RUNNER_TEMP/prepared" --profile "$PROFILE" --registry 127.0.0.1:5500 "${extra[@]}"
           export PATH="$RUNNER_TEMP/prepared/bin:$RUNNER_TEMP/prepared/material/bin:$PATH"
           uv run --project chentu/cli --locked python coordinator/scripts/build-deployment-profile.py --chentu "$PWD/chentu" --candidate "$RUNNER_TEMP/identity/candidate.json" --prepared "$RUNNER_TEMP/prepared" --builder "$RUNNER_TEMP/builder" --out "$RUNNER_TEMP/profile" --lock coordinator/release/recipe.json --profile "$PROFILE"
@@ -303,9 +304,9 @@ jobs:
         with:
           pattern: deployment-*
           path: ${{ runner.temp }}/profiles
-      - name: Combine both verified architecture profiles
+      - name: Combine the verified profiles
         run: |
-          python3 scripts/package-distribution.py --candidate "$RUNNER_TEMP/identity/candidate.json" --profile "k3d-arm64=$RUNNER_TEMP/profiles/deployment-k3d-arm64" --profile "k3s-amd64=$RUNNER_TEMP/profiles/deployment-k3s-amd64" --out "$RUNNER_TEMP/package"
+          python3 scripts/package-distribution.py --candidate "$RUNNER_TEMP/identity/candidate.json" --profile "k3d-arm64=$RUNNER_TEMP/profiles/deployment-k3d-arm64" --profile "k3s-amd64=$RUNNER_TEMP/profiles/deployment-k3s-amd64" --profile "k3s-arm64=$RUNNER_TEMP/profiles/deployment-k3s-arm64" --out "$RUNNER_TEMP/package"
       - name: Sign the immutable deployment source archive
         env:
           GNUPGHOME: ${{ runner.temp }}/gnupg

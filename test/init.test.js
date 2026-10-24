@@ -53,12 +53,8 @@ test('wizard serves the eight-step setup including model configuration without w
     expect(html).not.toContain('<script src=');
     const snapshot = await fetch(server.url + 'api/config').then(r => r.json());
     expect(snapshot.config).toBeNull();
-    expect(snapshot.apps.map((a) => a.id)).toEqual([
-        'nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart', 'zygos',
-        'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci',
-    ]);
-    expect(snapshot.apps.filter((a) => a.required).map((a) => a.id)).toEqual(requiredApps);
-    expect(snapshot.apps.filter((a) => a.selected).map((a) => a.id)).toEqual(requiredApps);
+    // Applications belong to the chosen package (api/applications), not to the CLI.
+    expect(snapshot.apps).toBeUndefined();
     expect((await fetch(server.origin + '/')).status).toBe(404);
 });
 test('configuration round trip requires deployment settings and private permissions', async () => {
@@ -67,7 +63,7 @@ test('configuration round trip requires deployment settings and private permissi
     expect(response.status).toBe(200);
     expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect((await stat(join(path, '..'))).mode & 0o777).toBe(0o700);
-    expect(await Bun.file(path).json()).toEqual({ schemaVersion: 2, slug: input.slug, deployment: input.deployment, apps: requiredApps });
+    expect(await Bun.file(path).json()).toEqual({ schemaVersion: 2, slug: input.slug, deployment: input.deployment, apps: [...requiredApps].sort() });
 });
 test('GPUStack selection requires an explicit host and preserves its service port', async () => {
     const { path, server, input, post } = await fixture();
@@ -80,15 +76,14 @@ test('GPUStack selection requires an explicit host and preserves its service por
     const snapshot = await fetch(server.url + 'api/config').then(r => r.json());
     expect(snapshot.config.gpustack).toEqual(gpu);
 });
-test('invalid inputs, cross-origin requests and missing required apps cannot write config', async () => {
+test('invalid inputs and cross-origin requests cannot write config', async () => {
     const { path, server, input, post } = await fixture();
     for (const body of [
         { ...input, slug: 'INVALID name' }, { ...input, deployment: undefined },
         { ...input, deployment: { ...input.deployment, environment: 'relative.yaml' } },
         { ...input, deployment: { ...input.deployment, runner: 'shell' } },
         { ...input, deployment: { ...input.deployment, image: '--privileged' } },
-        { ...input, apps: [] }, { ...input, apps: ['unknown'] }, { ...input, apps: ['apeiron', 'apeiron'] },
-        ...requiredApps.map(id => ({ ...input, apps: requiredApps.filter(app => app !== id) })),
+        { ...input, apps: ['apeiron', 'apeiron'] }, { ...input, apps: ['Not An ID'] },
     ])
         expect((await post(body)).status).toBe(400);
     expect((await post(input, { Origin: 'https://example.com' }, 'deploy')).status).toBe(403);

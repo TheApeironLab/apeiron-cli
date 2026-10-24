@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import APPS from '../runtime/assets/apps.json';
 import { buildSupport } from './lib/rust';
 import { fixtureModels } from '../test/fixtures';
 import { parseReleaseVersion } from './lib/release-version.js';
@@ -47,6 +46,7 @@ try {
     }
     const release = JSON.parse(await readFile(join(root, 'setup/install.json'), 'utf8'));
     const catalog = release.schemaVersion === 2 ? release.catalogs[target] : release;
+    const APPS = catalog.applications;
     const required = APPS.filter(app => app.required).map(app => app.id);
     const basePlan = await buildSupport('plan', root, target, JSON.stringify(required));
     if (!image) {
@@ -78,7 +78,7 @@ try {
             function add(id) {
                 if (closure.has(id)) return;
                 closure.add(id);
-                for (const dependency of APPS.find(item => item.id === id).requires ?? []) add(dependency);
+                for (const dependency of APPS.find(item => item.id === id).requires) add(dependency);
             }
             add(app.id);
             if (!selections.some(selection => JSON.stringify(selection) === JSON.stringify([...closure]))) selections.push([...closure]);
@@ -89,11 +89,9 @@ try {
         const apps = [...required, ...extra];
         const plan = await buildSupport('plan', root, target, JSON.stringify(apps));
         // Enabling a grouped release must also select its catalog resources.
-        // Legacy catalogs can aggregate them in the primary component instead.
         for (const app of APPS.filter(app => apps.includes(app.id))) {
-            for (const name of app.releases ?? [app.id]) {
+            for (const name of app.releases) {
                 const component = catalog.components[name];
-                if (!component) continue;
                 assert.ok(plan.components.includes(name), `${app.id}: missing ${name} component`);
                 for (const path of component.files) {
                     assert.ok(plan.files.some(file => file.path === path), `${name}: missing ${path}`);
@@ -115,7 +113,7 @@ try {
             publicHttpPort: installation.httpPort, publicHttpsPort: installation.httpsPort };
         await writeFile(join(directory, 'config.json'), JSON.stringify(config), { mode: 0o600 });
         await writeFile(join(directory, 'planned.json'), JSON.stringify(planned), { mode: 0o600 });
-        const environment = await buildSupport('environment', join(directory, 'config.json'), join(directory, 'planned.json'));
+        const environment = await buildSupport('environment', root, join(directory, 'config.json'), join(directory, 'planned.json'));
         await writeFile(join(directory, 'environment.json'), JSON.stringify(environment), { mode: 0o600 });
         const docker = ['docker', 'run', '--rm', '--pull', 'never', '--network', 'none',
             '-v', `${root}:/repo:ro`, '-v', `${directory}:/input:ro`, '-w', '/repo/deploy/helmfile',
@@ -128,8 +126,8 @@ try {
                 `${name}: Helmfile defaults must not enable a release outside the planned selection`);
         }
         for (const app of APPS) {
-            for (const name of app.releases ?? [app.id]) {
-                assert.equal(resolved.releases[name]?.enabled, plan.components.includes(app.id) || plan.components.includes(name), name);
+            for (const name of app.releases) {
+                assert.equal(resolved.releases[name]?.enabled, plan.components.includes(name), name);
             }
         }
         await run([...docker, '--entrypoint', 'sh', image, '-c', 'exec "${CHENTU_PYTHON:-python3}" /repo/deploy/helmfile/scripts/check.py']);

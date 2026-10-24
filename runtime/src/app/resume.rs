@@ -359,7 +359,7 @@ pub fn checkpoint(
         }
     }
     let resource_plan = if plan.is_object() {
-        json!({"files":plan["files"].as_array().ok_or_else(error)?.iter()
+        json!({"applications":plan["applications"],"files":plan["files"].as_array().ok_or_else(error)?.iter()
             .filter(|file| !generated.contains(&file["path"].as_str().unwrap_or("")))
             .map(|file| json!({"path":file["path"],"size":file["size"],"sha256":file["sha256"]})).collect::<Vec<_>>()})
     } else {
@@ -515,7 +515,7 @@ mod tests {
             ),
         ]);
         let resource = temp.write("resources/resource.bin", b"verified resource");
-        let plan = json!({"files":[{"path":"resource.bin","size":17,"sha256":digest(&resource).unwrap(),"url":"https://example.invalid/?token=private-url-token"}]});
+        let plan = json!({"applications":contracts::declared(),"files":[{"path":"resource.bin","size":17,"sha256":digest(&resource).unwrap(),"url":"https://example.invalid/?token=private-url-token"}]});
         let record = checkpoint(
             &temp.0.join("config.json"),
             &config,
@@ -550,6 +550,10 @@ mod tests {
     #[test]
     fn application_failure_and_new_process_retry_preserve_identity_and_reject_tampering() {
         let (temp, mut config, original) = fixture();
+        assert_eq!(
+            resources::applications(&original["plan"]).unwrap(),
+            &contracts::declared()
+        );
         config.as_object_mut().unwrap().remove("models");
         config["schemaVersion"] = json!(2);
         config["apps"] = json!(["nexus", "vasi", "apeiron", "zygos", "gateway"]);

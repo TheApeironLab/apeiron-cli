@@ -1,4 +1,5 @@
 import { acceptanceScope } from '../scripts/lib/acceptance-scope.js';
+const applications = { nexus: ['nexus'], apeiron: ['apeiron'], gpustack: ['gpustack'] };
 import { test, expect } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
@@ -33,7 +34,7 @@ async function fixture(version, fn) {
     files['release.json'] = JSON.stringify({ schemaVersion: 2, version, baseVersion, revision, files: artifacts,
       releaseChannel: version.includes('-nightly.') ? 'nightly' : 'stable' });
     const inputSha256 = digest('distribution input');
-    files['distribution.json'] = JSON.stringify({ schemaVersion: 1, version,
+    files['distribution.json'] = JSON.stringify({ schemaVersion: 1, version, applications,
       apeiron: { version, revision: 'b'.repeat(40), images: Object.fromEntries(['backend', 'app', 'ops', 'scode'].map(name =>
         [name, { amd64: `registry.example/${name}@sha256:${digest(name)}`, arm64: `registry.example/${name}@sha256:${digest(name)}` }])) },
       chentu: { version, revision: 'c'.repeat(40), sha256: digest('chentu'),
@@ -42,7 +43,7 @@ async function fixture(version, fn) {
       acceptance: Object.entries(acceptanceTargets).map(([target, t]) => ({ schemaVersion: 1, target, version, revision,
         distributionSha256: inputSha256, runId: '123', archiveSha256: artifacts[`apeiron-${version}-${t.cli}.tar.gz`].sha256,
         os: t.os, arch: t.arch, topology: t.topology, osRelease: 'ubuntu:22.04', servers: t.servers, agents: 0,
-        applications: acceptanceScope(version).applications, deferredApplications: acceptanceScope(version).deferredApplications,
+        applications: acceptanceScope(version, applications).applications, deferredApplications: acceptanceScope(version, applications).deferredApplications,
       checks: Object.fromEntries(acceptanceChecks.map(name => [name, true])) })) });
     for (const [name, bytes] of Object.entries(files)) await writeFile(join(out, name), bytes);
     await writeFile(join(out, 'SHA256SUMS'), Object.entries(files).map(([name, bytes]) => `${digest(bytes)}  ${name}\n`).join(''));

@@ -184,17 +184,16 @@ mod stage_tests {
     }
 
     #[test]
-    fn stages_follow_nexus_output_then_finish_access_preparation() {
+    fn stages_follow_release_phases_then_finish_access_preparation() {
         let directory = std::env::temp_dir().join(format!("apeiron-stages-{:016x}", rand::random::<u64>()));
         fs::create_dir(&directory).unwrap();
         let context = Context::fixture(&directory);
         context.stage(0, "check");
         context.stage(1, "cluster");
-        context.nexus_progress("NEXUS-FIRST BOOTSTRAP verified local Charts");
-        assert_eq!(context.owner.snapshot()["stage"], "nexus");
+        context.stage(2, "bootstrap");
         context.helm_progress("nexus");
         assert_eq!(context.owner.snapshot()["stage"], "nexus");
-        context.nexus_progress("NEXUS-FIRST IMPORT importing selected artifacts");
+        context.stage(3, "supply");
         context.helm_progress("nexus");
         assert_eq!(context.owner.snapshot()["stage"], "import");
         assert_eq!(context.owner.snapshot()["stages"][3]["state"], "active");
@@ -204,8 +203,7 @@ mod stage_tests {
             .as_str()
             .unwrap()
             .contains("fixture 1.0"));
-        context.nexus_progress("NEXUS-FIRST DEPLOY exact Chart versions from helm-hosted");
-        context.nexus_progress("NEXUS-FIRST BOOTSTRAP late output");
+        context.stage(4, "deploy");
         context.helm_progress("apeiron");
         assert_eq!(context.owner.snapshot()["stage"], "applications");
         assert!(context.owner.snapshot()["message"]
@@ -317,11 +315,8 @@ impl Context {
         let Some(message) = line.trim().strip_prefix("NEXUS-FIRST ") else {
             return;
         };
-        if message.starts_with("BOOTSTRAP ") {
-            self.stage(2, "正在启动证书组件和 Nexus，初始化制品仓库。");
-        } else if message.starts_with("IMPORT ") {
-            self.stage(3, "正在将部署资源导入 Nexus，并校验实际存储的内容。");
-        } else if [
+        // Phases set the stage; Chentu's per-resource lines only add detail to "import".
+        if [
             "docker-hosted ",
             "helm-hosted ",
             "raw-hosted ",
@@ -331,13 +326,12 @@ impl Context {
         ]
         .iter()
         .any(|prefix| message.starts_with(prefix))
+            && self.owner.snapshot()["stage"] == "import"
         {
             self.stage(
                 3,
                 &format!("正在导入并校验资源：{}", message.chars().take(400).collect::<String>()),
             );
-        } else if message.starts_with("DEPLOY ") {
-            self.stage(4, "资源导入与校验已完成，正在从 Nexus 安装应用。");
         }
     }
     fn helm_progress(&self, release: &str) {
@@ -491,7 +485,7 @@ impl Context {
 pub fn strings(values: &[&str]) -> Vec<String> {
     values.iter().map(|s| s.to_string()).collect()
 }
-pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
+pub fn environment_for(config: &Value, applications: &[Value], mut values: Value) -> Result<Value> {
     if !values.is_object() || values.get("profile").is_some() {
         return Err(fail("环境文件必须是普通 YAML 对象，且不能包含 profile。", 400));
     }
@@ -518,7 +512,7 @@ pub fn environment_for(config: &Value, mut values: Value) -> Result<Value> {
         values["releases"]["gpustack"]["values"]["gpuHost"] = gpu["host"].clone();
         values["releases"]["gpustack"]["values"]["gpuPort"] = gpu["port"].clone();
     }
-    for app in config::apps().as_array().unwrap() {
+    for app in applications {
         let names = app["releases"]
             .as_array()
             .cloned()
@@ -810,7 +804,11 @@ impl Deployment {
                 target = prepared.target.clone();
                 resources::write_yaml(
                     Path::new(target["environment"].as_str().unwrap()),
-                    &environment_for(&config, prepared.values.clone())?,
+                    &environment_for(
+                        &config,
+                        resources::applications(&prepared.plan)?,
+                        prepared.values.clone(),
+                    )?,
                 )?;
                 context.stage(1, "正在准备集群网络、存储和部署入口。");
                 // Port probing and cluster creation on this host are serialized
@@ -859,7 +857,8 @@ impl Deployment {
             }
             let output = directory.join("environment.yaml");
             if recovered.is_none() {
-                resources::write_yaml(&output, &environment_for(&config, resources::yaml(input)?)?)?;
+                let declared = resources::declared_applications(Path::new(target["root"].as_str().unwrap()))?;
+                resources::write_yaml(&output, &environment_for(&config, &declared, resources::yaml(input)?)?)?;
             } else if env.get("CHENTU_ENV") != Some(&output.to_string_lossy().into_owned()) {
                 return Err(fail("原部署环境路径不匹配，不能继续。", 409));
             }
@@ -910,25 +909,26 @@ impl Deployment {
             } else {
                 "deploy/helmfile/run.sh"
             });
-            if resources::yaml(&output)?["nexusFirst"] == true {
-                context.stage(2, "正在准备制品仓库及必要的基础组件。");
+            // Release packages (ADR-0019): bootstrap Nexus, supply the release, deploy from Nexus.
+            // An existing cluster without a package is synced directly.
+            let phases: &[(&str, usize, &str)] = if resources::yaml(&output)?["nexusFirst"] == true {
+                &[
+                    ("bootstrap", 2, "正在启动证书组件和 Nexus，初始化制品仓库。"),
+                    ("supply", 3, "正在将部署资源导入 Nexus，并校验实际存储的内容。"),
+                    ("deploy", 4, "资源导入与校验已完成，正在从 Nexus 安装应用。"),
+                ]
             } else {
-                context.stage(4, "正在按依赖安装和初始化所选应用。");
-                if fresh && target["runner"] == "docker" {
-                    let mut status = self.0.status.lock().unwrap();
-                    status["stages"][2]["detail"] =
-                        json!("此安装包的镜像仓库已随集群准备；Nexus 随应用安装，不单独执行 Nexus-first 阶段。");
-                    status["stages"][3]["detail"] =
-                        json!("镜像已随集群准备导入；Chart 使用已校验的本地文件，不单独向 Nexus 导入。");
-                }
+                &[("sync", 4, "正在按依赖安装和初始化所选应用。")]
+            };
+            for (phase, stage, message) in phases {
+                context.stage(*stage, message);
+                context.run(
+                    "bash",
+                    &[script.to_string_lossy().into_owned(), (*phase).into()],
+                    root,
+                    &env,
+                )?;
             }
-            context.event("正在运行 Helmfile sync。");
-            context.run(
-                "bash",
-                &[script.to_string_lossy().into_owned(), "sync".into()],
-                root,
-                &env,
-            )?;
             context.stage(5, "应用部署与初始化已完成，正在准备访问和验证入口。");
             if fresh {
                 if config["apps"].as_array().unwrap().contains(&json!("vasi")) {

@@ -20,11 +20,10 @@ let status = snapshot(0, 'preparing');
 let retries = 0;
 let resumes = 0;
 const defaults = { offline: true, bundleDir: '/offline/bundle', installation: { topology: 'single-k3d', domain: 'example.internal', entryIp: '127.0.0.1', nodes: [], httpPort: 54320, httpsPort: 54321 } };
-const apps = await Bun.file(new URL('../runtime/assets/apps.json', import.meta.url)).json();
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === '/') return new Response(embeddedPage.replaceAll('APEIRON_NONCE_PLACEHOLDER', 'test-nonce'), { headers: { 'Content-Type': 'text/html' } });
-    if (path === '/api/config') return Response.json({ apps, defaults, revision: 'fixture-revision', config: null, host: { name: 'fixture-mac', platform: 'darwin', architecture: 'arm64' }, deployment: status });
+    if (path === '/api/config') return Response.json({ defaults, revision: 'fixture-revision', config: null, host: { name: 'fixture-mac', platform: 'darwin', architecture: 'arm64' }, deployment: status });
     if (path === '/api/deployment') return Response.json(status);
     if (path === '/api/instances') return Response.json({ instances: [], registry: '/fixture/instances.json', current: null });
     if (path === '/api/deployment/retry') { retries++; status = snapshot(0, 'preparing'); return Response.json({ deployment: status }); }

@@ -13,7 +13,7 @@ for (const [name, repo] of Object.entries(repositories)) {
   if (!['ahead', 'identical'].includes(JSON.parse(child.stdout.toString()).status)) throw new Error(`${repo} source is not on main`);
   await appendFile(process.env.GITHUB_OUTPUT, `${name}=${revision}\n`);
 }
-for (const profile of ['k3d-arm64', 'k3s-amd64']) {
+for (const profile of ['k3d-arm64', 'k3s-amd64', 'k3s-arm64']) {
   const p = recipe.platforms[profile];
   if (!p || !/^[a-f0-9]{64}$/.test(p.sha256) || !Number.isSafeInteger(p.size) || p.size < 1
       || p.url !== `https://downloads.apeironlab.cn/apeiron/blobs/sha256/${p.sha256}`)

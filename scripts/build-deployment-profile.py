@@ -10,20 +10,21 @@ from distribution_scope import required_components, validate_catalog
 p = argparse.ArgumentParser(description=__doc__)
 for key in ('chentu', 'candidate', 'prepared', 'builder', 'out', 'lock'):
     p.add_argument('--' + key, type=Path, required=True)
-p.add_argument('--profile', choices=['k3d-arm64', 'k3s-amd64'], required=True)
+p.add_argument('--profile', choices=['k3d-arm64', 'k3s-amd64', 'k3s-arm64'], required=True)
 a = p.parse_args()
 identity = json.loads(a.candidate.read_text())
 recipe = json.loads(a.lock.read_text())
-scope = required_components(recipe)
-validate_catalog(json.loads((a.prepared / 'material/chentu/setup/install.json').read_text()), scope)
-arch = 'amd64' if a.profile == 'k3s-amd64' else 'arm64'
+catalog = json.loads((a.prepared / 'material/chentu/setup/install.json').read_text())
+scope = required_components(recipe, catalog)
+validate_catalog(catalog, scope)
+arch = a.profile.split('-')[1]
 command = [sys.executable, str(a.chentu / 'bundle/hosted_release.py'), '--material', str(a.prepared / 'material'),
     '--out', str(a.out), '--release', identity['version'], '--profile', a.profile, '--arch', arch,
     '--delivery-scope', 'custom', '--inventory', str(a.prepared / 'inventory.yaml'),
     '--cli-binary', str(a.builder / 'apeiron'), '--cli-provenance', str(a.builder / 'build-provenance.json')]
 for component in scope:
     command += ['--required-component', component]
-if arch == 'amd64':
+if a.profile.startswith('k3s-'):
     command += ['--host-deb-proof', str(a.prepared / 'host-deb-proof.json')]
 else:
     lineage = a.prepared / 'toolbox-lineage.json'

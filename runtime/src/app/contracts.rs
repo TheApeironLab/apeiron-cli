@@ -44,6 +44,19 @@ fn install(topology: &str) -> Value {
 fn input(i: Value, offline: bool) -> Value {
     json!({"slug":"example","apps":["nexus","vasi","apeiron","gateway"],"deployment":{"installation":i,"offline":offline,"bundleDir":if offline{"/opt/fixture-bundle"}else{""}}})
 }
+/// The application catalog a current package carries (Chentu applications.yaml).
+pub fn declared() -> Vec<Value> {
+    let required = ["nexus", "vasi", "apeiron", "gateway"];
+    "nexus vasi ontology apeiron task corpus matrix files stalwart zygos gateway filer git gpustack langfuse \
+     kps:kps,loki,promtail browser:chrome-headless ci:woodpecker"
+        .split_whitespace()
+    .map(|row| {
+        let (id, releases) = row.split_once(':').unwrap_or((row, row));
+        json!({"id":id,"name":id,"required":required.contains(&id),"releases":releases.split(',').collect::<Vec<_>>(),
+            "requires":if id == "ci" { vec!["git"] } else { vec![] }})
+    })
+    .collect()
+}
 fn valid(v: &Value) -> Value {
     config::validate(v, &Value::Null).unwrap()
 }
@@ -105,12 +118,15 @@ fn iframe_origins_follow_configured_domain_and_allow_https_ports() {
         i["domain"] = json!(domain);
         i["httpsPort"] = json!(54321);
         let config = valid(&input(i, false));
-        source = deploy::environment_for(&config, source).unwrap();
+        source = deploy::environment_for(&config, &declared(), source).unwrap();
         assert_eq!(
             source["embedAllowedOrigins"],
             json!([format!("https://{domain}:*"), format!("https://*.{domain}:*")])
         );
-        assert_eq!(deploy::environment_for(&config, source.clone()).unwrap(), source);
+        assert_eq!(
+            deploy::environment_for(&config, &declared(), source.clone()).unwrap(),
+            source
+        );
     }
 }
 #[test]
@@ -119,7 +135,7 @@ fn deployment_keeps_nexus_proxies_online_and_preserves_values_on_replay() {
         let mut source = json!({"topology":topology,"releases":{"nexus":{"enabled":true,"values":{"publicProxies":false,"storage":"50Gi","node":"node-0"}},"postgres":{"enabled":true,"values":{"storage":"10Gi"}}}});
         for offline in [false, true, false] {
             let config = valid(&input(install(topology), offline));
-            source = deploy::environment_for(&config, source).unwrap();
+            source = deploy::environment_for(&config, &declared(), source).unwrap();
             assert_eq!(
                 source["releases"]["nexus"],
                 json!({"enabled":true,"values":{"publicProxies":true,"storage":"50Gi","node":"node-0"}})
@@ -128,7 +144,10 @@ fn deployment_keeps_nexus_proxies_online_and_preserves_values_on_replay() {
                 source["releases"]["postgres"],
                 json!({"enabled":true,"values":{"storage":"10Gi"}})
             );
-            assert_eq!(deploy::environment_for(&config, source.clone()).unwrap(), source);
+            assert_eq!(
+                deploy::environment_for(&config, &declared(), source.clone()).unwrap(),
+                source
+            );
         }
     }
 }
@@ -174,7 +193,8 @@ fn ssh_inventory_injection_and_implicit_offline_bundle_are_rejected() {
 }
 fn catalog() -> Value {
     let bytes = b"fixture artifact\n";
-    json!({"schemaVersion":1,"targets":{"k3s-amd64":{"deploymentTopology":true,"base":["core"],"environment":{"releases":{}}}},"components":{"core":{"requires":[],"files":["core.bin"]},"task":{"requires":["core"],"files":["task.bin"]},"optional":{"requires":["core"],"files":["optional.bin"]}},"files":(["core.bin","task.bin","optional.bin"].map(|p|json!({"path":p,"size":bytes.len(),"sha256":config::hash(bytes),"url":format!("https://downloads.example.internal/{p}")})))})
+    json!({"schemaVersion":1,"targets":{"k3s-amd64":{"deploymentTopology":true,"base":["core"],"environment":{"releases":{}}}},"components":{"core":{"requires":[],"files":["core.bin"]},"task":{"requires":["core"],"files":["task.bin"]},"optional":{"requires":["core"],"files":["optional.bin"]}},"files":(["core.bin","task.bin","optional.bin"].map(|p|json!({"path":p,"size":bytes.len(),"sha256":config::hash(bytes),"url":format!("https://downloads.example.internal/{p}")}))),
+        "applications":[{"id":"task","name":"Task","required":false,"releases":["task"],"requires":[]}]})
 }
 #[test]
 fn old_packages_profiles_and_mismatched_architectures_fail_before_preparation() {
@@ -220,7 +240,11 @@ fn grouped_app_selection_includes_sibling_resources_images_and_dependencies() {
     c["components"]["loki"] = json!({"requires":["kps"],"files":["task.bin"]});
     c["components"]["promtail"] = json!({"requires":["loki"],"files":["optional.bin"],
         "images":[{"file":"optional.bin","reference":"grafana/promtail:fixture","digest":format!("sha256:{}", "a".repeat(64))}]});
-    let plan = resources::plan(&c, "k3s-amd64", &config::components(&json!(["kps"]))).unwrap();
+    c["applications"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"kps","name":"Grafana","required":false,"releases":["kps","loki","promtail"],"requires":[]}));
+    let plan = resources::plan(&c, "k3s-amd64", &json!(["kps"])).unwrap();
     assert_eq!(plan["components"], json!(["core", "kps", "loki", "promtail"]));
     assert_eq!(plan["files"].as_array().unwrap().len(), 3);
     assert_eq!(plan["images"][0]["reference"], "grafana/promtail:fixture");
@@ -249,6 +273,8 @@ fn fresh_install_ignores_legacy_optional_defaults_but_keeps_selected_dependencie
         "clickhouse",
         "langfuse",
         "kps",
+        "loki",
+        "promtail",
         "chrome-headless",
         "woodpecker",
         "git",
@@ -266,6 +292,7 @@ fn fresh_install_ignores_legacy_optional_defaults_but_keeps_selected_dependencie
         "chrome-headless":{"enabled":true},"woodpecker":{"enabled":true},"git":{"enabled":true}
     });
     c["targets"]["k3s-amd64"]["environment"]["releases"] = releases;
+    c["applications"] = json!(declared());
     for (extra, expected) in [
         (vec![], vec![]),
         (vec!["task"], vec!["task", "stalwart"]),
@@ -279,8 +306,8 @@ fn fresh_install_ignores_legacy_optional_defaults_but_keeps_selected_dependencie
             .as_array_mut()
             .unwrap()
             .extend(extra.into_iter().map(|s| json!(s)));
-        let plan = resources::plan(&c, "k3s-amd64", &config::components(&config["apps"])).unwrap();
-        let values = deploy::environment_for(&config, plan["environment"].clone()).unwrap();
+        let plan = resources::plan(&c, "k3s-amd64", &config["apps"]).unwrap();
+        let values = deploy::environment_for(&config, &declared(), plan["environment"].clone()).unwrap();
         for name in [
             "task",
             "stalwart",
@@ -321,7 +348,7 @@ fn isolated_target_catalogs_keep_identical_paths_separate() {
     let targets = ["k3d-arm64", "k3s-arm64"];
     let mut catalogs = json!({});
     for (index, t) in targets.iter().enumerate() {
-        catalogs[t] = json!({"schemaVersion":1,"targets":{(*t):{"base":["app"],"environment":{},"deploymentTopology":true,"k3sAirgap":"images/app.tar"}},"components":{"app":{"requires":[],"files":["images/app.tar"]}},"files":[{"path":"images/app.tar","size":10,"sha256":index.to_string().repeat(64)}]});
+        catalogs[t] = json!({"schemaVersion":1,"targets":{(*t):{"base":["app"],"environment":{},"deploymentTopology":true,"k3sAirgap":"images/app.tar"}},"components":{"app":{"requires":[],"files":["images/app.tar"]}},"files":[{"path":"images/app.tar","size":10,"sha256":index.to_string().repeat(64)}],"applications":[]});
     }
     dir.write(
         "setup/install.json",
@@ -345,7 +372,7 @@ fn isolated_target_catalogs_keep_identical_paths_separate() {
 #[test]
 fn k3d_airgap_is_in_resource_closure_and_mismatched_k3s_fails_before_deployment() {
     let dir = Temp::new();
-    dir.write("setup/install.json",json!({"schemaVersion":1,"targets":{"k3d-arm64":{"deploymentTopology":true,"base":[],"environment":{}}},"components":{},"files":[]}).to_string());
+    dir.write("setup/install.json",json!({"schemaVersion":1,"targets":{"k3d-arm64":{"deploymentTopology":true,"base":[],"environment":{}}},"components":{},"files":[],"applications":[]}).to_string());
     dir.write("stack/k3s/artifacts.yaml", "version: v1.35.5+k3s1\n");
     assert!(resources::catalog(&dir.0, "k3d-arm64").is_err());
     dir.write("stack/k3s/artifacts.yaml", "version: v1.36.3+k3s1\n");
@@ -476,6 +503,7 @@ fn model_deployment_replaces_deferred_modes_and_queues_without_keys_in_values() 
     let c = valid(&v);
     let out = deploy::environment_for(
         &c,
+        &declared(),
         json!({"releases":{"apeiron":{"values":{"models":{"deferred":true},"keep":true}}}}),
     )
     .unwrap();
@@ -543,7 +571,7 @@ fn base_models_use_gateway_with_no_upstream_secret_in_values() {
     c["models"] = json!({"provider":"bailian","baseUrl":"https://dashscope.aliyuncs.com/compatible-mode/v1","apiKey":"fixture-only-key","fast":"qwen-plus","deep":"qwen-plus"});
     let c = valid(&c);
     models::require_for_installation(&c).unwrap();
-    let out = deploy::environment_for(&c, json!({"releases":{}})).unwrap();
+    let out = deploy::environment_for(&c, &declared(), json!({"releases":{}})).unwrap();
     assert!(!out.to_string().contains("fixture-only-key"));
     let g = &out["releases"]["gateway"]["values"];
     assert_eq!(
@@ -565,7 +593,7 @@ fn base_models_use_gateway_with_no_upstream_secret_in_values() {
         .unwrap()
         .contains(&json!("10.0.0.0/8")));
     let existing = json!({"releases":{"gateway":{"values":{"egress":{"proxy":{"host":"192.0.2.10","port":3128}}}}}});
-    let kept = deploy::environment_for(&c, existing.clone()).unwrap();
+    let kept = deploy::environment_for(&c, &declared(), existing.clone()).unwrap();
     assert_eq!(
         kept["releases"]["gateway"]["values"]["egress"],
         existing["releases"]["gateway"]["values"]["egress"]
@@ -907,13 +935,14 @@ fn fresh_files_selection_declares_only_operator_bucket_and_preserves_user_mappin
     let users = json!([{"username":"explicit-user","buckets":["private"]}]);
     let values = json!({"releases":{"files":{"values":{"users":users}}}});
     let config = json!({"slug":"example","apps":["files"],"deployment":{"installation":{}}});
-    let rendered = deploy::environment_for(&config, values.clone()).unwrap();
+    let rendered = deploy::environment_for(&config, &declared(), values.clone()).unwrap();
     assert_eq!(rendered["releases"]["files"]["values"]["operatorBucket"], "files-owner");
     assert_eq!(rendered["releases"]["files"]["values"]["users"], users);
     let mut explicit = values.clone();
     explicit["releases"]["files"]["values"]["operatorBucket"] = json!("chosen-bucket");
     assert_eq!(
-        deploy::environment_for(&config, explicit).unwrap()["releases"]["files"]["values"]["operatorBucket"],
+        deploy::environment_for(&config, &declared(), explicit).unwrap()["releases"]["files"]["values"]
+            ["operatorBucket"],
         "chosen-bucket"
     );
     for config in [
@@ -921,7 +950,8 @@ fn fresh_files_selection_declares_only_operator_bucket_and_preserves_user_mappin
         json!({"slug":"example","apps":[],"deployment":{"installation":{}}}),
     ] {
         assert!(
-            deploy::environment_for(&config, values.clone()).unwrap()["releases"]["files"]["values"]["operatorBucket"]
+            deploy::environment_for(&config, &declared(), values.clone()).unwrap()["releases"]["files"]["values"]
+                ["operatorBucket"]
                 .is_null()
         );
     }

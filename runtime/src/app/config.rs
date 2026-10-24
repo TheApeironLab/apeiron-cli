@@ -31,9 +31,6 @@ pub fn safe_ip(s: &str) -> bool {
         })
         .unwrap_or(false)
 }
-pub fn apps() -> Value {
-    serde_json::from_str(include_str!("../../assets/apps.json")).unwrap()
-}
 pub fn gpustack(v: &Value) -> Result<Value> {
     let host = text(v, "host", 45, false)?;
     let ip = host
@@ -47,30 +44,6 @@ pub fn gpustack(v: &Value) -> Result<Value> {
         .filter(|p| (1..=65535).contains(p))
         .ok_or_else(|| fail("GPUStack 端口必须为 1–65535。", 400))?;
     Ok(json!({"host":host,"port":port}))
-}
-/// 应用目录 id → 安装包组件名：带 `releases` 的应用（如 browser/ci）映射到其
-/// 组件；其余 id 即组件名，原样透传。未知 id 不在这里拦截（由
-/// resources::plan 的“安装包缺少组件”给出带包上下文的错误）。
-pub fn components(selected: &Value) -> Value {
-    let catalog = apps();
-    let entries = catalog.as_array();
-    let mut out = Vec::new();
-    if let Some(list) = selected.as_array() {
-        for app in list {
-            let name = app.as_str().unwrap_or_default();
-            let mapped = entries.and_then(|rows| {
-                rows.iter()
-                    .find(|row| row["id"] == name)
-                    .and_then(|row| row["releases"].as_array())
-                    .and_then(|releases| releases.first())
-                    .and_then(|first| first.as_str())
-            });
-            out.push(json!(mapped.unwrap_or(name)));
-        }
-    } else {
-        return selected.clone();
-    }
-    json!(out)
 }
 pub fn defaults() -> Value {
     let mac = cfg!(target_os = "macos");
@@ -256,39 +229,19 @@ pub fn validate(v: &Value, current: &Value) -> Result<Value> {
     if !safe_name(&slug) {
         return Err(fail("Slug 格式不正确。", 400));
     }
+    // Application IDs are checked against the package's own catalog when it is planned
+    // (resources::plan); required applications are always installed.
     let list = v["apps"].as_array().ok_or_else(|| fail("请选择应用。", 400))?;
-    let apps = apps();
-    let catalog = apps.as_array().unwrap();
-    let mut seen = std::collections::HashSet::new();
-    if list.is_empty() || list.len() > catalog.len() || list.iter().any(|x| !seen.insert(x.as_str().unwrap_or(""))) {
+    let mut ids = list
+        .iter()
+        .map(|x| x.as_str().filter(|x| safe_name(x)))
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| fail("应用列表不正确或重复。", 400))?;
+    ids.sort_unstable();
+    if ids.len() > 64 || ids.windows(2).any(|w| w[0] == w[1]) {
         return Err(fail("应用列表不正确或重复。", 400));
     }
-    // Applications outside the catalog are refused by name, never dropped silently.
-    if let Some(unknown) = list.iter().find(|x| !catalog.iter().any(|a| a["id"] == **x)) {
-        return Err(fail(
-            format!("应用目录不包含：{}。", unknown.as_str().unwrap_or("(非字符串)")),
-            400,
-        ));
-    }
-    for app in catalog.iter().filter(|a| list.contains(&a["id"])) {
-        for requirement in app["requires"].as_array().into_iter().flatten() {
-            if !list.contains(requirement) {
-                return Err(fail(
-                    format!(
-                        "{} 需要同时启用 {}。",
-                        app["name"].as_str().unwrap_or(""),
-                        catalog
-                            .iter()
-                            .find(|a| a["id"] == *requirement)
-                            .and_then(|a| a["name"].as_str())
-                            .unwrap_or(requirement.as_str().unwrap_or(""))
-                    ),
-                    400,
-                ));
-            }
-        }
-    }
-    let mut out = json!({"schemaVersion":2,"slug":slug,"apps":catalog.iter().filter(|a|list.contains(&a["id"])).map(|a|a["id"].clone()).collect::<Vec<_>>()});
+    let mut out = json!({"schemaVersion":2,"slug":slug,"apps":ids});
     if list.contains(&json!("gpustack")) {
         let gpu = v.get("gpustack").unwrap_or(&current["gpustack"]);
         if !gpu.is_null() {
@@ -413,11 +366,6 @@ pub fn save(path: &Path, input: &Value) -> Result<Value> {
     if c.get("deployment").is_none() {
         return Err(fail("请填写部署环境。", 400));
     }
-    for a in apps().as_array().unwrap() {
-        if a["required"] == true && !c["apps"].as_array().unwrap().contains(&a["id"]) {
-            return Err(fail("请保留必选应用。", 400));
-        }
-    }
     super::process::private_directory(path.parent().unwrap())?;
     let lock = PathBuf::from(format!("{}.lock", path.display()));
     private_write(&lock, b"").map_err(|_| fail("配置正在被其他进程使用，请检查 .lock 文件。", 409))?;
@@ -465,24 +413,5 @@ mod component_tests {
             gpustack(&json!({"host":"192.168.1.20","port":8080})).unwrap(),
             json!({"host":"192.168.1.20","port":8080})
         );
-    }
-
-    #[test]
-    fn app_ids_with_releases_map_to_components_and_others_pass_through() {
-        let selected = json!(["browser", "ci", "nexus", "git"]);
-        assert_eq!(
-            components(&selected),
-            json!(["chrome-headless", "woodpecker", "nexus", "git"])
-        );
-    }
-
-    #[test]
-    fn non_array_input_is_passed_through_unchanged() {
-        assert_eq!(components(&json!("nexus")), json!("nexus"));
-    }
-
-    #[test]
-    fn unknown_ids_pass_through_for_plan_to_reject() {
-        assert_eq!(components(&json!(["missing"])), json!(["missing"]));
     }
 }

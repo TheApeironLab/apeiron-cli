@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "version": "0.2.1-nightly.20261024.40086849816",
+  "applications": {
+    "apeiron": [
+      "apeiron"
+    ],
+    "browser": [
+      "chrome-headless"
+    ],
+    "ci": [
+      "woodpecker"
+    ],
+    "corpus": [
+      "corpus"
+    ],
+    "filer": [
+      "filer"
+    ],
+    "files": [
+      "files"
+    ],
+    "gateway": [
+      "gateway"
+    ],
+    "git": [
+      "git"
+    ],
+    "gpustack": [
+      "gpustack"
+    ],
+    "kps": [
+      "kps",
+      "loki",
+      "promtail"
+    ],
+    "langfuse": [
+      "langfuse"
+    ],
+    "matrix": [
+      "matrix"
+    ],
+    "nexus": [
+      "nexus"
+    ],
+    "ontology": [
+      "ontology"
+    ],
+    "stalwart": [
+      "stalwart"
+    ],
+    "task": [
+      "task"
+    ],
+    "vasi": [
+      "vasi"
+    ],
+    "zygos": [
+      "zygos"
+    ]
+  },
+  "apeiron": {
+    "version": "0.2.1-nightly.20261024.40086849816",
+    "revision": "229b9ba6c9b841fad74fdcb40fbcdf94f537dfc1",
+    "images": {
+      "backend": {
+        "amd64": "apeiron/backend@sha256:269e32c00684686a918366f5686f688ae67681572bcd179bc416c31984ff0d49",
+        "arm64": "apeiron/backend@sha256:5d42118fcf2341ad83c0d845fe3c6a00e238ea64eadb35dc27539a22cf5de159"
+      },
+      "app": {
+        "amd64": "apeiron/app@sha256:d9eae0bbd500af0a9ca63bf75531b035991efdacd441df7d55bb205556b87bc6",
+        "arm64": "apeiron/app@sha256:db8934352252445b9aa12302d5bf0139d0c92badd6c339d1f912be762a42fd92"
+      },
+      "ops": {
+        "amd64": "apeiron/ops@sha256:a6419a1b309f6579b4721018f1cc8faa863cc4bbd3a7c843fd7fa856cc2375d7",
+        "arm64": "apeiron/ops@sha256:70f8be17d9cd7c6ef66a70f75369eba76f3cab69563e97e7b5837b61114f7af1"
+      },
+      "scode": {
+        "amd64": "apeiron/scode@sha256:b4f3f06a6dfdb6254769bb4dc5a7a79d3718556cae108a0722ad84b20f7a614b",
+        "arm64": "apeiron/scode@sha256:049d2cee8d7536e79dcdbfd92d104197fc8ad070d43cca659e53b511a9ea50ec"
+      }
+    }
+  },
+  "chentu": {
+    "version": "0.2.1-nightly.20261024.40086849816",
+    "revision": "87a874a13b4a5d71cf01b6ee4cd2ba59bfc443cd",
+    "sha256": "ca95f07cc04a74d5017f367f31e92eb28996cbf875465a8c5b1c64739efde7f7",
+    "url": "https://downloads.apeironlab.cn/chentu/releases/0.2.1-nightly.20261024.40086849816/chentu-0.2.1-nightly.20261024.40086849816.tar.gz"
+  }
+}

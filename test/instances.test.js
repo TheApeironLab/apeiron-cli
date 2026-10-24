@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startInitServer } from './rust-server';
-import { deploymentFixture, requiredApps } from './fixtures';
+import { applications, deploymentFixture, requiredApps } from './fixtures';
 import { localInstallation } from './support';
 // Contract tests for the WP4 instance/preflight API the acceptance harness relies on.
 const cleanups = [];
@@ -134,24 +134,22 @@ test('api/preflight validates like deploy, reports warnings or a blocking reason
     expect(response.status).toBe(200);
     result = await response.json();
     expect(result.blocked).toMatch(/不属于本次安装|端口/);
-    expect((await post('preflight', { ...(await installBody()), apps: ['apeiron', 'nope'] })).status).toBe(400);
     expect((await post('preflight', body())).status).toBe(400, 'legacy deployment without installation is refused');
     expect((await post('preflight', { slug: 'x', apps: [...requiredApps], revision: null })).status).toBe(400);
 });
-test('application catalog: browser and ci are optional, ci requires git, unknown apps are refused by name', async () => {
-    const { post, config, body } = await fixture();
-    const snapshot = await config();
-    expect(snapshot.apps.map(a => a.id)).toEqual(['nexus', 'vasi', 'ontology', 'apeiron', 'task', 'corpus', 'matrix', 'files', 'stalwart', 'zygos', 'gateway', 'filer', 'git', 'gpustack', 'langfuse', 'kps', 'browser', 'ci']);
-    expect(snapshot.apps.find(a => a.id === 'zygos')).toMatchObject({ selected: false, required: false });
-    expect(snapshot.apps.find(a => a.id === 'ci')).toMatchObject({ selected: false, required: false, requires: ['git'], releases: ['woodpecker'] });
-    expect(snapshot.apps.find(a => a.id === 'browser')).toMatchObject({ selected: false, required: false, releases: ['chrome-headless'] });
-    let response = await post('config', { ...body(), apps: [...requiredApps, 'ci'] });
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toBe('CI 需要同时启用 代码仓库。');
-    response = await post('config', { ...body(), apps: [...requiredApps, 'keycloak'] });
-    expect(response.status).toBe(400);
-    expect((await response.json()).error).toBe('应用目录不包含：keycloak。');
-    response = await post('config', { ...body(), apps: [...requiredApps, 'browser', 'git', 'ci'] });
+test('application catalog comes from the chosen package after step one', async () => {
+    const { post, config, installBody, setup } = await fixture();
+    expect((await config()).apps).toBeUndefined();
+    const catalog = { applications };
+    await mkdir(join(setup.root, 'setup'), { recursive: true });
+    await writeFile(join(setup.root, 'setup/install.json'), JSON.stringify({ schemaVersion: 2, catalogs: { 'k3d-arm64': catalog } }));
+    const response = await post('applications', { deployment: (await installBody()).deployment });
     expect(response.status).toBe(200);
-    expect((await response.json()).config.apps).toEqual([...requiredApps, 'git', 'browser', 'ci']);
+    const apps = (await response.json()).apps;
+    expect(apps.map(a => a.id)).toEqual(applications.map(a => a.id));
+    expect(apps.find(a => a.id === 'ci')).toMatchObject({ required: false, requires: ['git'], releases: ['woodpecker'] });
+    expect(apps.filter(a => a.required).map(a => a.id)).toEqual(requiredApps);
+    delete catalog.applications;
+    await writeFile(join(setup.root, 'setup/install.json'), JSON.stringify({ schemaVersion: 2, catalogs: { 'k3d-arm64': catalog } }));
+    expect((await (await post('applications', { deployment: (await installBody()).deployment })).json()).error).toContain('应用目录');
 });

@@ -1,0 +1,97 @@
+name: Build native platform seed
+
+# Composes a native K3s platform seed from the same-architecture K3d seed (images,
+# Charts, receipts) and native host material built by Chentu bundle/build.sh, uploads
+# its content-addressed blobs, and reports the seed record to pin in release/recipe.json.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Native profile
+        required: true
+        type: choice
+        options: [k3s-arm64]
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    if: github.repository == 'TheApeironLab/apeiron-cli' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04-arm
+    environment: deployment-build
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          path: coordinator
+      - name: Read the pinned Chentu revision and seeds
+        id: recipe
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          recipe = json.load(open('coordinator/release/recipe.json'))
+          print('chentu=' + recipe['sources']['chentu'])
+          print('version=' + recipe['baseVersion'])
+          PY
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: TheApeironLab/chentu
+          ref: ${{ steps.recipe.outputs.chentu }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          persist-credentials: false
+          path: chentu
+      - name: Build native host material
+        env:
+          PROFILE: ${{ inputs.profile }}
+          VERSION: ${{ steps.recipe.outputs.version }}
+        run: |
+          case "$PROFILE" in k3s-arm64) arch=arm64 ubuntu=noble ;; *) exit 1 ;; esac
+          # build.sh reads YAML with jq-style yq or PyYAML; the runner's yq is the Go one.
+          sudo apt-get install -y -q python3-yaml >/dev/null
+          sudo rm -f "$(command -v yq)"
+          bash chentu/bundle/build.sh --out "$RUNNER_TEMP/host" --arch "$arch" --ubuntu "$ubuntu" --version "$VERSION"
+      - name: Compose the seed from the pinned K3d seed and the host material
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          python3 - "$PROFILE" <<'PY'
+          import hashlib, json, os, sys, urllib.request
+          profile = sys.argv[1]
+          recipe = json.load(open('coordinator/release/recipe.json'))['platforms']
+          for name, source in (('k3d', 'k3d-' + profile.split('-')[1]), ('template', 'k3s-amd64')):
+              record = recipe[source]
+              data = urllib.request.urlopen(record['url'], timeout=120).read()
+              if hashlib.sha256(data).hexdigest() != record['sha256'] or len(data) != record['size']:
+                  raise SystemExit('pinned seed checksum mismatch: ' + source)
+              open(os.path.join(os.environ['RUNNER_TEMP'], name + '.json'), 'wb').write(data)
+          PY
+          python3 coordinator/scripts/compose-native-seed.py --host "$RUNNER_TEMP/host" \
+            --k3d-seed "$RUNNER_TEMP/k3d.json" --template-seed "$RUNNER_TEMP/template.json" \
+            --profile "$PROFILE" --out "$RUNNER_TEMP/seed" | tee "$RUNNER_TEMP/seed-record.json"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.OSS_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.DEPLOYMENT_OSS_ROLE_ARN }}
+          role-session-name: apeiron-platform-seed
+          role-session-expiration: 7200
+      - uses: aliyun/setup-aliyun-cli-action@09a5f86915bb556e27bf050e9a5e339aeb073df5
+        with:
+          version: 3.3.23
+      - name: Upload immutable seed blobs and report the seed record
+        env:
+          ALIBABA_CLOUD_REGION_ID: cn-beijing
+          ALIBABA_CLOUD_IGNORE_PROFILE: 'TRUE'
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          bash coordinator/scripts/prepare-release-aliyun.sh
+          export PATH="$RUNNER_TEMP/apeiron-release-aliyun:$PATH"
+          bun coordinator/scripts/publish-deployment.js "$RUNNER_TEMP/seed/upload-plan.json"
+          { echo "### $PROFILE seed (pin in release/recipe.json platforms)"; echo '```json'; cat "$RUNNER_TEMP/seed-record.json"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -255,19 +255,8 @@ pub fn allocate_ports(registry: &Value, bind: &dyn Fn(u16) -> bool, docker_ps: &
 
 fn template(name: &str, topology: &str, http: u16, https: u16, source: &Value) -> Value {
     let local = topology == "single-k3d";
-    let apps = source["apps"]
-        .as_array()
-        .filter(|a| !a.is_empty())
-        .cloned()
-        .unwrap_or_else(|| {
-            config::apps()
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|a| a["selected"] == true)
-                .map(|a| a["id"].clone())
-                .collect()
-        });
+    // The package chosen in the wizard supplies the application catalog and its required apps.
+    let apps = source["apps"].as_array().cloned().unwrap_or_default();
     let d = &source["deployment"];
     let i = &d["installation"];
     let same = i["topology"] == topology;
@@ -614,7 +603,7 @@ mod tests {
             _ => Err(fail("unexpected", 502)),
         });
         let cancel = Cancellation::default();
-        let source = json!({"apps":["nexus","vasi","ontology","apeiron"],"deployment":{"offline":true,"bundleDir":"/opt/bundle"}});
+        let source = json!({"apps":["apeiron","nexus","ontology","vasi"],"deployment":{"offline":true,"bundleDir":"/opt/bundle"}});
         let creation = Creation {
             base: &base,
             root: &root,

@@ -15,7 +15,7 @@ import tarfile
 import urllib.request
 
 PUBLIC = "https://downloads.apeironlab.cn/"
-PROFILES = {"k3d-arm64": "arm64", "k3s-amd64": "amd64"}
+PROFILES = {"k3d-arm64": "arm64", "k3s-amd64": "amd64", "k3s-arm64": "arm64"}
 APEIRON_IMAGES = ("backend", "app", "ops", "scode")
 scope_spec = importlib.util.spec_from_file_location('distribution_scope', Path(__file__).with_name('distribution_scope.py'))
 scope = importlib.util.module_from_spec(scope_spec)
@@ -74,6 +74,17 @@ def public_resources(directory):
     return records
 
 
+def executables(directory):
+    """Executable files of a profile; a CI handoff lists them because artifacts drop modes."""
+    marker = directory / 'profile-handoff.json'
+    if not marker.exists():
+        return None
+    names = json.loads(marker.read_text())['executables']
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+        raise ValueError('invalid profile executable list')
+    return set(names)
+
+
 def verify_public_resource(record):
     digest, size = hashlib.sha256(), 0
     with urllib.request.build_opener(NoRedirect).open(record['url'], timeout=900) as response:
@@ -124,7 +135,7 @@ def read_profile(directory, verified_public=None):
 
 def combine(outputs, candidate, out):
     if set(outputs) != set(PROFILES):
-        raise ValueError("both ARM64 K3d and AMD64 native profiles are required")
+        raise ValueError("every release profile is required: " + ", ".join(sorted(PROFILES)))
     version = candidate["version"]
     if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-nightly\.[0-9]{8}\.[1-9][0-9]*)?", version):
         raise ValueError("invalid distribution version")
@@ -181,15 +192,18 @@ def combine(outputs, candidate, out):
                 if item[0] == f"apeiron/{component}:{version}":
                     if not re.fullmatch(r"sha256:[a-f0-9]{64}", item[1]):
                         raise ValueError("invalid platform manifest digest")
-                    if PROFILES[profile] in images[component]:
-                        raise ValueError("duplicate application image")
-                    images[component][PROFILES[profile]] = f"apeiron/{component}@{item[1]}"
+                    pinned = f"apeiron/{component}@{item[1]}"
+                    # Profiles of one architecture must carry the same application image.
+                    if images[component].setdefault(PROFILES[profile], pinned) != pinned:
+                        raise ValueError("profiles of one architecture differ in application image")
         runtime = {}
+        listed = executables(directory)
         for name, digest in package["files"].items():
             path = safe_file(directory / "chentu", name)
             if identity(path)["sha256"] != digest:
                 raise ValueError("runtime source differs from package provenance")
-            runtime[name] = (path.read_bytes(), 0o755 if path.stat().st_mode & 0o111 else 0o644)
+            executable = (path.stat().st_mode & 0o111 if listed is None else f"chentu/{name}" in listed)
+            runtime[name] = (path.read_bytes(), 0o755 if executable else 0o644)
         if files and runtime != files:
             raise ValueError("profiles contain different deployment runtime bytes")
         files = runtime
@@ -226,7 +240,12 @@ def combine(outputs, candidate, out):
     provenance.write_text(json.dumps({'schemaVersion': 1, 'candidate': candidate,
         'archive': {'file': archive.name, **record}, 'profiles': manifests}, indent=2) + '\n')
     blobs[f'chentu/releases/{version}/provenance.json'] = {'path': str(provenance.resolve()), **identity(provenance)}
+    # Acceptance must cover the package's applications; every profile shares one declaration.
+    applications = {json.dumps(scope.application_releases(c), sort_keys=True) for c in catalogs.values()}
+    if len(applications) != 1:
+        raise ValueError("profiles declare different applications")
     distribution = {"schemaVersion": 1, "version": version,
+                    "applications": json.loads(applications.pop()),
                     "apeiron": {"version": version, "revision": candidate["sources"]["apeiron"], "images": images},
                     "chentu": {"version": version, "revision": candidate["sources"]["chentu"],
                                "sha256": record["sha256"], "url": PUBLIC + key}}
