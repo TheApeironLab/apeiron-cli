@@ -74,6 +74,17 @@ def public_resources(directory):
     return records
 
 
+def executables(directory):
+    """Executable files of a profile; a CI handoff lists them because artifacts drop modes."""
+    marker = directory / 'profile-handoff.json'
+    if not marker.exists():
+        return None
+    names = json.loads(marker.read_text())['executables']
+    if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+        raise ValueError('invalid profile executable list')
+    return set(names)
+
+
 def verify_public_resource(record):
     digest, size = hashlib.sha256(), 0
     with urllib.request.build_opener(NoRedirect).open(record['url'], timeout=900) as response:
@@ -185,11 +196,13 @@ def combine(outputs, candidate, out):
                         raise ValueError("duplicate application image")
                     images[component][PROFILES[profile]] = f"apeiron/{component}@{item[1]}"
         runtime = {}
+        listed = executables(directory)
         for name, digest in package["files"].items():
             path = safe_file(directory / "chentu", name)
             if identity(path)["sha256"] != digest:
                 raise ValueError("runtime source differs from package provenance")
-            runtime[name] = (path.read_bytes(), 0o755 if path.stat().st_mode & 0o111 else 0o644)
+            executable = (path.stat().st_mode & 0o111 if listed is None else f"chentu/{name}" in listed)
+            runtime[name] = (path.read_bytes(), 0o755 if executable else 0o644)
         if files and runtime != files:
             raise ValueError("profiles contain different deployment runtime bytes")
         files = runtime

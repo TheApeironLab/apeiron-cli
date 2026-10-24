@@ -33,6 +33,7 @@ def prepare(directory, output, plan_path):
         if not item['path'].startswith('chentu/') and item['path'] != 'setup/release-manifest.json':
             records[item['path']] = {**got, 'url': package.PUBLIC + key}
     output.mkdir(parents=True, exist_ok=False)
+    executables = []
     for path in directory.rglob('*'):
         if path.is_symlink():
             raise ValueError('profile handoff rejects symlinks')
@@ -41,6 +42,8 @@ def prepare(directory, output, plan_path):
         name = path.relative_to(directory).as_posix()
         if name in records:
             continue
+        if path.stat().st_mode & 0o111:
+            executables.append(name)
         destination = package.safe_file(output, name)
         destination.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -49,6 +52,8 @@ def prepare(directory, output, plan_path):
             shutil.copy2(path, destination)
     (output / 'profile-handoff.json').write_text(json.dumps({
         'schemaVersion': 1, 'kind': 'apeiron-published-profile', 'resources': records,
+        # CI artifacts do not keep file modes; the coordinator restores them from here.
+        'executables': sorted(executables),
     }, indent=2) + '\n')
     # This plan must finish publication before the handoff becomes a CI artifact.
     plan_path.write_text(json.dumps({'objects': objects}, indent=2) + '\n')
