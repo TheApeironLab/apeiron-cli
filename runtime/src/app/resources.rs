@@ -376,7 +376,7 @@ fn cached_release(
 pub fn catalog(root: &Path, target: &str) -> Result<Value> {
     let release = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)
         .map_err(|_| fail("安装包缺少有效 setup/install.json 资源清单；尚未修改集群。", 400))?;
-    let mut catalog = if release["schemaVersion"] == 2 {
+    let catalog = if release["schemaVersion"] == 2 {
         if !config::matches(r"^(k3d|k3s)-(arm64|amd64)$", target) {
             return Err(fail("安装目标格式不正确。", 400));
         }
@@ -443,45 +443,7 @@ pub fn catalog(root: &Path, target: &str) -> Result<Value> {
             }
         }
     }
-    if target.starts_with("k3d-") {
-        airgap(&mut catalog, root, target)?;
-    }
     Ok(catalog)
-}
-fn airgap(c: &mut Value, root: &Path, target: &str) -> Result<()> {
-    let extra = json!({"path":"k3s/k3s-airgap-images-arm64.tar.zst","size":241933732u64,"sha256":"856feb047453cd697c2bc4dcf20127448554c8366be992a211558a13d830a038","url":format!("https://{HOST}/chentu/releases/{VERSION}/k3s/k3s-airgap-images-arm64.tar.zst")});
-    if c["targets"][target]["k3sAirgap"].is_string() {
-        if let Some(f) = c["files"].as_array_mut().unwrap().iter_mut().find(|f| {
-            f["path"] == extra["path"]
-                && f["sha256"] == extra["sha256"]
-                && f["size"] == extra["size"]
-                && f.get("url").is_none()
-        }) {
-            f["url"] = extra["url"].clone();
-        }
-        return Ok(());
-    }
-    // Remove this compatibility supplement when the pinned release declares airgap resources for every supported target.
-    if target != "k3d-arm64" || yaml(&root.join("stack/k3s/artifacts.yaml"))?["version"] != "v1.36.3+k3s1" {
-        return Err(fail("K3s 版本或架构与固定基础镜像包不匹配。", 400));
-    }
-    let files = c["files"].as_array_mut().unwrap();
-    if let Some(old) = files.iter().find(|f| f["path"] == extra["path"]) {
-        if old["size"] != extra["size"] || old["sha256"] != extra["sha256"] {
-            return Err(fail("基础镜像包声明冲突。", 400));
-        }
-    } else {
-        files.push(extra.clone());
-    }
-    c["components"]["k3d-airgap"] = json!({"requires":[],"files":[extra["path"]]});
-    let base = c["targets"][target]["base"]
-        .as_array_mut()
-        .ok_or_else(|| fail("目标缺少基础组件。", 400))?;
-    if !base.contains(&json!("k3d-airgap")) {
-        base.push(json!("k3d-airgap"));
-    }
-    c["targets"][target]["k3sAirgap"] = extra["path"].clone();
-    Ok(())
 }
 pub fn merge(base: &mut Value, addition: &Value) -> Result<()> {
     for (k, v) in addition.as_object().ok_or_else(|| fail("配置必须是对象。", 400))? {

@@ -370,28 +370,6 @@ fn isolated_target_catalogs_keep_identical_paths_separate() {
 }
 
 #[test]
-fn k3d_airgap_is_in_resource_closure_and_mismatched_k3s_fails_before_deployment() {
-    let dir = Temp::new();
-    dir.write("setup/install.json",json!({"schemaVersion":1,"targets":{"k3d-arm64":{"deploymentTopology":true,"base":[],"environment":{}}},"components":{},"files":[],"applications":[]}).to_string());
-    dir.write("stack/k3s/artifacts.yaml", "version: v1.35.5+k3s1\n");
-    assert!(resources::catalog(&dir.0, "k3d-arm64").is_err());
-    dir.write("stack/k3s/artifacts.yaml", "version: v1.36.3+k3s1\n");
-    let c = resources::catalog(&dir.0, "k3d-arm64").unwrap();
-    assert_eq!(c, resources::catalog(&dir.0, "k3d-arm64").unwrap());
-    let p = resources::plan(&c, "k3d-arm64", &json!([])).unwrap();
-    assert_eq!(p["files"].as_array().unwrap().len(), 1);
-    assert_eq!(p["files"][0]["path"], json!("k3s/k3s-airgap-images-arm64.tar.zst"));
-    assert_eq!(p["files"][0]["size"], json!(241933732u64));
-    assert_eq!(
-        p["files"][0]["sha256"],
-        json!("856feb047453cd697c2bc4dcf20127448554c8366be992a211558a13d830a038")
-    );
-    assert_eq!(p["target"]["k3sAirgap"], p["files"][0]["path"]);
-    let mut c = c;
-    c["targets"]["k3d-arm64"]["k3sAirgap"] = json!("unselected.tar");
-    assert!(resources::plan(&c, "k3d-arm64", &json!([])).is_err());
-}
-#[test]
 fn image_archives_are_selected_verified_files_and_conflicting_versions_fail() {
     let dir = Temp::new();
     let mut c = catalog();
