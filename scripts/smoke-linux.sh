@@ -2,6 +2,7 @@
 # Native or QEMU smoke test inside a fresh Ubuntu image without Node.js/Bun.
 set -euo pipefail
 version=$(/candidate/apeiron --version)
+/candidate/apeiron sudo --version
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]
 /candidate/apeiron init --no-open --config /tmp/apeiron-smoke/config.json > /tmp/setup.log 2>&1 &
 pid=$!

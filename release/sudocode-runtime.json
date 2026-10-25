@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "version": "v0.2.33",
+  "commit": "33ffea1e4291070549d6acc4564936abb926b322",
+  "platforms": {
+    "darwin-arm64": {
+      "url": "https://github.com/sudoprivacy/sudocode/releases/download/v0.2.33/scode-macos-arm64.tar.gz",
+      "archiveSha256": "0f7e47444c7ab15c8bedea516644c8782b31f861dd74984b1fd42d376f91c861",
+      "archiveSize": 15845026,
+      "member": "scode-macos-arm64/scode",
+      "binarySha256": "9f6973d7bb34a52cf7d9b95151cd82ed5a85490ba27bc6283b21a28a4f9067fa",
+      "binarySize": 44095040
+    },
+    "darwin-x64": {
+      "url": "https://github.com/sudoprivacy/sudocode/releases/download/v0.2.33/scode-macos-x64.tar.gz",
+      "archiveSha256": "5dc61cd12d30c6698211a403694b4a2133459b105a7de511aae74d4f6edea8ae",
+      "archiveSize": 16547714,
+      "member": "scode-macos-x64/scode",
+      "binarySha256": "85ee14de6c8391364840b7806bd356a3aca7f7454d9e92a120f1a8e519e7f7bd",
+      "binarySize": 45980904
+    },
+    "linux-arm64": {
+      "url": "https://github.com/sudoprivacy/sudocode/releases/download/v0.2.33/scode-linux-arm64.tar.gz",
+      "archiveSha256": "587f00a7fc13113ac9cc8534659e3ffecbee4d3bc7e09cb469919071ad20a19b",
+      "archiveSize": 17361898,
+      "member": "scode-linux-arm64/scode",
+      "binarySha256": "c554205f6f3ce3e9fca587819dc898bff8bcbed4ef16635b5030e0e11b48a53f",
+      "binarySize": 49568328
+    },
+    "linux-x64": {
+      "url": "https://github.com/sudoprivacy/sudocode/releases/download/v0.2.33/scode-linux-x64.tar.gz",
+      "archiveSha256": "62fd7afa54045370522d042213f43cae66b8495b64905b8ab3a2a0f7e3b4f5b6",
+      "archiveSize": 18022316,
+      "member": "scode-linux-x64/scode",
+      "binarySha256": "6d7b9dd2bf78b8007bd31a3d5f3ffb010b7376ef4118c502fc55f01c13ea6a12",
+      "binarySize": 50590272
+    }
+  }
+}
