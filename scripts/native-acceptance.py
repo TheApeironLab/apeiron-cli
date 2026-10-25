@@ -28,8 +28,11 @@ def run(args, **kwargs):
     kwargs.setdefault('timeout', 900)
     result = subprocess.run([str(x) for x in args], capture_output=True, text=True, **kwargs)
     if result.returncode:
-        # Command arguments/output may contain a signed URL or generated SSH key.
-        raise RuntimeError(str(args[0]) + ' operation failed; inspect the private job state')
+        # Arguments and output may contain a signed URL or SSH key: report only the
+        # service's error code and message lines.
+        detail = '; '.join(line.strip() for line in result.stderr.splitlines()
+                           if line.startswith(('ErrorCode:', 'Message:')) and 'https://' not in line)
+        raise RuntimeError(str(args[0]) + ' operation failed' + (': ' + detail if detail else '; inspect the private job state'))
     return result.stdout.strip()
 
 
@@ -106,8 +109,9 @@ def prepare(state_path, target, release, source):
              'instances': [], 'keyPair': 'apeiron-acceptance-' + lease,
              'object': 'apeiron/acceptance-staging/' + lease + '/transport.tar.gz'}
     save(state_path, state)  # Cleanup can rediscover a timed-out RunInstances request.
-    key = state_path.parent / 'id_ed25519'
-    run(['ssh-keygen', '-t', 'ed25519', '-N', '', '-f', key])
+    # ECS ImportKeyPair does not accept ed25519 public keys.
+    key = state_path.parent / 'id_rsa'
+    run(['ssh-keygen', '-t', 'rsa', '-b', '4096', '-N', '', '-f', key])
     transport = state_path.parent / 'transport.tar.gz'
     version = json.loads((release / 'release.json').read_text())['version']
     with tarfile.open(transport, 'x:gz') as archive:
@@ -169,7 +173,7 @@ def prepare(state_path, target, release, source):
         'deployment': {'offline': False, 'installation': {'topology': 'single-k3s' if len(nodes) == 1 else 'multi-k3s',
             'ha': len(nodes) == 3, 'domain': f'release-{run_id}-{attempt}-{len(nodes)}.apeironlab.internal',
             'entryIp': nodes[0]['address'], 'httpPort': 80, 'httpsPort': 443,
-            'sshUser': 'root', 'sshPort': 22, 'sshKey': remote + '/id_ed25519', 'nodes': nodes}}}
+            'sshUser': 'root', 'sshPort': 22, 'sshKey': remote + '/id_rsa', 'nodes': nodes}}}
     encode = lambda value: base64.b64encode(value.encode()).decode()
     content = f'''#!/bin/bash
 set -Eeuo pipefail
@@ -197,9 +201,9 @@ apt-get install -y ca-certificates curl tar openssh-client
 curl --fail --silent --show-error --retry 3 --proto '=https' --max-time 900 {shlex.quote(urls[0])} -o "$work/transport.tar.gz"
 printf '%s  %s\\n' {shlex.quote(transport_sha)} "$work/transport.tar.gz" | sha256sum -c -
 tar -xzf "$work/transport.tar.gz" -C "$work"
-printf '%s' {shlex.quote(encode(key.read_text()))} | base64 -d > "$work/id_ed25519"
+printf '%s' {shlex.quote(encode(key.read_text()))} | base64 -d > "$work/id_rsa"
 printf '%s' {shlex.quote(encode(json.dumps(profile)))} | base64 -d > "$work/profile.json"
-chmod 600 "$work/id_ed25519" "$work/profile.json"
+chmod 600 "$work/id_rsa" "$work/profile.json"
 chmod 755 "$work/bun"
 export GITHUB_RUN_ID={run_id} GITHUB_RUN_ATTEMPT={attempt} APEIRON_RELEASE_DISPOSABLE=true
 export APEIRON_ACCEPTANCE_CONFIG="$work/profile.json"
