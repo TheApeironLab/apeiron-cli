@@ -93,6 +93,7 @@
 <div data-panel hidden>
 <section class="machine-probe" aria-labelledby="scenario-title"><div class="probe-heading"><h2 id="scenario-title">场景组合</h2></div><p class="hint">按场景快速选择一组应用，再按需增减。所选应用的资源闭包会在部署前校验。</p>
 <div class="scenario-buttons"><button type="button" class="button" data-scenario="required">仅必选</button><button type="button" class="button" data-scenario="core">核心协作</button><button type="button" class="button" data-scenario="full">完整</button></div></section>
+<p id="distro-note" class="hint"></p><p id="management-cli-note" class="hint"></p>
 <div class="app-grid" id="app-grid"></div><p class="selected-count" id="selected-count"></p><p class="hint">先准备所选应用及依赖的安装资源，再创建集群和部署应用。缺少资源或校验失败时会停止。</p>
 </div>
 <div data-panel hidden>
@@ -146,7 +147,7 @@
 <div class="field"><label class="field-label" for="model-deep">深度思考 · apeiron-pro</label><select id="model-deep" disabled><option value="">请先获取模型列表</option></select><p class="hint">可与快速使用同一模型；是否具备推理能力由模型本身决定。</p></div>
 <button id="model-test" disabled type="button" class="button primary">测试两种模式</button><div id="model-status" class="hint" role="status" aria-live="polite" aria-atomic="true"></div><p class="hint">从 CLI 主机各发送一次简短请求，可能产生少量模型费用；集群网络仍需能访问此地址。</p>
 </section>
-<p class="hint">基础安装必须配置模型。Apeiron 通过 Gateway 使用模型，供应商 Key 仅写入本机受保护配置与 Gateway Secret。</p>
+<p id="model-routing-note" class="hint">安装必须配置模型服务。</p>
 </section>
 </div>
 <div data-panel hidden>
@@ -183,7 +184,7 @@
   };
   let machine, nodeFacts = [], nodeSerial = 0, deploymentAction = !1, deploymentRequestSerial = 0, nodesFingerprint = "", nodeRequest;
   const topology = () => document.querySelector('[name="topology"]:checked').value;
-  let step = 0, busy = !1, revision = null, apps = [], chosen = [], timer;
+  let step = 0, busy = !1, revision = null, apps = [], distro = "base", chosen = [], timer;
   const endpoint = (name) => new URL("api/" + name, location.href).href, error = get("error");
   form.addEventListener("input", () => {
     error.hidden = !0;
@@ -795,7 +796,7 @@ ${access.domain}      A    ${access.entryIp}`;
       role: row.querySelector("[data-field=role]")?.value
     })) : [];
     return {
-      installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === "single-k3d" ? localPorts()[0] : 80, httpsPort: mode === "single-k3d" ? localPorts()[1] : 443, ha: mode === "multi-k3s" && ha.checked, ...connection(), nodes, ...accessMode() !== "private" ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField("public-ip"), tunnelPort: paired?.tunnelPort ?? Number(publicField("tunnel-port")), ...paired ? { pairingId: paired.id } : accessMode() === "relay" ? { gateway: { host: publicField("gateway-host"), sshUser: publicField("gateway-user"), sshKey: publicField("gateway-key"), sshPort: Number(publicField("gateway-port")) } } : {} } } : {} },
+      installation: { distro, topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === "single-k3d" ? localPorts()[0] : 80, httpsPort: mode === "single-k3d" ? localPorts()[1] : 443, ha: mode === "multi-k3s" && ha.checked, ...connection(), nodes, ...accessMode() !== "private" ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField("public-ip"), tunnelPort: paired?.tunnelPort ?? Number(publicField("tunnel-port")), ...paired ? { pairingId: paired.id } : accessMode() === "relay" ? { gateway: { host: publicField("gateway-host"), sshUser: publicField("gateway-user"), sshKey: publicField("gateway-key"), sshPort: Number(publicField("gateway-port")) } } : {} } } : {} },
       runner: mode === "single-k3d" ? "docker" : "native",
       root: "",
       offline: offline.checked,
@@ -807,7 +808,9 @@ ${access.domain}      A    ${access.entryIp}`;
     };
   }
   function applyTarget(value) {
-    const install = value.installation, published = install?.publicAccess;
+    const install = value.installation;
+    distro = install?.distro ?? "base";
+    const published = install?.publicAccess;
     renderConnections(published?.pairingId ?? "");
     if (selectedConnection())
       connectionMessage(selectedConnection());
@@ -979,6 +982,9 @@ ${access.domain}      A    ${access.entryIp}`;
   function updateSelection() {
     get("selected-count").textContent = `\u5DF2\u9009\u62E9 ${selectedApps().length} \u4E2A\u5E94\u7528\uFF08${apps.filter((app) => app.required).length} \u4E2A\u5FC5\u9009\uFF09`;
     const selected = selectedApps();
+    get("distro-note").textContent = distro === "minimal" ? "Minimal\uFF1A\u8BC1\u4E66\u3001\u6570\u636E\u5E93\u3001\u5BF9\u8C61\u5B58\u50A8\u3001\u8EAB\u4EFD\u3001\u96C6\u7FA4\u6743\u9650\u3001Nexus\u3001Vasi \u548C Apeiron\u3002" : "\u57FA\u7840\u7248\uFF1A\u7CFB\u7EDF\u670D\u52A1\u4E0E Gateway \u6A21\u578B\u7F51\u5173\u3002";
+    get("management-cli-note").textContent = distro !== "minimal" ? "" : topology() === "single-k3d" ? "\u672C\u673A\u4F7F\u7528\u5305\u542B scode \u7684 apeiron-cli\uFF0C\u63D0\u4F9B apeiron sudo\u3002" : topology() === "single-k3s" ? "\u5C06\u5728\u672C\u673A\u5B89\u88C5 apeiron-cli\uFF08\u542B scode\uFF09\uFF0C\u5B8C\u6210\u540E\u53EF\u76F4\u63A5\u8FD0\u884C apeiron sudo\u3002" : "\u5C06\u5728\u9996\u4E2A\u63A7\u5236\u8282\u70B9\u5B89\u88C5 apeiron-cli\uFF08\u542B scode\uFF09\uFF1B\u5176\u4ED6\u8282\u70B9\u4E0D\u5B89\u88C5\u3002";
+    get("model-routing-note").textContent = selected.includes("gateway") ? "Apeiron \u901A\u8FC7 Gateway \u4F7F\u7528\u6A21\u578B\uFF0C\u4F9B\u5E94\u5546 Key \u4EC5\u5199\u5165\u53D7\u4FDD\u62A4\u914D\u7F6E\u4E0E Gateway Secret\u3002" : "Apeiron \u76F4\u63A5\u8FDE\u63A5\u6A21\u578B\u670D\u52A1\uFF0CAPI Key \u4EC5\u5199\u5165\u53D7\u4FDD\u62A4\u914D\u7F6E\u4E0E Kubernetes Secret\u3002";
     get("gpustack-settings").hidden = !selected.includes("gpustack");
     for (const button of document.querySelectorAll("[data-scenario]")) {
       const wanted = scenarioApps(button.dataset.scenario);
@@ -1837,6 +1843,7 @@ ${access.domain}      A    ${access.entryIp}`;
           throw Error(result.error || "\u65E0\u6CD5\u8BFB\u53D6\u5B89\u88C5\u5305\u7684\u5E94\u7528\u76EE\u5F55\u3002");
         if (apps.length)
           chosen = selectedApps();
+        distro = result.distro ?? "base";
         apps = result.apps;
         renderApps(chosen);
       } catch (cause) {

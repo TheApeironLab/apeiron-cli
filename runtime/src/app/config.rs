@@ -70,6 +70,10 @@ pub fn connection(v: &Value) -> Result<Value> {
     Ok(json!({"sshUser":user,"sshKey":key,"sshPort":port}))
 }
 pub fn installation(v: &Value) -> Result<Value> {
+    let distro = v["distro"].as_str().unwrap_or("base");
+    if !["base", "minimal"].contains(&distro) {
+        return Err(fail("安装包发行方案不受支持。", 400));
+    }
     let topology = text(v, "topology", 32, false)?;
     if !["single-k3d", "single-k3s", "multi-k3s"].contains(&topology.as_str()) {
         return Err(fail("请选择安装方式。", 400));
@@ -139,6 +143,9 @@ pub fn installation(v: &Value) -> Result<Value> {
         return Err(fail("单机部署不接受远程节点。", 400));
     }
     let mut out = connection(v)?;
+    if distro == "minimal" {
+        out["distro"] = json!(distro);
+    }
     for (k,value) in json!({"topology":topology,"domain":domain,"entryIp":ip,"httpPort":http,"httpsPort":https,"ha":ha,"nodes":nodes}).as_object().unwrap(){out[k]=value.clone();}
     if let Some(id) = v.get("instanceId").filter(|id| !id.is_null()) {
         // Opaque registry identity; the config path remains the instance key.

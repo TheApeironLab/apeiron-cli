@@ -502,15 +502,24 @@ pub fn declared_applications(root: &Path) -> Result<Vec<Value>> {
 /// The applications of a package for a runtime family (`k3d-` or `k3s-`); every target of
 /// one package is built from the same Chentu declaration.
 pub fn package_applications(root: &Path, family: &str) -> Result<Value> {
+    Ok(json!(applications(&package_catalog(root, family)?)?))
+}
+pub fn package_distro(root: &Path, family: &str) -> Result<String> {
+    let catalog = package_catalog(root, family)?;
+    let distro = catalog["distro"].as_str().unwrap_or("base");
+    if !["base", "minimal"].contains(&distro) {
+        return Err(fail("安装包发行方案不受支持。", 400));
+    }
+    Ok(distro.to_owned())
+}
+fn package_catalog(root: &Path, family: &str) -> Result<Value> {
     let release = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)
         .map_err(|_| fail("安装包缺少有效 setup/install.json 资源清单。", 400))?;
     let catalog = match release["catalogs"].as_object() {
         Some(catalogs) => catalogs.iter().find(|(key, _)| key.starts_with(family)).map(|(_, c)| c),
         None => Some(&release), // single-target catalog, as resources::catalog accepts
     };
-    Ok(json!(applications(
-        catalog.ok_or_else(|| fail("安装包不支持所选安装方式。", 400))?
-    )?))
+    catalog.cloned().ok_or_else(|| fail("安装包不支持所选安装方式。", 400))
 }
 /// Releases of the selected applications. Unknown IDs are refused by name, never
 /// dropped silently; required applications must stay selected.

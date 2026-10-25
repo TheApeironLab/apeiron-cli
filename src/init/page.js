@@ -107,6 +107,7 @@ export function renderPage(nonce) {
 <div data-panel hidden>
 <section class="machine-probe" aria-labelledby="scenario-title"><div class="probe-heading"><h2 id="scenario-title">场景组合</h2></div><p class="hint">按场景快速选择一组应用，再按需增减。所选应用的资源闭包会在部署前校验。</p>
 <div class="scenario-buttons"><button type="button" class="button" data-scenario="required">仅必选</button><button type="button" class="button" data-scenario="core">核心协作</button><button type="button" class="button" data-scenario="full">完整</button></div></section>
+<p id="distro-note" class="hint"></p><p id="management-cli-note" class="hint"></p>
 <div class="app-grid" id="app-grid"></div><p class="selected-count" id="selected-count"></p><p class="hint">先准备所选应用及依赖的安装资源，再创建集群和部署应用。缺少资源或校验失败时会停止。</p>
 </div>
 <div data-panel hidden>
@@ -160,7 +161,7 @@ export function renderPage(nonce) {
 <div class="field"><label class="field-label" for="model-deep">深度思考 · apeiron-pro</label><select id="model-deep" disabled><option value="">请先获取模型列表</option></select><p class="hint">可与快速使用同一模型；是否具备推理能力由模型本身决定。</p></div>
 <button id="model-test" disabled type="button" class="button primary">测试两种模式</button><div id="model-status" class="hint" role="status" aria-live="polite" aria-atomic="true"></div><p class="hint">从 CLI 主机各发送一次简短请求，可能产生少量模型费用；集群网络仍需能访问此地址。</p>
 </section>
-<p class="hint">基础安装必须配置模型。Apeiron 通过 Gateway 使用模型，供应商 Key 仅写入本机受保护配置与 Gateway Secret。</p>
+<p id="model-routing-note" class="hint">安装必须配置模型服务。</p>
 </section>
 </div>
 <div data-panel hidden>

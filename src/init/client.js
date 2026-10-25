@@ -29,6 +29,7 @@ export function initWizard(supportsK3sHost) {
     let revision = null;
     // The application catalog belongs to the chosen package: loaded when leaving step one.
     let apps = [];
+    let distro = 'base';
     let chosen = [];
     let timer;
     const endpoint = (name) => new URL('api/' + name, location.href).href;
@@ -644,13 +645,14 @@ export function initWizard(supportsK3sHost) {
             address: row.querySelector('[data-field=address]')?.value ?? '',
             role: row.querySelector('[data-field=role]')?.value,
         })) : [];
-        return { installation: { topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? localPorts()[0] : 80, httpsPort: mode === 'single-k3d' ? localPorts()[1] : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField('public-ip'), tunnelPort: paired?.tunnelPort ?? Number(publicField('tunnel-port')), ...(paired ? { pairingId: paired.id } : accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
+        return { installation: { distro, topology: mode, domain: domain.value.trim(), entryIp: entryIp.value.trim(), httpPort: mode === 'single-k3d' ? localPorts()[0] : 80, httpsPort: mode === 'single-k3d' ? localPorts()[1] : 443, ha: mode === 'multi-k3s' && ha.checked, ...connection(), nodes, ...(accessMode() !== 'private' ? { publicAccess: { mode: accessMode(), publicIp: paired?.publicIp ?? publicField('public-ip'), tunnelPort: paired?.tunnelPort ?? Number(publicField('tunnel-port')), ...(paired ? { pairingId: paired.id } : accessMode() === 'relay' ? { gateway: { host: publicField('gateway-host'), sshUser: publicField('gateway-user'), sshKey: publicField('gateway-key'), sshPort: Number(publicField('gateway-port')) } } : {}) } } : {}) },
             runner: mode === 'single-k3d' ? 'docker' : 'native',
             root: '', offline: offline.checked, bundleDir: offline.checked ? fields.bundleDir.value.trim() : '',
             environment: '', kubeconfig: '', workDir: '', image: 'chentu-lab' };
     }
     function applyTarget(value) {
         const install = value.installation;
+        distro = install?.distro ?? 'base';
         const published = install?.publicAccess;
         renderConnections(published?.pairingId ?? '');
         if (selectedConnection())
@@ -820,6 +822,14 @@ export function initWizard(supportsK3sHost) {
     function updateSelection() {
         get('selected-count').textContent = `已选择 ${selectedApps().length} 个应用（${apps.filter(app => app.required).length} 个必选）`;
         const selected = selectedApps();
+        get('distro-note').textContent = distro === 'minimal' ? 'Minimal：证书、数据库、对象存储、身份、集群权限、Nexus、Vasi 和 Apeiron。' : '基础版：系统服务与 Gateway 模型网关。';
+        get('management-cli-note').textContent = distro !== 'minimal' ? '' : topology() === 'single-k3d'
+            ? '本机使用包含 scode 的 apeiron-cli，提供 apeiron sudo。'
+            : topology() === 'single-k3s' ? '将在本机安装 apeiron-cli（含 scode），完成后可直接运行 apeiron sudo。'
+            : '将在首个控制节点安装 apeiron-cli（含 scode）；其他节点不安装。';
+        get('model-routing-note').textContent = selected.includes('gateway')
+            ? 'Apeiron 通过 Gateway 使用模型，供应商 Key 仅写入受保护配置与 Gateway Secret。'
+            : 'Apeiron 直接连接模型服务，API Key 仅写入受保护配置与 Kubernetes Secret。';
         get('gpustack-settings').hidden = !selected.includes('gpustack');
         for (const button of document.querySelectorAll('[data-scenario]')) {
             const wanted = scenarioApps(button.dataset.scenario);
@@ -1691,6 +1701,7 @@ export function initWizard(supportsK3sHost) {
                     throw new Error(result.error || '无法读取安装包的应用目录。');
                 if (apps.length)
                     chosen = selectedApps();
+                distro = result.distro ?? 'base';
                 apps = result.apps;
                 renderApps(chosen);
             }

@@ -470,7 +470,7 @@ impl State {
                 } else {
                     "k3s-"
                 };
-                json!({"apps":resources::package_applications(&root, family)?})
+                json!({"apps":resources::package_applications(&root, family)?, "distro":resources::package_distro(&root, family)?})
             }
             "api/preflight" => {
                 // Read-only coexistence/port preflight for the summary step; nothing is saved.

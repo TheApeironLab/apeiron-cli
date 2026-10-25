@@ -460,3 +460,16 @@ CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos 与 Apeir
 源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
 `apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
 克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。
+
+### Minimal 安装包
+
+向导从 Chentu 安装包的 catalog 读取 `distro: minimal`，必选 Nexus、Vasi、Apeiron；
+其余平台依赖由主 Helmfile 决定。Minimal 不要求 Gateway，模型使用 Base URL、API key、
+模型 ID 直连。旧基础版包仍要求 Gateway。密钥只保存到受保护配置与 Kubernetes Secret。
+
+Minimal 要求当前 CLI 包含 scode（`apeiron sudo`）。原生 K3s 包还必须提供匹配目标架构的
+`managementCli` 固定归档和摘要，主机入口在首个控制节点安装 `/usr/local/bin/apeiron`
+并验证内嵌 scode。K3d 使用当前操作机 CLI。管理机的模型凭据另行配置。
+
+开发验证：`APEIRON_TEST_BIN=/absolute/path/apeiron bun scripts/test-minimal-ui.js`。
+该浏览器测试使用确定性 HTTP fixture，不调用真实模型；不能替代原生主机与断网验收。
