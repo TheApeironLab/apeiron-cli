@@ -197,6 +197,33 @@ fn catalog() -> Value {
         "applications":[{"id":"task","name":"Task","required":false,"releases":["task"],"requires":[]}]})
 }
 #[test]
+fn release_catalog_preserves_native_ids_and_resource_ownership() {
+    let mut c = catalog();
+    c["components"]["ingress"] = c["components"]["core"].clone();
+    c["components"]["ingress"]["requires"] = json!([]);
+    c["components"]["task"]["requires"] = json!(["ingress"]);
+    c["targets"]["k3s-amd64"]["base"] = json!(["ingress"]);
+    c["releaseCatalog"] = json!({"schemaVersion":1,"releases":[
+        {"name":"cert-manager","namespace":"cert-manager","component":"ingress","required":true,
+         "labels":{"catalog":"release-v1"},"needs":[]},
+        {"name":"task","namespace":"task","component":"task","required":false,
+         "labels":{"catalog":"release-v1","app":"true"},"needs":["cert-manager/cert-manager"]}
+    ]});
+    c["applications"] = json!([
+        {"id":"cert-manager","name":"cert-manager","releases":["cert-manager"],"requires":[],"required":true,"app":false},
+        {"id":"task","name":"task","releases":["task"],"requires":["cert-manager"],"required":false,"app":true}
+    ]);
+    let plan = resources::plan(&c, "k3s-amd64", &json!(["cert-manager", "task"])).unwrap();
+    assert_eq!(plan["components"], json!(["ingress", "task"]));
+    assert_eq!(plan["environment"]["releases"]["cert-manager"]["enabled"], true);
+    assert_eq!(resources::applications(&plan).unwrap().len(), 2);
+    c["applications"][1]["releases"] = json!(["task", "cert-manager"]);
+    assert!(resources::plan(&c, "k3s-amd64", &json!(["cert-manager", "task"])).is_err());
+    c["applications"][1]["releases"] = json!(["task"]);
+    c["applications"][1]["id"] = json!("renamed-task");
+    assert!(resources::applications(&c).is_err());
+}
+#[test]
 fn old_packages_profiles_and_mismatched_architectures_fail_before_preparation() {
     let mut c = catalog();
     c["targets"]["k3s-amd64"]["deploymentTopology"] = json!(false);
@@ -588,6 +615,37 @@ fn base_models_use_gateway_with_no_upstream_secret_in_values() {
 }
 
 #[test]
+fn minimal_distro_keeps_required_models_but_routes_directly_without_gateway() {
+    let mut installation = install("single-k3d");
+    installation["distro"] = json!("minimal");
+    let mut c = input(installation, false);
+    c["apps"] = json!(["nexus", "vasi", "apeiron"]);
+    c["models"] = json!({"provider":"direct","baseUrl":"https://models.example.internal/v1", "apiKey":"fixture-only", "fast":"model-a", "deep":"model-a"});
+    let c = valid(&c);
+    assert_eq!(c["deployment"]["installation"]["distro"], "minimal");
+    models::require_for_installation(&c).unwrap();
+    assert!(!models::uses_gateway(&c));
+    let values = deploy::environment_for(
+        &c,
+        &[],
+        json!({"distro":"minimal", "releases":{"gateway":{"enabled":false}}}),
+    )
+    .unwrap();
+    assert_eq!(values["releases"]["gateway"]["enabled"], false);
+    assert_eq!(
+        values["releases"]["apeiron"]["values"]["models"]["providers"][0]["baseUrl"],
+        "https://models.example.internal/v1"
+    );
+    assert!(!values.to_string().contains("fixture-only"));
+    let mut missing = c.clone();
+    missing["models"] = Value::Null;
+    assert!(models::require_for_installation(&missing).is_err());
+    let mut legacy = c;
+    legacy["deployment"]["installation"]["distro"] = json!("base");
+    assert!(models::require_for_installation(&legacy).is_err());
+}
+
+#[test]
 #[cfg(unix)]
 fn gateway_upstream_key_is_sent_only_to_gateway_secret_over_stdin() {
     let dir = Temp::new();
@@ -933,4 +991,23 @@ fn fresh_files_selection_declares_only_operator_bucket_and_preserves_user_mappin
                 .is_null()
         );
     }
+}
+
+#[test]
+fn deployment_location_separates_ssh_nodes_from_operator() {
+    let mut i = install("single-k3s");
+    i["location"] = json!("ssh");
+    i["nodes"] = json!([{"host":"node-a","name":"node-a","address":"192.0.2.10","role":"server"}]);
+    let validated = config::installation(&i).unwrap();
+    assert_eq!(validated["location"], "ssh");
+    assert!(config::remote_installation(&validated));
+    i["location"] = json!("local");
+    assert!(config::installation(&i).is_err());
+    i["location"] = json!("ssh");
+    i["nodes"][0]["role"] = json!("agent");
+    assert!(config::installation(&i).is_err());
+    i["topology"] = json!("single-k3d");
+    assert!(config::installation(&i).is_err());
+    assert!(config::remote_installation(&install("multi-k3s")));
+    assert!(!config::remote_installation(&install("single-k3s")));
 }

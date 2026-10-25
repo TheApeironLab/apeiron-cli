@@ -22,7 +22,7 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
     let servers = nodes.iter().filter(|n| n["role"] == "server").count();
     let ok = match topology {
         "multi-k3s" => nodes.len() >= 3 && servers == nodes.len() && servers % 2 == 1,
-        "single-k3s" => nodes.len() == 1 && nodes[0]["host"] == "localhost" && servers == 1,
+        "single-k3s" => nodes.len() == 1 && servers == 1,
         _ => false,
     };
     if !ok {
@@ -31,7 +31,7 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
                 "multi-k3s" => {
                     "原生 Nexus-first 多机部署需要至少 3 个、奇数个 server 节点且没有 agent 节点；尚未修改集群。"
                 }
-                "single-k3s" => "原生 Nexus-first 单机部署以管理机为唯一节点，不接受远程节点；尚未修改集群。",
+                "single-k3s" => "原生 Nexus-first 单节点部署需要一个控制节点；尚未修改集群。",
                 _ => "原生 Nexus-first 不支持该拓扑；尚未修改集群。",
             },
             400,
@@ -41,6 +41,39 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
 }
 fn path(v: &Value, key: &str) -> PathBuf {
     PathBuf::from(v[key].as_str().unwrap_or(""))
+}
+fn management_cli_contract(plan: &Value, root: &Path, arch: &str) -> Result<()> {
+    let cli = &plan["target"]["managementCli"];
+    let target = match arch {
+        "amd64" => "linux-x64",
+        "arm64" => "linux-arm64",
+        _ => "",
+    };
+    let archive = cli["archive"].as_str().unwrap_or("");
+    if target.is_empty()
+        || cli["target"] != target
+        || !resources::safe_relative(archive)
+        || cli["version"].as_str().is_none_or(|s| s.is_empty())
+        || cli["scodeVersion"].as_str().is_none_or(|s| s.is_empty())
+        || !config::matches(r"^[a-f0-9]{40}$", cli["revision"].as_str().unwrap_or(""))
+        || !config::matches(r"^[a-f0-9]{64}$", cli["binarySha256"].as_str().unwrap_or(""))
+        || !root.join("bootstrap/management_cli.py").is_file()
+        || !plan["files"].as_array().is_some_and(|files| {
+            files.iter().any(|f| {
+                f["path"] == archive
+                    && f["sha256"] == cli["sha256"]
+                    && f["size"] == cli["size"]
+                    && f["size"].as_u64().is_some_and(|size| size > 0)
+                    && config::matches(r"^[a-f0-9]{64}$", f["sha256"].as_str().unwrap_or(""))
+            })
+        })
+    {
+        return Err(fail(
+            "minimal 安装包缺少匹配架构、摘要或安装程序的管理机 CLI；尚未修改主机。",
+            400,
+        ));
+    }
+    Ok(())
 }
 fn archive_toolbox_image(target: &Value) -> Result<&str> {
     // Published legacy archives (including rc.5) only declare toolboxImageId.
@@ -242,7 +275,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     } else {
         vec!["bash", "tar", "python3"]
     };
-    if i["topology"] == "multi-k3s" {
+    if config::remote_installation(&i) {
         system_tools.push("ssh");
     }
     // These tools cannot be supplied by target-node resources. Fail before
@@ -255,10 +288,13 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     target["root"] = json!(root);
     let mut arch = discovery::architecture(std::env::consts::ARCH).to_owned();
     let mut nodes = i["nodes"].as_array().unwrap().clone();
+    if config::remote_installation(&i) && nodes.is_empty() {
+        return Err(fail("请先添加并检测 SSH 目标机器；尚未修改集群。", 400));
+    }
     let mut facts = Vec::new();
     if !docker {
         c.event("复查节点系统、架构、权限和已有集群。");
-        facts = if i["topology"] == "multi-k3s" {
+        facts = if config::remote_installation(&i) {
             let mut input = i.clone();
             input["hosts"] = json!(nodes.iter().map(|n| n["host"].clone()).collect::<Vec<_>>());
             discovery::nodes(&input, &c.cancel)?["nodes"]
@@ -280,7 +316,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         {
             return Err(fail("请选择 CPU 架构一致的节点。", 400));
         }
-        if i["topology"] == "single-k3s" {
+        if !config::remote_installation(&i) && i["topology"] == "single-k3s" {
             let addresses = facts[0]["addresses"].as_array().unwrap();
             nodes.push(json!({"host":"localhost","name":facts[0]["name"],"address":if addresses.contains(&i["entryIp"]){i["entryIp"].clone()}else{addresses[0].clone()},"role":"server"}));
         }
@@ -295,7 +331,22 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     }
     let key = format!("{}-{arch}", if docker { "k3d" } else { "k3s" });
     let catalog = resources::catalog(&root, &key)?;
+    let distro = i["distro"].as_str().unwrap_or("base");
+    if catalog["distro"].as_str().unwrap_or("base") != distro {
+        return Err(fail("安装包与所选发行方案不一致，请重新读取安装包。", 400));
+    }
     let mut plan = resources::plan(&catalog, &key, &config["apps"])?;
+    if distro == "minimal" {
+        if !super::sudo::build_info()["embedded"].as_bool().unwrap_or(false) {
+            return Err(fail(
+                "minimal 需要包含 scode 的 apeiron-cli 发行包；尚未修改集群。",
+                400,
+            ));
+        }
+        if !docker {
+            management_cli_contract(&plan, &root, &arch)?;
+        }
+    }
     let bundled = !docker
         && plan["target"]["operatorTools"] == true
         && cfg!(target_os = "linux")
@@ -876,7 +927,7 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         &env,
         "校验应用配置",
     )?;
-    let multi = i["topology"] == "multi-k3s";
+    let multi = config::remote_installation(&i);
     let bundle = if multi {
         format!(
             "/opt/chentu/bundles/{}",
@@ -901,6 +952,12 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
             .collect::<serde_json::Map<_, _>>()
     };
     let mut vars = json!({"ansible_become":true,"ansible_ssh_common_args":"-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8","ansible_port":i["sshPort"],"chentu_domain":i["domain"],"chentu_architecture":p.arch,"chentu_bundle":bundle,"chentu_remote_repo":"/opt/chentu/setup","chentu_kubeconfig":target["kubeconfig"]});
+    if i["distro"] == "minimal" {
+        management_cli_contract(&p.plan, &root, &p.arch)?;
+        vars["chentu_distro"] = json!("minimal");
+        vars["chentu_management_cli"] = p.plan["target"]["managementCli"].clone();
+        c.event("将在首个控制节点安装 apeiron-cli，并验证内嵌 scode。其他节点不安装 CLI。");
+    }
     for (from, to) in [("sshUser", "ansible_user"), ("sshKey", "ansible_ssh_private_key_file")] {
         if !i[from].as_str().unwrap_or("").is_empty() {
             vars[to] = i[from].clone();
@@ -1353,6 +1410,109 @@ chmod 700 "$PWD/operator/venv/bin/ansible-playbook"
             .contains("退出码 17"));
     }
     #[test]
+    fn minimal_management_cli_contract_requires_a_pinned_matching_tool_resource() {
+        let temp = Temp::new();
+        temp.write("bootstrap/management_cli.py", "# fixture");
+        let cli = json!({"archive":"clients/apeiron.tar.gz","target":"linux-x64", "version":"0.2.1", "scodeVersion":"v0.2.33", "revision":"a".repeat(40), "binarySha256":"b".repeat(64), "sha256":"c".repeat(64), "size":123});
+        let mut plan = json!({"target":{"managementCli":cli}, "files":[{"path":"clients/apeiron.tar.gz","sha256":"c".repeat(64),"size":123}]});
+        management_cli_contract(&plan, &temp.0, "amd64").unwrap();
+        assert!(management_cli_contract(&plan, &temp.0, "arm64").is_err());
+        plan["files"][0]["sha256"] = json!("d".repeat(64));
+        assert!(management_cli_contract(&plan, &temp.0, "amd64").is_err());
+        plan["files"] = json!([]);
+        assert!(management_cli_contract(&plan, &temp.0, "amd64").is_err());
+    }
+
+    #[test]
+    fn minimal_bootstrap_passes_verified_cli_metadata_to_native_inventory() {
+        let temp = Temp::new();
+        temp.write("bootstrap/management_cli.py", "# fixture");
+        for name in ["python3", "ansible-playbook"] {
+            temp.tool(
+                name,
+                r#"#!/bin/sh
+if [ "${2:-}" = plan ]; then
+    for argument do output="$argument"; done
+    printf '%s' '["apeiron.example.internal","iam.example.internal","nexus.example.internal","registry.example.internal"]' > "$output"
+fi
+"#,
+            );
+        }
+        let cli = json!({"archive":"clients/apeiron.tar.gz","target":"linux-x64", "version":"0.2.1", "scodeVersion":"v0.2.33", "revision":"a".repeat(40), "binarySha256":"b".repeat(64), "sha256":"c".repeat(64), "size":123});
+        let p = Prepared {
+            target: Value::Null,
+            values: Value::Null,
+            plan: json!({"target":{"managementCli":cli}, "files":[{"path":"clients/apeiron.tar.gz","sha256":"c".repeat(64),"size":123}]}),
+            nodes: vec![
+                json!({"host":"node-0","name":"node-0","address":"192.0.2.10","role":"server"}),
+                json!({"host":"node-1","name":"node-1","address":"192.0.2.11","role":"agent"}),
+            ],
+            bundle: temp.0.clone(),
+            cluster: "fixture".into(),
+            arch: "amd64".into(),
+            generated: vec![],
+            tool_env: temp.env(),
+        };
+        let i = json!({"distro":"minimal","topology":"multi-k3s","domain":"example.internal","entryIp":"192.0.2.10","sshPort":22,"sshKey":"","sshUser":""});
+        let mut target = json!({"runner":"native","root":temp.0,"workDir":temp.0,"environment":temp.0.join("environment.yaml"),"kubeconfig":temp.0.join("kubeconfig"),"installation":i});
+        bootstrap(&mut target, &Context::fixture(&temp.0), &p).unwrap();
+        let inventory = resources::yaml(&temp.0.join("inventory.yaml")).unwrap();
+        assert_eq!(inventory["all"]["vars"]["chentu_distro"], "minimal");
+        assert_eq!(inventory["all"]["vars"]["chentu_management_cli"], cli);
+        assert!(inventory["all"]["children"]["server"]["hosts"]["node-0"].is_object());
+        assert!(inventory["all"]["children"]["agent"]["hosts"]["node-1"].is_object());
+    }
+
+    #[test]
+    fn single_ssh_bootstrap_stages_resources_and_never_uses_local_connection() {
+        let temp = Temp::new();
+        temp.write("bootstrap/management_cli.py", "# fixture");
+        for name in ["python3", "ansible-playbook"] {
+            temp.tool(
+                name,
+                r#"#!/bin/sh
+if [ "${2:-}" = plan ]; then
+    for argument do output="$argument"; done
+    printf '%s' '["apeiron.example.internal","iam.example.internal","nexus.example.internal","registry.example.internal"]' > "$output"
+fi
+"#,
+            );
+        }
+        let cli = json!({"archive":"clients/apeiron.tar.gz","target":"linux-x64", "version":"0.2.1", "scodeVersion":"v0.2.33", "revision":"a".repeat(40), "binarySha256":"b".repeat(64), "sha256":"c".repeat(64), "size":123});
+        let p = Prepared {
+            target: Value::Null,
+            values: Value::Null,
+            plan: json!({"target":{"managementCli":cli}, "files":[{"path":"clients/apeiron.tar.gz","sha256":"c".repeat(64),"size":123}]}),
+            nodes: vec![json!({"host":"node-0","name":"node-0","address":"192.0.2.10","role":"server"})],
+            bundle: temp.0.clone(),
+            cluster: "fixture".into(),
+            arch: "amd64".into(),
+            generated: vec![],
+            tool_env: temp.env(),
+        };
+        let i = json!({"distro":"minimal","topology":"single-k3s","location":"ssh","domain":"example.internal","entryIp":"192.0.2.10","sshPort":22,"sshKey":"","sshUser":""});
+        let mut target = json!({"runner":"native","root":temp.0,"workDir":temp.0,"environment":temp.0.join("environment.yaml"),"kubeconfig":temp.0.join("kubeconfig"),"installation":i});
+        bootstrap(&mut target, &Context::fixture(&temp.0), &p).unwrap();
+        let inventory = resources::yaml(&temp.0.join("inventory.yaml")).unwrap();
+        assert_eq!(inventory["all"]["vars"]["chentu_distro"], "minimal");
+        assert_eq!(inventory["all"]["vars"]["chentu_management_cli"], cli);
+        assert!(inventory["all"]["children"]["server"]["hosts"]["node-0"].is_object());
+        assert!(inventory["all"]["children"]["server"]["hosts"]["node-0"]
+            .get("ansible_connection")
+            .is_none());
+        assert_eq!(
+            inventory["all"]["children"]["server"]["hosts"]["node-0"]["ansible_host"],
+            "node-0"
+        );
+        assert!(inventory["all"]["vars"]["chentu_bundle"]
+            .as_str()
+            .unwrap()
+            .starts_with("/opt/chentu/bundles/"));
+        let preflight = fs::read_to_string(temp.0.join("prepare-hosts.yaml")).unwrap();
+        assert!(preflight.contains("Copy verified resources"));
+    }
+
+    #[test]
     fn native_bootstrap_checks_configuration_and_copies_verified_packages_before_host_installation() {
         let temp = Temp::new();
         let c = Context::fixture(&temp.0);
@@ -1513,7 +1673,7 @@ mod tests {
         hosted_nodes("single-k3s", &[node("localhost", "server")]).unwrap();
         assert!(hosted_nodes("single-k3s", &three).is_err());
         assert!(hosted_nodes("single-k3s", &[node("localhost", "server"), node("b", "agent")]).is_err());
-        assert!(hosted_nodes("single-k3s", &[node("remote", "server")]).is_err());
+        hosted_nodes("single-k3s", &[node("remote", "server")]).unwrap();
         // 3. K3d never reaches the native rule; any other topology is refused.
         assert!(hosted_nodes("single-k3d", &[]).is_err());
     }

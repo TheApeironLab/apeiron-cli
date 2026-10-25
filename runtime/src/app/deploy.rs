@@ -36,14 +36,29 @@ fn finish_stages(status: &mut Value, outcome: &str) {
     let Some(index) = STAGE_IDS.iter().position(|id| status["stage"] == *id) else {
         return;
     };
+    let failure = (outcome == "failed").then(|| status["message"].clone());
     if let Some(stages) = status["stages"].as_array_mut() {
         stages[index]["state"] = json!(if outcome == "succeeded" { "done" } else { outcome });
+        if let Some(message) = failure.filter(|v| v.as_str().is_some_and(|s| !s.is_empty())) {
+            stages[index]["detail"] = message;
+        }
     }
 }
 
 #[cfg(test)]
 mod stage_tests {
     use super::*;
+
+    #[test]
+    fn failed_stage_shows_error_instead_of_last_successful_progress() {
+        let mut status = json!({});
+        advance_stage(&mut status, 0, "所选组件的资源文件均已完整校验。");
+        status["message"] = json!("Nexus 发布清单不完整：目录资源无效；尚未修改集群。");
+        finish_stages(&mut status, "failed");
+        assert_eq!(status["stages"][0]["detail"], status["message"]);
+        assert_eq!(status["stages"][0]["state"], "failed");
+        assert_eq!(status["stages"][1]["state"], "pending");
+    }
 
     #[cfg(unix)]
     #[test]
@@ -1025,6 +1040,9 @@ impl Deployment {
             } else {
                 s["exitCode"].as_i64().filter(|code| *code != 0).unwrap_or(9)
             });
+            if let Err(error) = result.as_ref() {
+                s["message"] = json!(error.message);
+            }
             finish_stages(
                 &mut s,
                 if stopped {
@@ -1035,9 +1053,6 @@ impl Deployment {
                     "failed"
                 },
             );
-            if let Err(error) = result {
-                s["message"] = json!(error.message);
-            }
         }
         println!(
             "deployment\t{}\nexit_code\t{}",
