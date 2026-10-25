@@ -300,10 +300,7 @@ bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
 
-当前尚未发布到 npm registry。`connect` / `status` / `disconnect` / `serve` 和
-`cloud-receiver` 的 Rust 实现与验证由本仓库 `runtime/` 维护，使用 CLI 自身的版本。
-`third_party/apeiron` 仅保留部署发行的源码版本记录，不再提供 CLI 的 Cargo 依赖。
-协议变更需与 Apeiron 服务端的本机及云端契约验证配套。SSO、IAM、Task 使用本仓库现有入口；
+当前尚未发布到 npm registry。SSO、IAM、Task 使用本仓库现有入口；
 `platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
 
 部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）
@@ -452,12 +449,34 @@ apeiron zygos model list
 ```
 
 连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
-本机连接的上游是 `third_party/apeiron`，接收端上报的软件版本来自上游 `VERSION`；
-宿主 `apeiron --version` 仍报告本 CLI 的发行版本。更新时先在 Apeiron 上游验证并合并，
-再更新 gitlink 与 Cargo.lock；不要在构建中追踪浮动分支或复制运行时代码。
-宿主保留真实可执行文件的生命周期集成测试，CI 另外运行 vendor 内的 Rust 检查与测试。
 CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos 与 Apeiron；名称沿用现有配置。
 
 源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
 `apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
 克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。
+
+## 本机连接运行时
+
+`connect` / `status` / `disconnect` / `serve` 和 `cloud-receiver` 由本仓库 `runtime/` 维护，
+接收端与 `apeiron --version` 使用同一个 CLI 发行版本。`third_party/apeiron` 仅记录部署发行的
+服务端源码版本，不再提供 CLI 的 Cargo 依赖。协议变更需配套验证
+[Apeiron 服务端契约](https://github.com/TheApeironLab/apeiron/blob/main/backend/AGENTS.md)。
+
+在 Apeiron 的“设置 → 本地电脑”获取连接命令，或使用该平台签发的个人访问令牌：
+
+```sh
+apeiron connect --server https://apeiron.example.internal --token-file /absolute/path/to/token
+apeiron status
+apeiron disconnect
+# 在当前终端运行，不安装后台服务
+apeiron serve --server https://apeiron.example.internal --token-file /absolute/path/to/token
+```
+
+`connect` 在 macOS 使用 launchd、在 Linux 使用 systemd 用户服务；`serve` 前台运行。
+服务凭据保存在 `~/.config/apeiron/token`，权限为 0600，日志位于 `~/.local/state/apeiron/apeiron.log`。
+Linux 注销后持续运行需要为当前用户启用 linger。服务端吊销连接令牌后，接收端退出并卸载对应后台服务。
+
+工作区用 `--root` 指定，默认 `~/.apeiron/workspaces`；`--config-home` 默认为 `~/.apeiron/sudocode`。
+接收端优先启动托管安装器放在 `~/.apeiron/bin` 的 scode，否则使用 PATH 中的 `scode acp`；可用
+`--agent` 指定命令。agent 使用当前用户的权限和模型配置，配置与工作区应由用户明确选择。
+本仓库保留真实可执行文件的生命周期、TLS、Task 和云端容器契约测试；服务端另行验证连接与执行协议。

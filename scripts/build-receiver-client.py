@@ -28,6 +28,7 @@ def build(source, candidate, platform, out):
     binary = out / 'apeiron'
     with tarfile.open(release / f'apeiron-{version}-{platform}.tar.gz') as archive:
         binary.write_bytes(archive.extractfile('apeiron').read())
+        readme = archive.extractfile('README.md').read()
     binary.chmod(0o755)
     if run(binary, '--version') != version:
         raise ValueError('receiver executable version mismatch')
@@ -46,7 +47,9 @@ def build(source, candidate, platform, out):
         run('codesign', '--verify', '--strict', app)
     else:
         shutil.copy2(binary, stage / 'apeiron')
-    shutil.copy2(source / 'README.md', stage / 'README.md')
+    # The release README carries the bundled runtime licenses; preserve it
+    # through the legacy installer layout instead of replacing it with source docs.
+    (stage / 'README.md').write_bytes(readme)
     shutil.copy2(source / 'runtime/NOTICE', stage / 'NOTICE')
     dest = out / 'local-computer/apeiron' / ('v' + version)
     dest.mkdir(parents=True)
