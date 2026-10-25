@@ -29,10 +29,15 @@ pub fn complete(config: &Path, directory: &Path) -> Result<()> {
     record["finished"] = json!(true);
     record["commandActive"] = json!(false);
     record["commandPid"] = Value::Null;
-    // Publish the completed record before archiving the active checkpoint. A
-    // crash between the two leaves the active recovery path taking precedence.
+    // Publish the completed record and its actual completed archive before
+    // removing the active checkpoint. A crash leaves the active recovery path
+    // taking precedence; application recovery commits metadata without sync.
     write(&completed_location(config), &record)?;
-    fs::rename(location(config), directory.join("completed-checkpoint.json")).map_err(|_| error())
+    write(&directory.join("completed-checkpoint.json"), &record)?;
+    fs::remove_file(location(config)).map_err(|_| error())?;
+    fs::File::open(config.parent().ok_or_else(error)?)
+        .and_then(|f| f.sync_all())
+        .map_err(|_| error())
 }
 fn error() -> Error {
     fail(
@@ -55,7 +60,7 @@ pub fn write(path: &Path, value: &Value) -> Result<()> {
     }
     result
 }
-fn private_file(path: &Path, create: bool) -> Result<fs::File> {
+pub(crate) fn private_file(path: &Path, create: bool) -> Result<fs::File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt, OpenOptionsExt};

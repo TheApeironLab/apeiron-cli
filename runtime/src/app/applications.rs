@@ -390,13 +390,13 @@ fn relocate(v: &mut Value, before: &str, after: &str) {
         _ => (),
     }
 }
-struct ConfigLock(PathBuf);
+pub(crate) struct ConfigLock(PathBuf);
 impl Drop for ConfigLock {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.0);
     }
 }
-fn lock_config(path: &Path, token: &str) -> Result<ConfigLock> {
+pub(crate) fn lock_config(path: &Path, token: &str) -> Result<ConfigLock> {
     let lock = PathBuf::from(format!("{}.lock", path.display()));
     if lock.exists()
         && resources::read(&lock, 1024).is_ok_and(|b| {

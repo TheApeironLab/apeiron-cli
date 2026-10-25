@@ -26,7 +26,7 @@ test('unsupported installation observation neither creates a lease nor adopts a 
   const dir = await mkdtemp(join(tmpdir(), 'apeiron-operation-')); dirs.push(dir);
   const path = join(dir, 'config.json');
   await writeFile(path, '{}', { mode: 0o600 });
-  for (const action of ['status', 'events']) {
+  for (const action of ['status', 'events', 'start', 'resume', 'commit']) {
     const result = cli(action, '--config', path, '--json');
     expect(result.code).toBe(2);
     expect(result.stderr).toContain('UNSUPPORTED_OPERATION_CHECKPOINT');
