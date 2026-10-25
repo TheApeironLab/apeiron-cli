@@ -47,9 +47,8 @@ for (const target of selected) {
         const { path: _payloadPath, ...runtimeProvenance } = sudocode;
         provenance.sudocode = runtimeProvenance;
         await writeFile(join(stage, 'build-provenance.json'), JSON.stringify(provenance, null, 2) + '\n');
-        await writeFile(join(stage, 'README.md'), readme + '\nSudocode license\n\n' + await readFile(join(root, 'third_party/sudocode/LICENSE'), 'utf8'));
-        await copyFile(join(root, 'runtime/NOTICE'), join(stage, 'NOTICE'));
-        const archive = Bun.spawn(['tar', '-czf', join(out, name), '-C', stage, 'apeiron', 'README.md', 'NOTICE', 'build-provenance.json'], { stdout: 'inherit', stderr: 'inherit' });
+        await writeFile(join(stage, 'README.md'), readme + '\nApeiron notices\n\n' + await readFile(join(root, 'runtime/NOTICE'), 'utf8') + '\nSudocode license\n\n' + await readFile(join(root, 'third_party/sudocode/LICENSE'), 'utf8'));
+        const archive = Bun.spawn(['tar', '-czf', join(out, name), '-C', stage, 'apeiron', 'README.md', 'build-provenance.json'], { stdout: 'inherit', stderr: 'inherit' });
         if (await archive.exited !== 0)
             throw new Error(`Archive failed for ${target}`);
         const digest = createHash('sha256').update(await readFile(join(out, name))).digest('hex');
