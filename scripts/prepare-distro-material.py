@@ -51,8 +51,11 @@ def verify_cli_archive(path, release):
     expected = release.get('files', {}).get(path.name)
     if not expected or not path.is_file() or path.is_symlink():
         raise ValueError('CLI archive is not declared by the CI release manifest')
+    checksum = hashlib.sha256()
     with path.open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            checksum.update(chunk)
+    digest = checksum.hexdigest()
     if expected.get('sha256') != digest or expected.get('size') != path.stat().st_size:
         raise ValueError('CLI archive differs from the CI release manifest')
     with tarfile.open(path, 'r:gz') as archive:
