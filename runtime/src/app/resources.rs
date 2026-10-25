@@ -131,10 +131,25 @@ fn download(
         for _ in 0..6 {
             cancel.check()?;
             validate_download_url(&url, trusted)?;
-            let mut response = tokio::select! {
-                _ = cancel.cancelled() => return Err(fail("操作已取消。", 499)),
-                response = client.get(url.clone()).header("User-Agent", "apeiron-cli").send() =>
-                    response.map_err(|_| fail("资源下载失败，请检查网络或离线安装包。", 400))?,
+            // Transient resolver and connect failures (EAI_AGAIN under a burst of
+            // downloads) are retried; HTTP and body errors are not.
+            let mut attempt = 0;
+            let mut response = loop {
+                let sent = tokio::select! {
+                    _ = cancel.cancelled() => return Err(fail("操作已取消。", 499)),
+                    response = client.get(url.clone()).header("User-Agent", "apeiron-cli").send() => response,
+                };
+                match sent {
+                    Ok(response) => break response,
+                    Err(e) if e.is_connect() && attempt < 4 => {
+                        attempt += 1;
+                        tokio::select! {
+                            _ = cancel.cancelled() => return Err(fail("操作已取消。", 499)),
+                            _ = tokio::time::sleep(Duration::from_secs(1 << attempt)) => {}
+                        }
+                    }
+                    Err(_) => return Err(fail("资源下载失败，请检查网络或离线安装包。", 400)),
+                }
             };
             if [301, 302, 303, 307, 308].contains(&response.status().as_u16()) {
                 url = response
