@@ -28,8 +28,9 @@ CLI 仓库固定交付组合、构建四平台二进制、执行安装验收并�
 7. PR 审核并合并后，nightly 调度器给这个固定组合创建对应版本标签并启动 `Standalone CLI`。
    stable 必须由发布负责人明确授权创建 stable 标签；合并源码或准备 stable 制品不等于发布 stable。
 8. 标签构建成功后，`Unified release` 核对原构建的仓库、工作流、提交和成功状态，下载原产物，
-   验证公开 Chentu 归档摘要和签名，执行四种目标的真实安装。
-9. 四个验收全部成功，才生成与构建、发行输入和本次验收 run 绑定的 `distribution.json` 并发布。
+   验证公开 Chentu 归档摘要和签名，执行真实安装验收：nightly 只跑两个 K3d 目标（macOS ARM64、
+   Linux ARM64 自建 runner）；stable 另加原生单机与三节点 K3s（ECS 临时实例），共四个。
+9. 该通道要求的验收全部成功，才生成与构建、发行输入和本次验收 run 绑定的 `distribution.json` 并发布。
    stable 更新 stable/latest/install.sh；nightly 只更新 nightly。
 
 构建部署包所需的 publisher CLI 与最终交付 CLI 分开：前者来自编排源码提交，包含当时的旧安装引用，

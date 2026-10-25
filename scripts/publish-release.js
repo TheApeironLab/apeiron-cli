@@ -74,7 +74,7 @@ const existing = Bun.spawnSync(['gh', 'release', 'view', tag, '--repo', repo, '-
 if (existing.exitCode !== 0) {
     const notes = join(out, 'release-notes.md');
     const scope = acceptanceScope(version, distribution.applications);
-    const coverage = `Installation acceptance covers ${scope.applications.length} applications on all four declared deployment targets. `
+    const coverage = `Installation acceptance covers ${scope.applications.length} applications on ${distribution.acceptance.map(r => r.target).join(', ')}. `
       + (scope.deferredApplications.length ? `Deferred acceptance: ${scope.deferredApplications.join(', ')} integration configuration remains available but is not part of this nightly's release acceptance. GPU host images are not distributed. ` : '')
       + 'This does not certify every application business journey, GPU inference, failover or disconnected installation. See distribution.json for the bound acceptance receipts.';
     await writeFile(notes, `Apeiron CLI ${version} (${channel}). Standalone macOS/Linux binaries for ARM64 and x64. No Bun or Node.js is required for apeiron init.\n\n${coverage}\n\nInstall this exact version from the public OSS mirror:\n\n\`\`\`sh\ncurl -fsSL ${base}/releases/${version}/install.sh | sh -s -- --version ${version}\napeiron init\n\`\`\`\n\nCLI platform support does not imply a matching deployment bundle exists for every platform. macOS binaries are not Developer ID notarized.\n\nChecksums: SHA256SUMS. The GitHub source repository and releases remain private; OSS assets are public.\n`);

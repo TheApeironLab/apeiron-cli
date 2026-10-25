@@ -68,6 +68,12 @@ test('single-node success cannot replace multi-node or either K3d acceptance', (
   expect(() => validateAcceptanceSet(receipts.slice(0, 3), release, hash, '123', applications)).toThrow();
   receipts[3] = structuredClone(receipts[2]);
   expect(() => validateAcceptanceSet(receipts, release, hash, '123', applications)).toThrow('Duplicate');
+  // nightly publishes on both K3d hosts alone; stable still needs native K3s.
+  const nightly = fixture('0.2.1-nightly.20261025.123');
+  const k3d = nightly.receipts.filter(r => r.topology === 'single-k3d');
+  validateAcceptanceSet(k3d, nightly.release, hash, '123', applications);
+  expect(() => validateAcceptanceSet(k3d.slice(0, 1), nightly.release, hash, '123', applications)).toThrow();
+  expect(() => validateAcceptanceSet(receipts.slice(0, 2), release, hash, '123', applications)).toThrow();
 });
 
 test('stale, mixed or incomplete receipts cannot authorize publication', () => {

@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      targets: ${{ steps.version.outputs.targets }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -39,7 +40,7 @@ jobs:
       - name: Validate the reviewed distribution inputs against compiled pins
         run: bun scripts/check-distribution-source.js release/distribution-input.json
       - id: version
-        run: bun -e 'import {version} from "./scripts/version.js"; console.log("version=" + version)' >> "$GITHUB_OUTPUT"
+        run: bun -e 'import {version} from "./scripts/version.js"; import {requiredTargets} from "./scripts/lib/distribution.js"; console.log("version=" + version + "\ntargets=" + JSON.stringify(requiredTargets(version)))' >> "$GITHUB_OUTPUT"
       - name: Download the original four-platform build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,7 +57,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [k3d-darwin-arm64, k3d-linux-arm64, k3s-single-amd64, k3s-multi-amd64]
+        # nightly: both K3d hosts; stable: also native single and three-server K3s.
+        target: ${{ fromJSON(needs.candidate.outputs.targets) }}
     permissions:
       contents: read
       actions: read
