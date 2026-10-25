@@ -117,14 +117,6 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --all-targets -- -D warnings
       - run: cargo test --locked
-      # Dependency unit tests are not run by the host's cargo test. Keep the
-      # receiver checks that moved out of runtime/src active at their source.
-      - name: Vendored Apeiron CLI checks
-        working-directory: third_party/apeiron/cli
-        run: |
-          cargo fmt --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
       - name: Vendored IAM CLI checks
         working-directory: third_party/apeiron-iam/cli
         run: |
@@ -206,6 +198,9 @@ jobs:
       - name: Smoke test minimal Linux image
         if: runner.os == 'Linux'
         run: docker run --rm -v "$RUNNER_TEMP/smoke:/candidate:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/smoke-linux.sh
+      - name: Cloud receiver wire and process authority contract
+        if: runner.os == 'Linux'
+        run: python3 runtime/tests/cloud_container.py python:3.12-slim-bookworm --binary "$RUNNER_TEMP/smoke/apeiron"
       - name: Verify selections against the public default install package
         # The current pinned Chentu package provides a native ARM64 toolbox.
         # Run real Helmfile and check.py, without a cluster or container network.

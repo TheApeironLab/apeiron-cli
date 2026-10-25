@@ -635,12 +635,353 @@ async fn exposed_roots_cannot_cover_or_create_entries_inside_receiver_control_st
 }
 
 #[tokio::test]
+async fn disjoint_roots_do_not_inherit_an_idle_bound_identity() {
+    let mut fixture = Fixture::inert("echo").await;
+    let original = handshake(&mut fixture.peer, 1, OWNER_BOOT).await;
+    fixture.close(4002).await;
+    fixture.exit().await;
+
+    let other_workspace = fixture.root.with_extension("other-workspace");
+    let other_config = fixture.root.with_extension("other-config");
+    std::fs::create_dir_all(&other_workspace).unwrap();
+    std::fs::create_dir_all(&other_config).unwrap();
+    let (mut child, mut peer) = fixture.raw_another(&other_workspace, &other_config).await;
+    let isolated = handshake(&mut peer, 1, OWNER_BOOT).await;
+    assert_ne!(isolated["previous"]["receiver_id"], original["scope"]["receiver_id"]);
+    assert!(isolated["previous"]["prior_scope"].is_null());
+    peer.close(Some(CloseFrame {
+        code: 4002.into(),
+        reason: "done".into(),
+    }))
+    .await
+    .unwrap();
+    assert!(timeout(Duration::from_secs(5), child.wait())
+        .await
+        .unwrap()
+        .unwrap()
+        .success());
+
+    for (workspace, config, expected) in [
+        (&fixture.root, fixture.root.join("config"), &original),
+        (&other_workspace, other_config.clone(), &isolated),
+    ] {
+        let (mut child, mut peer) = fixture.raw_another(workspace, &config).await;
+        let resumed = handshake(&mut peer, 1, OWNER_BOOT).await;
+        assert_eq!(resumed["previous"]["receiver_id"], expected["scope"]["receiver_id"]);
+        assert_eq!(resumed["previous"]["prior_scope"], expected["scope"]);
+        assert_eq!(resumed["previous"]["process_history"], false);
+        peer.close(Some(CloseFrame {
+            code: 4002.into(),
+            reason: "done".into(),
+        }))
+        .await
+        .unwrap();
+        assert!(timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success());
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn macos_volume_identity_survives_device_changes_without_erasing_safety_evidence() {
+    let mut fixture = Fixture::start("echo").await;
+    fixture.process(None, true).await;
+    fixture.body(7, b"", true).await;
+    assert_eq!(fixture.receive("res").await["ok"], true);
+    fixture.close(4002).await;
+    fixture.exit().await;
+    std::fs::remove_file(fixture.root.join("pid")).unwrap();
+    let path = fixture
+        .root
+        .with_extension("home")
+        .join(".local/state/apeiron/receivers/1/state.json");
+    let original: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(original["process_history"], true);
+    assert!(original["pending"].as_object().unwrap().is_empty());
+
+    for scenario in ["legacy matching", "device changed"] {
+        let mut snapshot = original.clone();
+        if scenario == "legacy matching" {
+            snapshot.as_object_mut().unwrap().remove("system_boot_id");
+        }
+        for resource in snapshot["resources"].as_array_mut().unwrap() {
+            for ancestor in resource["ancestors"].as_array_mut().unwrap() {
+                assert_eq!(ancestor["volume_uuid"].as_array().unwrap().len(), 16);
+                if scenario == "legacy matching" {
+                    ancestor.as_object_mut().unwrap().remove("volume_uuid");
+                } else {
+                    ancestor["identity"][0] = json!(ancestor["identity"][0].as_u64().unwrap() ^ 1);
+                }
+            }
+        }
+        std::fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        let (mut other, mut peer) = fixture.raw_another(&fixture.root, &fixture.root.join("config")).await;
+        let bound = handshake(&mut peer, 1, OWNER_BOOT).await;
+        assert_eq!(bound["previous"]["receiver_id"], original["receiver_id"]);
+        assert_eq!(bound["previous"]["process_history"], true);
+        peer.send(Message::Text(json!({"t":"ping","id":7}).to_string()))
+            .await
+            .unwrap();
+        receive(&mut peer, "pong").await;
+        assert!(!fixture.root.join("pid").exists(), "old work must not replay");
+        peer.close(Some(CloseFrame {
+            code: 4002.into(),
+            reason: "identity verified".into(),
+        }))
+        .await
+        .unwrap();
+        assert!(timeout(Duration::from_secs(5), other.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success());
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["resources"], original["resources"], "{scenario}");
+        assert_eq!(saved["system_boot_id"], original["system_boot_id"]);
+        assert_eq!(saved["next"], original["next"]);
+        assert_eq!(saved["receiver_id"], original["receiver_id"]);
+        assert_eq!(saved["process_history"], true);
+    }
+
+    for scenario in ["legacy changed", "volume changed", "pending work"] {
+        let mut snapshot = original.clone();
+        match scenario {
+            "legacy changed" => {
+                for resource in snapshot["resources"].as_array_mut().unwrap() {
+                    for ancestor in resource["ancestors"].as_array_mut().unwrap() {
+                        ancestor.as_object_mut().unwrap().remove("volume_uuid");
+                        ancestor["identity"][0] = json!(ancestor["identity"][0].as_u64().unwrap() ^ 1);
+                    }
+                }
+            }
+            "volume changed" => {
+                // Matching transient device numbers must not hide a different volume.
+                snapshot["resources"][0]["ancestors"][0]["volume_uuid"][0] = json!(
+                    snapshot["resources"][0]["ancestors"][0]["volume_uuid"][0]
+                        .as_u64()
+                        .unwrap()
+                        ^ 1
+                );
+            }
+            _ => snapshot["pending"] = json!({"1":"proc.run"}),
+        }
+        let bytes = serde_json::to_vec(&snapshot).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        fixture
+            .refused(&fixture.root, &fixture.root.join("config"), "UNKNOWN")
+            .await;
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "{scenario}");
+    }
+
+    std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+    // Keep the old directory alive so its inode cannot be recycled.
+    std::fs::rename(fixture.root.join("config"), fixture.root.join("old-config")).unwrap();
+    std::fs::create_dir(fixture.root.join("config")).unwrap();
+    fixture
+        .refused(&fixture.root, &fixture.root.join("config"), "changed resource roots")
+        .await;
+}
+
+#[tokio::test]
 async fn failed_admission_evidence_stops_before_any_process_side_effect() {
     let mut fixture = Fixture::start("wait").await;
     fixture.block_evidence_writes();
     fixture.process(None, false).await;
     fixture.exit().await;
     assert!(!fixture.root.join("pid").exists());
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn uuidless_filesystems_connect_but_never_authorize_reboot_cleanup() {
+    let mut fixture = Fixture::start("echo").await;
+    fixture.close(4002).await;
+    fixture.exit().await;
+    // devfs has no volume UUID on macOS. Only handshake/ping are sent: no
+    // operation reads, writes, or spawns a process in the exposed directory.
+    let workspace = std::path::Path::new("/dev");
+    let config = fixture.root.join("config");
+    let registry = fixture
+        .root
+        .with_extension("home")
+        .join(".local/state/apeiron/receivers");
+    let mut path = PathBuf::new();
+    let mut original = Value::Null;
+    for _ in 0..2 {
+        let (mut child, mut peer) = fixture.raw_another(workspace, &config).await;
+        let bound = handshake(&mut peer, 1, OWNER_BOOT).await;
+        if !original.is_null() {
+            assert_eq!(bound["previous"]["receiver_id"], original["receiver_id"]);
+        }
+        peer.send(Message::Text(json!({"t":"ping","id":7}).to_string()))
+            .await
+            .unwrap();
+        receive(&mut peer, "pong").await;
+        peer.close(Some(CloseFrame {
+            code: 4002.into(),
+            reason: "UUID-less volume connected".into(),
+        }))
+        .await
+        .unwrap();
+        assert!(timeout(Duration::from_secs(5), child.wait())
+            .await
+            .unwrap()
+            .unwrap()
+            .success());
+        // A different resource set keeps its own slot; locate it by the wire identity.
+        path = std::fs::read_dir(&registry)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|slot| slot.is_dir())
+            .map(|slot| slot.join("state.json"))
+            .find(|candidate| {
+                let saved: Value = serde_json::from_slice(&std::fs::read(candidate).unwrap()).unwrap();
+                saved["receiver_id"] == bound["scope"]["receiver_id"]
+            })
+            .expect("journal for the connected receiver");
+        original = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(original["resources"][0]["ancestors"][0]["volume_uuid"].is_null());
+    }
+
+    for scenario in ["same boot", "reboot", "UUID support lost", "device changed"] {
+        let mut snapshot = original.clone();
+        snapshot["pending"] = json!({"1":"proc.run"});
+        snapshot["process_history"] = json!(true);
+        if scenario != "same boot" {
+            snapshot["system_boot_id"][0] = json!(original["system_boot_id"][0].as_u64().unwrap() ^ 1);
+        }
+        if scenario == "UUID support lost" {
+            // A formerly UUID-capable mount is not verified by a dev/inode
+            // match alone if the current filesystem cannot provide its UUID.
+            snapshot["resources"][0]["ancestors"][0]["volume_uuid"] = json!(vec![1; 16]);
+        }
+        if scenario == "device changed" {
+            snapshot["pending"] = json!({});
+            snapshot["resources"][0]["ancestors"][0]["identity"][0] = json!(
+                snapshot["resources"][0]["ancestors"][0]["identity"][0]
+                    .as_u64()
+                    .unwrap()
+                    ^ 1
+            );
+        }
+        let bytes = serde_json::to_vec(&snapshot).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        fixture.refused(workspace, &config, "UNKNOWN").await;
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "{scenario}");
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn only_a_system_reboot_can_retire_pending_local_processes() {
+    let mut fixture = Fixture::start("wait").await;
+    fixture.send(json!({"t":"acp.open","ch":"old"})).await;
+    fixture.receive("acp.started").await;
+    fixture.pid().await;
+    let path = fixture
+        .root
+        .with_extension("home")
+        .join(".local/state/apeiron/receivers/1/state.json");
+    let original: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(original["pending"].as_object().unwrap().len(), 1);
+    assert_eq!(
+        original["pending"].as_object().unwrap().values().next().unwrap(),
+        "acp.child"
+    );
+    let mut prior_boot = original.clone();
+    prior_boot["system_boot_id"][0] = json!(original["system_boot_id"][0].as_u64().unwrap() ^ 1);
+    for resource in prior_boot["resources"].as_array_mut().unwrap() {
+        for ancestor in resource["ancestors"].as_array_mut().unwrap() {
+            ancestor["identity"][0] = json!(ancestor["identity"][0].as_u64().unwrap() ^ 1);
+        }
+    }
+    std::fs::write(&path, serde_json::to_vec(&prior_boot).unwrap()).unwrap();
+    fixture
+        .refused(&fixture.root, &fixture.root.join("config"), "already in use")
+        .await;
+    std::fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+    fixture.cli.kill().await.unwrap();
+    fixture.cli.wait().await.unwrap();
+    std::fs::write(fixture.root.join("release"), b"release").unwrap();
+    timeout(Duration::from_secs(5), async {
+        while !fixture.root.join("late-write").exists() {
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    std::fs::remove_file(fixture.root.join("pid")).unwrap();
+
+    for scenario in [
+        "same boot",
+        "missing boot",
+        "empty boot",
+        "missing volume",
+        "changed volume",
+    ] {
+        let mut snapshot = prior_boot.clone();
+        match scenario {
+            "same boot" => snapshot["system_boot_id"] = original["system_boot_id"].clone(),
+            "missing boot" => {
+                snapshot.as_object_mut().unwrap().remove("system_boot_id");
+            }
+            "empty boot" => snapshot["system_boot_id"] = json!(vec![0; 16]),
+            "missing volume" => {
+                snapshot["resources"] = original["resources"].clone();
+                snapshot["resources"][0]["ancestors"][0]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("volume_uuid");
+            }
+            _ => snapshot["resources"][0]["ancestors"][0]["volume_uuid"] = json!(vec![0; 16]),
+        }
+        let bytes = serde_json::to_vec(&snapshot).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        fixture
+            .refused(&fixture.root, &fixture.root.join("config"), "UNKNOWN")
+            .await;
+        assert_eq!(std::fs::read(&path).unwrap(), bytes, "{scenario}");
+    }
+    std::fs::write(&path, serde_json::to_vec(&prior_boot).unwrap()).unwrap();
+    std::fs::rename(fixture.root.join("config"), fixture.root.join("old-config")).unwrap();
+    std::fs::create_dir(fixture.root.join("config")).unwrap();
+    fixture
+        .refused(&fixture.root, &fixture.root.join("config"), "UNKNOWN")
+        .await;
+    std::fs::remove_dir(fixture.root.join("config")).unwrap();
+    std::fs::rename(fixture.root.join("old-config"), fixture.root.join("config")).unwrap();
+
+    let (mut restarted, mut peer) = fixture.raw_another(&fixture.root, &fixture.root.join("config")).await;
+    let bound = handshake(&mut peer, 1, OWNER_BOOT).await;
+    assert_eq!(bound["previous"]["cleanup"], "idle");
+    assert_eq!(bound["previous"]["receiver_id"], original["receiver_id"]);
+    assert_eq!(bound["previous"]["process_history"], true);
+    peer.send(Message::Text(json!({"t":"ping","id":7}).to_string()))
+        .await
+        .unwrap();
+    receive(&mut peer, "pong").await;
+    assert!(!fixture.root.join("pid").exists(), "old ACP child must not restart");
+    peer.close(Some(CloseFrame {
+        code: 4002.into(),
+        reason: "reboot verified".into(),
+    }))
+    .await
+    .unwrap();
+    assert!(timeout(Duration::from_secs(5), restarted.wait())
+        .await
+        .unwrap()
+        .unwrap()
+        .success());
+    let saved: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(saved["system_boot_id"], original["system_boot_id"]);
+    assert_eq!(saved["resources"], original["resources"]);
+    assert_eq!(saved["next"], original["next"]);
+    assert_eq!(saved["receiver_id"], original["receiver_id"]);
+    assert_eq!(saved["process_history"], true);
+    assert!(saved["pending"].as_object().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -760,6 +1101,24 @@ async fn losing_the_reply_does_not_lose_cleanup_or_replay_a_v1_request() {
         .unwrap()
         .unwrap()
         .success());
+}
+
+#[tokio::test]
+async fn slow_connection_does_not_consume_the_local_handshake_window() {
+    let mut fixture = Fixture::start("wait").await;
+    fixture.close(1000).await;
+    let (socket, _) = timeout(Duration::from_secs(5), fixture.listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    // Hold the WebSocket upgrade beyond the ten-second business handshake window.
+    sleep(Duration::from_secs(11)).await;
+    fixture.peer = accept_async(socket).await.unwrap();
+    handshake(&mut fixture.peer, 1, OWNER_BOOT).await;
+    fixture.send(json!({"t":"ping","id":8})).await;
+    assert_eq!(fixture.receive("pong").await["id"], 8);
+    fixture.close(4002).await;
+    fixture.exit().await;
 }
 
 #[tokio::test]

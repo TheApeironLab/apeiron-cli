@@ -1,6 +1,6 @@
 [workspace]
 members = ["runtime"]
-exclude = ["third_party/zygos", "third_party/apeiron/cli", "third_party/apeiron-iam/cli"]
+exclude = ["third_party/zygos", "third_party/apeiron-iam/cli"]
 resolver = "2"
 
 [workspace.package]
