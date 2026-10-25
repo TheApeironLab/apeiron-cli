@@ -78,15 +78,27 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          persist-credentials: false
-          path: coordinator
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          repository: TheApeironLab/apeiron
-          ref: ${{ needs.identity.outputs.apeiron }}
           token: ${{ secrets.ZYGOS_READ_TOKEN }}
           persist-credentials: false
-          path: apeiron
+          submodules: recursive
+          path: coordinator
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+      - name: Install static Linux linker
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install native build target
+        working-directory: coordinator
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          case "$PLATFORM" in
+            linux-x64) rustup target add x86_64-unknown-linux-musl ;;
+            darwin-arm64) rustup target add aarch64-apple-darwin ;;
+            darwin-x64) rustup target add x86_64-apple-darwin ;;
+          esac
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: candidate-identity
@@ -94,7 +106,7 @@ jobs:
       - name: Build and measure the native receiver
         env:
           PLATFORM: ${{ matrix.platform }}
-        run: python3 coordinator/scripts/build-receiver-client.py --source apeiron --candidate "$RUNNER_TEMP/identity/candidate.json" --platform "$PLATFORM" --out "$RUNNER_TEMP/client"
+        run: python3 coordinator/scripts/build-receiver-client.py --source coordinator --candidate "$RUNNER_TEMP/identity/candidate.json" --platform "$PLATFORM" --out "$RUNNER_TEMP/client"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: receiver-${{ matrix.platform }}

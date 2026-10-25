@@ -37,6 +37,6 @@ url = "=2.5.8"
 
 zygos-cli = { path = "../third_party/zygos/apps/cli" }
 
-apeiron-runtime = { package = "apeiron", path = "../third_party/apeiron/cli" }
+rustls-platform-verifier = "=0.7.0"
 
 apeiron-iam-cli = { path = "../third_party/apeiron-iam/cli" }
