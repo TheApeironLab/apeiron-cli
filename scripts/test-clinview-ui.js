@@ -15,6 +15,7 @@ await mkdir(join(dir, 'home'));
 const catalogPath = join(setup.root, 'setup/install.json');
 const catalog = JSON.parse(await readFile(catalogPath, 'utf8'));
 catalog.distro = 'clinview';
+catalog.targets['k3s-amd64'] = structuredClone(catalog.targets['k3d-arm64']);
 catalog.applications = catalog.applications.filter(app => ['nexus', 'vasi', 'apeiron'].includes(app.id));
 catalog.components.clinview = { requires: ['core'], files: [] };
 catalog.applications.push({ id: 'clinview', name: 'Clinview', description: '病例审阅', required: true, releases: ['clinview'], requires: [] });
@@ -32,6 +33,10 @@ try {
         } }, network: { status: 'skipped', checks: [] }, checkedAt: '2026-10-25T00:00:00Z'
     } }));
     let preflightInput;
+    await page.route('**/api/nodes', route => route.fulfill({ json: { nodes: [{
+        host: 'node-a', name: 'node-a', os: 'Ubuntu', version: '22.04', architecture: 'amd64',
+        cores: 2, memoryGiB: 8, diskGiB: 80, addresses: ['192.0.2.10']
+    }] } }));
     await page.route('**/api/preflight', route => {
         preflightInput = route.request().postDataJSON();
         return route.fulfill({ json: { preflight: 'fixture ready', blocked: null } });
@@ -42,7 +47,10 @@ try {
     ] } }));
     await page.goto(server.url);
     await page.getByRole('button', { name: '直接配置当前实例（不新建）' }).click();
-    await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
+    await page.getByRole('radio', { name: /远端机器 · SSH/ }).check();
+    await page.getByRole('textbox', { name: 'IP 地址或 SSH 别名' }).fill('node-a');
+    await page.getByRole('button', { name: '自动检测节点', exact: true }).click();
+    await page.getByText('已生成节点配置', { exact: false }).waitFor();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
     await page.getByRole('radio', { name: /^Clinview/ }).check();
@@ -58,6 +66,7 @@ try {
     await writeFile(catalogPath, JSON.stringify(catalog));
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByText(/所选发行版与安装包不匹配/).waitFor();
+    await page.getByText(/当前在线安装源提供 base，所选为 clinview/).waitFor();
     assert.equal(await page.getByRole('heading', { name: '选择发行版', exact: true }).isVisible(), true);
     catalog.distro = 'clinview';
     await writeFile(catalogPath, JSON.stringify(catalog));
@@ -73,6 +82,9 @@ try {
     await page.getByRole('button', { name: '测试两种模式', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
+    await page.getByText('Clinview · 在线下载固定发行版', { exact: true }).waitFor();
+    await page.getByText('单机 K3s（远端 SSH）', { exact: true }).waitFor();
+    await page.getByText('node-a（控制 · 192.0.2.10）', { exact: true }).waitFor();
     assert.equal((await page.getByRole('main').innerText()).includes('fixture-only-clinview-key'), false);
     assert.equal(preflightInput.deployment.installation.distro, 'clinview');
     assert.deepEqual(preflightInput.apps.sort(), ['apeiron', 'clinview', 'nexus', 'vasi']);

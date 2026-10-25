@@ -816,9 +816,9 @@ export function initWizard(supportsK3sHost) {
         const value = target();
         const install = value.installation;
         get('summary-instance').textContent = instanceLabel();
-        get('summary-topology').textContent = install.topology === 'single-k3d' ? '单机 K3d（本机 Docker）' : install.topology === 'multi-k3s' ? `多机 K3s${install.ha ? ' · 控制平面高可用' : ''}` : '单机 K3s（当前主机）';
-        get('summary-nodes').textContent = install.topology === 'multi-k3s' ? install.nodes.map(node => `${node.host}（${node.role === 'server' ? '控制' : '工作'} · ${node.address}）`).join('、') || '尚未检测' : install.topology === 'single-k3d' ? '本机 Docker 容器' : '当前主机';
-        get('summary-source').textContent = 'Minimal · ' + (value.offline ? `离线 · ${value.bundleDir}` : '在线下载固定发行版');
+        get('summary-topology').textContent = install.topology === 'single-k3d' ? '单机 K3d（本机 Docker）' : install.topology === 'multi-k3s' ? `多机 K3s${install.ha ? ' · 控制平面高可用' : ''}` : install.location === 'ssh' ? '单机 K3s（远端 SSH）' : '单机 K3s（当前主机）';
+        get('summary-nodes').textContent = install.location === 'ssh' ? install.nodes.map(node => `${node.host}（${node.role === 'server' ? '控制' : '工作'} · ${node.address}）`).join('、') || '尚未检测' : install.topology === 'single-k3d' ? '本机 Docker 容器' : '当前主机';
+        get('summary-source').textContent = (install.distro === 'clinview' ? 'Clinview' : 'Minimal') + ' · ' + (value.offline ? `离线 · ${value.bundleDir}` : '在线下载固定发行版');
         get('summary-domain').textContent = install.domain || '—';
         get('summary-entry').textContent = install.publicAccess ? `${install.publicAccess.mode === 'relay' ? 'ECS 转发' : '公网直连'} · ${install.publicAccess.publicIp}` : `内网 · ${install.entryIp || '—'}`;
         get('summary-ports').textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;

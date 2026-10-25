@@ -977,9 +977,9 @@ ${access.domain}      A    ${access.entryIp}`;
   function renderSummary() {
     const value = target(), install = value.installation;
     get("summary-instance").textContent = instanceLabel();
-    get("summary-topology").textContent = install.topology === "single-k3d" ? "\u5355\u673A K3d\uFF08\u672C\u673A Docker\uFF09" : install.topology === "multi-k3s" ? `\u591A\u673A K3s${install.ha ? " \xB7 \u63A7\u5236\u5E73\u9762\u9AD8\u53EF\u7528" : ""}` : "\u5355\u673A K3s\uFF08\u5F53\u524D\u4E3B\u673A\uFF09";
-    get("summary-nodes").textContent = install.topology === "multi-k3s" ? install.nodes.map((node) => `${node.host}\uFF08${node.role === "server" ? "\u63A7\u5236" : "\u5DE5\u4F5C"} \xB7 ${node.address}\uFF09`).join("\u3001") || "\u5C1A\u672A\u68C0\u6D4B" : install.topology === "single-k3d" ? "\u672C\u673A Docker \u5BB9\u5668" : "\u5F53\u524D\u4E3B\u673A";
-    get("summary-source").textContent = "Minimal \xB7 " + (value.offline ? `\u79BB\u7EBF \xB7 ${value.bundleDir}` : "\u5728\u7EBF\u4E0B\u8F7D\u56FA\u5B9A\u53D1\u884C\u7248");
+    get("summary-topology").textContent = install.topology === "single-k3d" ? "\u5355\u673A K3d\uFF08\u672C\u673A Docker\uFF09" : install.topology === "multi-k3s" ? `\u591A\u673A K3s${install.ha ? " \xB7 \u63A7\u5236\u5E73\u9762\u9AD8\u53EF\u7528" : ""}` : install.location === "ssh" ? "\u5355\u673A K3s\uFF08\u8FDC\u7AEF SSH\uFF09" : "\u5355\u673A K3s\uFF08\u5F53\u524D\u4E3B\u673A\uFF09";
+    get("summary-nodes").textContent = install.location === "ssh" ? install.nodes.map((node) => `${node.host}\uFF08${node.role === "server" ? "\u63A7\u5236" : "\u5DE5\u4F5C"} \xB7 ${node.address}\uFF09`).join("\u3001") || "\u5C1A\u672A\u68C0\u6D4B" : install.topology === "single-k3d" ? "\u672C\u673A Docker \u5BB9\u5668" : "\u5F53\u524D\u4E3B\u673A";
+    get("summary-source").textContent = (install.distro === "clinview" ? "Clinview" : "Minimal") + " \xB7 " + (value.offline ? `\u79BB\u7EBF \xB7 ${value.bundleDir}` : "\u5728\u7EBF\u4E0B\u8F7D\u56FA\u5B9A\u53D1\u884C\u7248");
     get("summary-domain").textContent = install.domain || "\u2014";
     get("summary-entry").textContent = install.publicAccess ? `${install.publicAccess.mode === "relay" ? "ECS \u8F6C\u53D1" : "\u516C\u7F51\u76F4\u8FDE"} \xB7 ${install.publicAccess.publicIp}` : `\u5185\u7F51 \xB7 ${install.entryIp || "\u2014"}`;
     get("summary-ports").textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;
