@@ -69,6 +69,9 @@ pub fn connection(v: &Value) -> Result<Value> {
     }
     Ok(json!({"sshUser":user,"sshKey":key,"sshPort":port}))
 }
+pub fn remote_installation(v: &Value) -> bool {
+    v["location"] == "ssh" || (v.get("location").is_none() && v["topology"] == "multi-k3s")
+}
 pub fn installation(v: &Value) -> Result<Value> {
     let distro = v["distro"].as_str().unwrap_or("base");
     if !["base", "minimal"].contains(&distro) {
@@ -77,6 +80,15 @@ pub fn installation(v: &Value) -> Result<Value> {
     let topology = text(v, "topology", 32, false)?;
     if !["single-k3d", "single-k3s", "multi-k3s"].contains(&topology.as_str()) {
         return Err(fail("请选择安装方式。", 400));
+    }
+    let location = v["location"]
+        .as_str()
+        .unwrap_or(if topology == "multi-k3s" { "ssh" } else { "local" });
+    if !["local", "ssh"].contains(&location)
+        || (location == "ssh" && topology == "single-k3d")
+        || (location == "local" && topology == "multi-k3s")
+    {
+        return Err(fail("部署位置与节点类型不一致。", 400));
     }
     let local = topology == "single-k3d";
     let domain = text(v, "domain", 220, false)?;
@@ -139,10 +151,18 @@ pub fn installation(v: &Value) -> Result<Value> {
         {
             return Err(fail("多机部署需要有效的控制节点数量。", 400));
         }
+    } else if location == "ssh" {
+        // Empty nodes are an unfinished wizard draft, rejected before deployment.
+        if !nodes.is_empty() && (nodes.len() != 1 || servers != 1) {
+            return Err(fail("一台 SSH 目标机器必须是控制节点。", 400));
+        }
     } else if !nodes.is_empty() {
-        return Err(fail("单机部署不接受远程节点。", 400));
+        return Err(fail("本机部署不接受远程节点。", 400));
     }
     let mut out = connection(v)?;
+    if v.get("location").is_some() {
+        out["location"] = json!(location);
+    }
     if distro == "minimal" {
         out["distro"] = json!(distro);
     }
@@ -162,7 +182,8 @@ pub fn installation(v: &Value) -> Result<Value> {
             .map(|n| n.as_u64())
             .unwrap_or(Some(19444))
             .unwrap_or(0);
-        if topology != "single-k3s"
+        if remote_installation(v)
+            || topology != "single-k3s"
             || !["direct", "relay"].contains(&mode)
             || !safe_ip(public_ip)
             || matches(
@@ -265,6 +286,20 @@ pub fn validate(v: &Value, current: &Value) -> Result<Value> {
     if current.get("llm").is_some() {
         out["llm"] = current["llm"].clone();
     }
+    if let Some(source) = v.get("setupSource") {
+        let offline = source["offline"]
+            .as_bool()
+            .ok_or_else(|| fail("安装来源格式不正确。", 400))?;
+        let bundle = if source["bundleDir"] == "" {
+            String::new()
+        } else {
+            absolute(source, "bundleDir")?
+        };
+        if offline && bundle.is_empty() {
+            return Err(fail("离线部署请选择安装包目录。", 400));
+        }
+        out["setupSource"] = json!({"offline":offline,"bundleDir":bundle});
+    }
     if let Some(d) = v.get("deployment") {
         if d.get("profile").is_some() || std::env::var_os("CHENTU_PROFILE").is_some() {
             return Err(fail("profile 已移除，请选择 installation.topology。", 400));
@@ -355,6 +390,9 @@ pub fn public(s: &Value) -> Value {
     }
     let mut result =
         json!({"slug":c["slug"],"apps":c["apps"],"deployment":c["deployment"],"models":null,"gpustack":c["gpustack"]});
+    if let Some(source) = c.get("setupSource") {
+        result["setupSource"] = source.clone();
+    }
     if let Some(m) = c.get("models") {
         result["models"] = json!({"provider":m["provider"],"baseUrl":m["baseUrl"],"fast":m["fast"],"deep":m["deep"],"hasApiKey":!m["apiKey"].as_str().unwrap_or("").is_empty()});
     }

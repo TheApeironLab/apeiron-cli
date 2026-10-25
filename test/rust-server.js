@@ -1,9 +1,15 @@
 import { spawn } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { binary } from './support';
 // Each server is an isolated Rust process with its own configuration and lifetime.
 export const startInitServer = async (options) => {
     if (options.resources || options.gateway) throw new Error('Use real resource or Gateway HTTP fixtures');
-    const child = spawn(binary, ['init', '--no-open', '--config', options.path, ...(options.port === undefined ? [] : ['--port', String(options.port)])], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...options.env } });
+    // Keep the registry and host scheduler lock inside this fixture, including
+    // when a real installation is running on the developer's machine.
+    const fixtureHome = options.env?.HOME ?? await mkdtemp(join(tmpdir(), 'apeiron-server-home-'));
+    const child = spawn(binary, ['init', '--no-open', '--config', options.path, ...(options.port === undefined ? [] : ['--port', String(options.port)])], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...options.env, HOME: fixtureHome } });
     let output = '', errors = '', result = { phase: 'idle' };
     child.stderr.on('data', chunk => { errors += chunk; });
     const closed = new Promise(resolve => child.once('close', () => {
@@ -12,6 +18,7 @@ export const startInitServer = async (options) => {
             result = { ...result, phase };
         resolve();
     }));
+    if (!options.env?.HOME) void closed.then(() => rm(fixtureHome, { recursive: true, force: true }));
     const url = await new Promise((resolve, reject) => {
         const timer = setTimeout(() => { child.kill(); reject(new Error('Rust wizard startup timed out')); }, 10000);
         child.stdout.on('data', chunk => { output += chunk; const url = /^url\t(.+)$/m.exec(output)?.[1]; if (url) {

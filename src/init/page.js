@@ -39,8 +39,8 @@ export function renderPage(nonce) {
 </style></head><body>
 <div class="shell"><header class="top"><div class="brand"><img class="brand-logo" src="${logoUrl}" alt="Apeiron" width="203" height="28"></div><div class="local"><span class="dot"></span><span id="deployment-mode">K3s 部署</span><span class="chip-sep" aria-hidden="true">·</span><span id="instance-chip" title="当前正在操作的安装实例">实例未登记</span></div></header>
 <main class="layout"><aside class="sidebar"><div class="eyebrow">GET STARTED</div><h2>从这里开始。</h2><p>几步配置，让 Apeiron<br>适合你的团队。</p><ol class="steps" aria-label="部署步骤">
-<li data-step data-state="active" aria-current="step"><span class="step-num">1</span><span class="step-copy">拓扑<small>选择安装方式</small></span></li>
-<li data-step data-state="pending"><span class="step-num">2</span><span class="step-copy">应用<small>组件与场景组合</small></span></li>
+<li data-step data-state="active" aria-current="step"><span class="step-num">1</span><span class="step-copy">部署位置<small>本机或远端 SSH</small></span></li>
+<li data-step data-state="pending"><span class="step-num">2</span><span class="step-copy">发行版<small>选择 Distro</small></span></li>
 <li data-step data-state="pending"><span class="step-num">3</span><span class="step-copy">共存与预算<small>端口、预检与资源</small></span></li>
 <li data-step data-state="pending"><span class="step-num">4</span><span class="step-copy">域名与访问<small>组织、入口与模型</small></span></li>
 <li data-step data-state="pending"><span class="step-num">5</span><span class="step-copy">摘要<small>预检与部署摘要</small></span></li>
@@ -50,11 +50,10 @@ export function renderPage(nonce) {
 
 </ol><div class="sidebar-note">配置保存在这台电脑。<br>你可以随时再次运行 apeiron init。</div></aside>
 <section class="content">
-<section id="home" hidden aria-labelledby="home-title"><div class="step-label">开始</div><h1 id="home-title">选择要进行的操作</h1><p class="subtitle">每个安装实例对应一份配置、一个集群与一组入口端口。可以在同一台主机上创建多个 K3d 实例。</p>
+<section id="home" hidden aria-labelledby="home-title"><div class="step-label">开始</div><h1 id="home-title">选择要进行的操作</h1><p class="subtitle">这台机器运行安装向导。集群可以部署到本机，也可以通过 SSH 部署到你选择的远端机器。</p>
 <div class="entry-cards">
-<section class="entry-card" aria-labelledby="create-title"><h2 id="create-title">创建新安装实例</h2><p class="hint">登记一个新的实例目录，并由服务端分配入口端口；随后进入配置流程。</p>
+<section class="entry-card" aria-labelledby="create-title"><h2 id="create-title">创建新安装实例</h2><p class="hint">先为安装实例命名。进入下一页后，再选择部署位置、目标机器与安装来源。</p>
 <div class="field"><label class="field-label" for="new-instance-name">实例名称</label><input id="new-instance-name" type="text" maxlength="63" placeholder="例如 lab" autocomplete="off" spellcheck="false" pattern="[a-z0-9]([a-z0-9\\-]{0,61}[a-z0-9])?"><p class="hint">小写字母、数字和连字符；同时作为默认域名前缀。</p></div>
-<div class="field"><label class="field-label" for="new-instance-topology">拓扑</label><select id="new-instance-topology"><option value="single-k3d">单机 K3d · 本机 Docker</option><option value="single-k3s">单机 K3s · 当前 Ubuntu 主机</option><option value="multi-k3s">多机 K3s · 多台 Ubuntu 主机</option></select></div>
 <button id="create-instance" class="button primary" type="button">创建并开始配置</button><p id="create-instance-status" class="hint" role="status"></p>
 <p class="hint"><button id="configure-current" class="link-button" type="button">直接配置当前实例（不新建）</button></p></section>
 <section class="entry-card" aria-labelledby="manage-title"><h2 id="manage-title">管理已有安装实例</h2><p class="hint">查看注册表中的实例、集群状态与端口；可以切换、采集诊断或卸载未运行的 K3d 实例。</p><p id="home-instance-count" class="hint"></p><button id="manage-instances" class="button" type="button">查看实例列表</button></section>
@@ -63,12 +62,12 @@ export function renderPage(nonce) {
 <div class="instance-toolbar"><button id="instances-back" class="button" type="button">返回首页</button><button id="instances-refresh" class="button" type="button">刷新</button><span id="instances-registry" class="saved-path"></span></div>
 <ul id="instance-list" class="instance-list" aria-label="安装实例"></ul><p id="instances-status" class="hint" role="status"></p>
 <dialog id="instance-confirm" class="instance-confirm" aria-labelledby="instance-confirm-title" aria-describedby="instance-confirm-target instance-confirm-description"><h2 id="instance-confirm-title">卸载实例？</h2><p id="instance-confirm-target" class="instance-confirm-target"></p><p id="instance-confirm-description" class="hint">卸载会删除该实例已停止的 K3d 集群、其内部 registry 容器和实例目录，并从注册表移除；不会删除其他集群或执行 docker prune。</p><p id="instance-confirm-status" class="hint" role="status"></p><div class="instance-confirm-actions"><button id="instance-cancel-delete" class="button" type="button" autofocus>取消</button><button id="instance-confirm-delete" class="button danger" type="button">确认卸载</button></div></dialog></section>
-<div id="form-heading" hidden><div class="step-label" id="step-label">第 1 步 / 共 8 步</div><h1 id="step-title">选择拓扑</h1><p class="subtitle" id="step-subtitle">检测当前主机，选择安装方式。</p></div>
+<div id="form-heading" hidden><div class="step-label" id="step-label">第 1 步 / 共 8 步</div><h1 id="step-title">选择部署位置</h1><p class="subtitle" id="step-subtitle">选择集群部署在哪里，并检测目标机器。</p></div>
 <div class="loading" id="loading" role="status">正在读取配置…</div>
 <form id="setup-form" hidden novalidate><fieldset id="fields" disabled>
 <div data-panel>
 <section id="system-probe" class="machine-probe system-probe" aria-labelledby="system-title" aria-busy="true">
-<div class="probe-heading"><h2 id="system-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/></svg>系统配置</h2><span class="system-host">当前主机</span></div>
+<div class="probe-heading"><h2 id="system-title"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3m14-6h3m-3 6h3"/></svg>系统配置</h2><span class="system-host">安装机 · 运行此向导</span></div>
 <dl class="system-grid"><div><dt>操作系统</dt><dd id="probe-os">—</dd><small id="probe-kernel"></small></div><div><dt>架构</dt><dd id="probe-arch">—</dd></div><div><dt>逻辑核心</dt><dd id="probe-cores">—</dd></div><div><dt>内存</dt><dd id="probe-memory">—</dd></div></dl>
 <p class="system-cpu"><span>CPU</span><strong id="probe-cpu">—</strong></p>
 </section>
@@ -86,17 +85,19 @@ export function renderPage(nonce) {
 <label class="choice"><input type="radio" name="source" id="offline" value="offline"><strong>离线部署</strong><small>使用本机的离线安装包</small></label></div></fieldset>
 <div id="bundle-fields" hidden><div class="field"><label class="field-label" for="bundle-dir">离线安装包目录</label><div class="path-picker"><input id="bundle-dir" type="text" placeholder="/media/chentu-bundle" autocomplete="off"><button id="pick-bundle" class="button" type="button">选择目录</button></div><p class="hint">选择包含宸途部署程序和应用资源的完整离线包目录。也可以粘贴 CLI 主机上的路径。</p></div></div>
 <p id="resource-mode" class="hint">选择应用后检查实际安装资源，下载与校验通过后才会安装。</p>
-<fieldset class="choice-field"><legend>集群类型</legend><div class="choices topology-choices">
-<label class="choice"><input type="radio" name="topology" value="single-k3s"><strong>单机 K3s</strong><small>安装到当前 Ubuntu 主机</small></label>
-<label class="choice"><input type="radio" name="topology" value="single-k3d"><strong>单机 K3d</strong><small>本地开发测试 · Docker</small></label>
-<label class="choice"><input type="radio" name="topology" value="multi-k3s"><strong>多机 K3s</strong><small>连接多台 Ubuntu 主机</small></label></div></fieldset>
+<fieldset class="choice-field"><legend>部署位置</legend><div class="choices">
+<label class="choice"><input type="radio" name="location" value="local" checked><strong>这台机器</strong><small>在运行向导的安装机上部署</small></label>
+<label class="choice"><input type="radio" name="location" value="ssh"><strong>远端机器 · SSH</strong><small>添加一台或多台目标机器</small></label></div></fieldset>
+<fieldset id="local-runtime" class="choice-field"><legend>本机运行方式</legend><div class="choices">
+<label class="choice"><input type="radio" name="topology" value="single-k3s"><strong>Ubuntu 上安装 K3s</strong><small>使用本机作为集群节点</small></label>
+<label class="choice"><input type="radio" name="topology" value="single-k3d" checked><strong>Docker 中运行 K3d</strong><small>需要本机 Docker 正在运行</small></label></div></fieldset>
 <p id="topology-note" class="hint" role="status"></p>
-<div id="local-ports" hidden><div class="node-controls choice-field"><label class="field-label" for="http-port">HTTP 端口<input id="http-port" type="text" inputmode="numeric" value="54320" maxlength="5" readonly></label><label class="field-label" for="https-port">HTTPS 端口<input id="https-port" type="text" inputmode="numeric" value="54321" maxlength="5" readonly></label></div><p class="hint" id="local-ports-note">入口端口由服务端在创建实例时分配并登记，页面只读展示；同一集群重试沿用原端口。</p></div>
+<div id="local-ports" hidden><div class="node-controls choice-field"><label class="field-label" for="http-port">HTTP 端口<input id="http-port" type="text" inputmode="numeric" value="54320" maxlength="5" readonly></label><label class="field-label" for="https-port">HTTPS 端口<input id="https-port" type="text" inputmode="numeric" value="54321" maxlength="5" readonly></label></div><p class="hint" id="local-ports-note">入口端口在确认部署位置后由服务端分配并登记，页面只读展示；同一集群重试沿用原端口。</p></div>
 <div id="ha-fields" hidden><label class="test-switch" for="ha"><input id="ha" type="checkbox">控制平面高可用</label><p class="hint">普通多机：1 个控制节点，其余为工作节点。高可用：至少 3 个、且为奇数个控制节点。</p></div>
 </section>
 <section id="node-section" class="machine-probe" aria-labelledby="nodes-title" hidden>
 <div class="probe-heading"><h2 id="nodes-title">节点连接</h2><button id="import-ssh" class="button" type="button">导入 SSH 别名</button></div>
-<div class="field node-addresses"><label class="field-label" for="node-hosts">IP 地址或 SSH 别名</label><textarea id="node-hosts" rows="3" placeholder="192.168.1.10&#10;192.168.1.11" spellcheck="false"></textarea></div>
+<div class="field node-addresses"><label class="field-label" for="node-hosts">IP 地址或 SSH 别名</label><textarea id="node-hosts" rows="3" placeholder="192.0.2.10&#10;192.0.2.11" spellcheck="false"></textarea></div>
 <div class="connection-grid"><div class="field"><label class="field-label" for="ssh-user">SSH 用户</label><input id="ssh-user" type="text" placeholder="沿用 SSH 配置"></div><div class="field"><label class="field-label" for="ssh-port">端口</label><input id="ssh-port" type="text" inputmode="numeric" value="22"></div></div>
 <div class="field"><label class="field-label" for="ssh-key">SSH 私钥路径 <span class="optional">可选</span></label><input id="ssh-key" type="text" placeholder="留空使用 SSH 配置或 Agent" autocomplete="off"></div>
 <button id="detect-nodes" class="button" type="button">自动检测节点</button><p id="nodes-note" class="hint" role="status">检测系统、硬件、磁盘和 sudo 权限；不会安装软件。首次连接需先通过 ssh 确认主机指纹。</p>
@@ -105,20 +106,20 @@ export function renderPage(nonce) {
 
 </div>
 <div data-panel hidden>
-<section class="machine-probe" aria-labelledby="scenario-title"><div class="probe-heading"><h2 id="scenario-title">场景组合</h2></div><p class="hint">按场景快速选择一组应用，再按需增减。所选应用的资源闭包会在部署前校验。</p>
-<div class="scenario-buttons"><button type="button" class="button" data-scenario="required">仅必选</button><button type="button" class="button" data-scenario="core">核心协作</button><button type="button" class="button" data-scenario="full">完整</button></div></section>
-<p id="distro-note" class="hint"></p><p id="management-cli-note" class="hint"></p>
-<div class="app-grid" id="app-grid"></div><p class="selected-count" id="selected-count"></p><p class="hint">先准备所选应用及依赖的安装资源，再创建集群和部署应用。缺少资源或校验失败时会停止。</p>
+<fieldset class="choice-field"><legend>发行版</legend><div class="choices">
+<label class="choice"><input type="radio" name="distro" value="minimal" checked><strong>Minimal</strong><small>基础平台与 AI 能力。</small></label>
+</div></fieldset>
+
 </div>
 <div data-panel hidden>
 <section class="machine-probe" aria-labelledby="instance-title"><div class="probe-heading"><h2 id="instance-title">当前实例与入口端口</h2><span class="system-host" id="instance-topology-label"></span></div>
 <dl class="summary"><div><dt>实例</dt><dd id="coexist-instance"></dd></div><div><dt>配置</dt><dd id="coexist-config" class="saved-path"></dd></div><div><dt>入口端口</dt><dd id="coexist-ports"></dd></div></dl>
-<p class="hint">端口由服务端在创建实例时分配（注册表、本机 bind 与 docker ps 三重排除），页面不可修改。原生 K3s 固定 80 / 443。</p></section>
+<p class="hint">端口由服务端在确认部署位置后分配（注册表、本机 bind 与 docker ps 三重排除），页面不可修改。原生 K3s 固定 80 / 443。</p></section>
 <section class="machine-probe" aria-labelledby="coexist-title"><div class="probe-heading"><h2 id="coexist-title">共存预检</h2><button id="coexist-refresh" class="button" type="button">重新预检</button></div>
 <p id="coexist-status" class="hint" role="status">进入本步时自动预检。</p><ul id="coexist-warnings" class="dns-results" aria-label="预检警告"></ul>
 <p class="hint">只读检查宿主已有 K3s 数据、k3d 容器、10.42/10.43 路由与 Docker 子网重叠、iptables；不修改路由、防火墙或 Docker 资源。警告同样会出现在部署响应的 preflight 字段。</p></section>
 <section class="machine-probe" aria-labelledby="budget-title"><div class="probe-heading"><h2 id="budget-title">资源预算</h2><span class="system-host">估算</span></div>
-<dl class="summary"><div><dt>主机</dt><dd id="budget-host">—</dd></div><div><dt>所选应用</dt><dd id="budget-apps">—</dd></div><div><dt>内存估算</dt><dd id="budget-memory">—</dd></div></dl><p id="budget-note" class="hint"></p></section>
+<dl class="summary"><div><dt>主机</dt><dd id="budget-host">—</dd></div><div><dt>发行版内容</dt><dd id="budget-apps">—</dd></div><div><dt>内存预算</dt><dd id="budget-memory">—</dd></div></dl><details id="budget-release-details" hidden><summary>查看全部 release</summary><ul id="budget-releases" aria-label="发行版 release"></ul></details><p id="budget-note" class="hint"></p></section>
 </div>
 <div data-panel hidden>
 <div class="field"><label class="field-label" for="slug">Slug name</label><input id="slug" name="slug" type="text" placeholder="例如 acme-team" required maxlength="63" pattern="[a-z0-9]([a-z0-9\\-]{0,61}[a-z0-9])?" autocomplete="off" spellcheck="false" aria-describedby="slug-help"><p id="slug-help" class="hint">使用小写字母、数字和连字符，最多 63 个字符。</p></div>
@@ -186,6 +187,6 @@ export function renderPage(nonce) {
 <p id="credentials-status" class="hint" role="status" aria-live="polite"></p><div class="credential-actions"><button id="reload-credentials" class="button" type="button">重新读取</button><button id="download-credentials" class="button" type="button" disabled>下载凭据</button></div><p class="hint">首次安装默认用户名为 platform-owner。若已在 IAM 修改密码，请使用新密码登录。</p></section>
 <section class="access-card" aria-labelledby="verification-check-title"><div class="probe-heading"><h2 id="verification-check-title">连接测试</h2><button id="run-verification" class="button" type="button">开始测试</button></div><p id="verification-scope" class="hint"></p><ul id="verification-results" class="verification-results"></ul><p id="verification-status" class="hint" role="status">点击开始测试，检查解析、证书信任和 HTTPS。</p></section>
 <section class="login-test" aria-labelledby="login-test-title"><h2 id="login-test-title">登录测试</h2><p class="hint">复制上方账号密码，打开应用完成登录。连接测试通过后，仍需实际登录验证身份与权限。</p><div class="access-downloads"><a id="test-open-apeiron" class="button primary" target="_blank" rel="noreferrer">登录 Apeiron ↗</a><a id="test-open-ops" class="button" target="_blank" rel="noreferrer">登录 Ops ↗</a></div></section></section><div id="finish-actions" class="success-actions" hidden><button id="stop-deployment" type="button" class="button" hidden>停止部署</button><button id="retry-deployment" type="button" class="button primary" hidden>重新部署</button><button id="edit" type="button" class="button" hidden>返回修改</button><button id="view-deployment" type="button" class="button" hidden>查看部署记录</button><button id="configure-access" type="button" class="button primary" hidden>继续配置访问</button><button id="to-verification" type="button" class="button primary" hidden>下一步：测试</button><button id="back-access" type="button" class="button" hidden>返回配置访问</button><button id="finish" type="button" class="button" disabled>完成并关闭向导</button></div>
-</section></main><footer class="footer"><span>Apeiron · Deploy your workspace</span><span>拓扑 · 应用 · 共存 · 域名 · 摘要 · 部署 · 访问 · 测试</span></footer></div>
+</section></main><footer class="footer"><span>Apeiron · Deploy your workspace</span><span>部署位置 · 发行版 · 共存 · 域名 · 摘要 · 部署 · 访问 · 测试</span></footer></div>
 <script nonce="${nonce}">(${initWizard.toString()})(${supportsK3sHost.toString()});</script></body></html>`;
 }

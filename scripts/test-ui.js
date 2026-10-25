@@ -7,7 +7,19 @@ import { deploymentFixture, freshInstallFixture } from '../test/fixtures';
 const dir = await mkdtemp(join(tmpdir(), 'apeiron-wizard-ui-'));
 const path = join(dir, 'config.json');
 const setup = await deploymentFixture(dir);
-await freshInstallFixture(dir, setup, 17, 'example.internal');
+async function minimalFixture(exit, domain) {
+    await freshInstallFixture(dir, setup, exit, domain);
+    const catalogPath = join(setup.root, 'setup/install.json');
+    const catalog = JSON.parse(await readFile(catalogPath, 'utf8'));
+    catalog.distro = 'minimal';
+    catalog.resourceBudget = { basis: 'helm-template', workloads: 8,
+        memoryRequestsBytes: 2 * 1073741824, memoryRequestsBytesPerNode: 0,
+        missingMemoryRequests: [], transientWorkloads: [] };
+    catalog.applications = catalog.applications.filter(app => ['nexus', 'vasi', 'apeiron'].includes(app.id));
+    for (const target of Object.values(catalog.targets)) target.environment.distro = 'minimal';
+    await writeFile(catalogPath, JSON.stringify(catalog));
+}
+await minimalFixture(17, 'example.internal');
 const binary = process.argv[2] ? resolve(process.argv[2]) : resolve(import.meta.dir, '../target/release/apeiron');
 // HOME is isolated so the instance registry never touches the real ~/.apeiron.
 await mkdir(join(dir, 'home'), { recursive: true });
@@ -126,7 +138,7 @@ try {
     await page.getByText('注册表中还没有实例。返回首页创建新实例。', { exact: true }).waitFor();
     await page.getByRole('button', { name: '返回首页', exact: true }).click();
     await page.getByRole('button', { name: '直接配置当前实例（不新建）', exact: true }).click();
-    await page.getByRole('heading', { name: '选择拓扑', exact: true }).waitFor();
+    await page.getByRole('heading', { name: '选择部署位置', exact: true }).waitFor();
     assert.match(await page.locator('#step-label').innerText(), /共 8 步/);
     await page.getByText('Ubuntu 22.04', { exact: true }).waitFor();
     assert.equal(await page.getByText('AMD64', { exact: true }).isVisible(), true);
@@ -192,13 +204,13 @@ try {
     detected.machine.hardware.runtimeArchitecture = 'arm64';
     await page.getByRole('button', { name: '重新检测', exact: true }).click();
     await page.getByText('Ubuntu 24.04', { exact: true }).waitFor();
-    await page.getByRole('radio', { name: /单机 K3s/ }).check();
-    assert.match(await page.locator('#topology-note').innerText(), /匹配系统与架构的安装包/);
+    await page.getByRole('radio', { name: /Ubuntu 上安装 K3s/ }).check();
+    assert.match(await page.locator('#topology-note').innerText(), /root 或免密 sudo/);
     assert.equal(await page.locator('#entry-field').isVisible(), false, 'Entry IP belongs to the access step');
     assert.equal(await page.locator('#local-ports').isVisible(), false);
     // Walk to the access step with single K3s to exercise public entry pairing.
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    await page.getByRole('heading', { name: '选择应用与场景', exact: true }).waitFor();
+    await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '共存配置与资源预算', exact: true }).waitFor();
     assert.match(await page.locator('#coexist-ports').innerText(), /80 \/ HTTPS 443/);
@@ -241,11 +253,11 @@ try {
     await page.getByRole('button', { name: '上一步', exact: true }).click();
     await page.getByRole('button', { name: '上一步', exact: true }).click();
     await page.getByRole('button', { name: '上一步', exact: true }).click();
-    await page.getByRole('heading', { name: '选择拓扑', exact: true }).waitFor();
-    await page.getByRole('radio', { name: /多机 K3s/ }).check();
+    await page.getByRole('heading', { name: '选择部署位置', exact: true }).waitFor();
+    await page.getByRole('radio', { name: /远端机器 · SSH/ }).check();
     assert.equal(await page.locator('#node-section').isVisible(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    assert.equal(await page.getByRole('heading', { name: '选择拓扑', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('heading', { name: '选择部署位置', exact: true }).isVisible(), true);
     const node = (n) => ({ host: 'node-' + n, name: 'node-' + n, os: 'ubuntu', version: '22.04', architecture: 'x86_64', cores: 8, memoryGiB: 32, diskGiB: 120, addresses: ['192.0.2.' + (10 + n)], sudo: true, existingCluster: false, supported: true });
     await page.route('**/api/nodes', async (route) => {
         const input = route.request().postDataJSON();
@@ -268,7 +280,8 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: join(dir, 'mobile-multi-host.png'), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 920 });
-    await page.getByRole('radio', { name: /单机 K3d/ }).check();
+    await page.getByRole('radio', { name: /这台机器/ }).check();
+    await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
     // Ports are allocated server-side and shown read-only; an unregistered config shows the K3d defaults.
     assert.equal(await page.locator('#http-port').inputValue(), '54320');
     assert.equal(await page.locator('#https-port').inputValue(), '54321');
@@ -277,44 +290,22 @@ try {
     await offline.check();
     assert.equal(await page.getByLabel('离线安装包目录', { exact: true }).isVisible(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    assert.equal(await page.getByRole('heading', { name: '选择拓扑', exact: true }).isVisible(), true);
+    assert.equal(await page.getByRole('heading', { name: '选择部署位置', exact: true }).isVisible(), true);
     await online.check();
     assert.equal(await page.getByText('开发选项', { exact: true }).count(), 0);
     assert.equal(await page.getByLabel('本地宸途源码路径', { exact: true }).count(), 0);
     await page.screenshot({ path: join(dir, 'step-1.png'), fullPage: true });
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    await page.getByRole('heading', { name: '选择应用与场景', exact: true }).waitFor();
+    await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
     assert.equal(await page.locator('#deployment-options').isVisible(), false);
     assert.equal(await page.getByRole('button', { name: '开始安装', exact: true }).count(), 0);
-    const required = ['Nexus', 'Vasi', 'Apeiron', 'Gateway'];
-    const defaults = ['Task', 'Corpus', 'Chat', 'Files', '邮件'];
-    const optional = ['Limani', 'Zygos', 'Filer', '代码仓库', 'GPUStack', 'Langfuse', 'Grafana', 'Browser', 'CI'];
-    const app = (name) => page.getByRole('checkbox', { name: new RegExp('^' + name + ' ') });
-    assert.deepEqual(await page.locator('.app-copy strong').allTextContents(), [...required, 'Limani', ...defaults, ...optional.slice(1)]);
-    for (const name of required) {
-        assert.equal(await app(name).isChecked(), true);
-        assert.equal(await app(name).isDisabled(), true);
-    }
-    for (const name of [...defaults, ...optional]) {
-        assert.equal(await app(name).isChecked(), false);
-        assert.equal(await app(name).isEnabled(), true);
-    }
-    assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
-    assert.deepEqual(await page.locator('.app-group').allTextContents(), ['必选应用', '可选应用']);
-    assert.equal(await page.getByRole('button', { name: '仅必选', exact: true }).getAttribute('aria-pressed'), 'true');
-    await page.locator('[data-scenario=required]').click();
-    assert.equal(await page.locator('#selected-count').textContent(), '已选择 4 个应用（4 个必选）');
-    await page.locator('[data-scenario=full]').click();
-    assert.equal(await page.locator('#selected-count').textContent(), '已选择 18 个应用（4 个必选）');
-    assert.equal(await page.locator('#gpustack-settings').getAttribute('hidden'), null);
-    await page.locator('[data-scenario=core]').click();
-    assert.notEqual(await page.locator('#gpustack-settings').getAttribute('hidden'), null);
-    await app('CI').check();
-    assert.equal(await app('代码仓库').isChecked(), true, 'CI enables its Git dependency');
-    await app('代码仓库').uncheck();
-    await page.getByRole('button', { name: '下一步', exact: true }).click();
-    assert.match(await page.locator('#error').innerText(), /CI 需要同时启用 代码仓库/);
-    await app('CI').uncheck();
+    const minimal = page.getByRole('radio', { name: /^Minimal/ });
+    assert.equal(await minimal.isChecked(), true);
+    assert.equal(await page.getByRole('list', { name: '发行版组件' }).count(), 0);
+    assert.equal(await page.getByRole('radio', { name: 'Minimal 基础平台与 AI 能力。', exact: true }).isChecked(), true);
+    assert.equal(await page.getByRole('button', { name: '仅必选', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('checkbox', { name: /Nexus|Vasi|Apeiron|Gateway/ }).count(), 0);
+    assert.equal(await page.locator('#gpustack-settings').isVisible(), false);
     await page.screenshot({ path: join(dir, 'step-2-apps.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: join(dir, 'mobile-apps.png'), fullPage: true });
@@ -370,7 +361,7 @@ try {
     assert.match(await page.locator('#summary-topology').innerText(), /单机 K3d/);
     assert.equal(await page.locator('#summary-domain').innerText(), 'example.internal');
     assert.equal(await page.locator('#summary-ports').innerText(), 'HTTP 54320 / HTTPS 54321');
-    assert.equal(await page.locator('#summary-apps').innerText(), 'Nexus、Vasi、Apeiron、Gateway、Task、Corpus、Chat、Files、邮件');
+    assert.equal(await page.locator('#summary-apps').innerText(), 'Nexus、Vasi、Apeiron');
     assert.equal(await page.locator('#summary-models').innerText(), 'bailian · https://dashscope.aliyuncs.com/compatible-mode/v1 · qwen-plus / qwen-plus');
     await page.waitForFunction(() => /预检/.test(document.querySelector('#summary-preflight')?.textContent || '') && !/正在预检/.test(document.querySelector('#summary-preflight')?.textContent || ''));
     await page.screenshot({ path: join(dir, 'step-5-summary.png'), fullPage: true });
@@ -378,19 +369,15 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: join(dir, 'mobile-summary.png'), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 920 });
-    // Back to applications: change the selection, then return to the summary.
+    // Returning through deployment options retains the Minimal distro.
     for (let n = 0; n < 3; n++)
         await page.getByRole('button', { name: '上一步', exact: true }).click();
-    await page.getByRole('heading', { name: '选择应用与场景', exact: true }).waitFor();
-    for (const name of defaults)
-        await app(name).uncheck();
-    for (const name of optional)
-        await app(name).check();
+    await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
+    assert.equal(await minimal.isChecked(), true);
     await page.getByRole('button', { name: '上一步', exact: true }).click();
-    assert.equal(await page.getByRole('radio', { name: /单机 K3d/ }).isChecked(), true);
+    assert.equal(await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).isChecked(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    assert.equal(await app('Grafana').isChecked(), true);
-    assert.equal(await app('Files').isChecked(), false);
+    assert.equal(await minimal.isChecked(), true);
     const dockerFixture = await readFile(join(setup.bin, 'docker'), 'utf8');
     const slowPreflight = join(dir, 'preflight-started');
     // #24: Hold the real Rust request gate while navigating from coexistence to the
@@ -406,12 +393,9 @@ try {
     await page.getByRole('heading', { name: '域名、访问方式与模型', exact: true }).waitFor();
     assert.equal(await slug.inputValue(), 'example-team');
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    assert.equal(await page.getByText('请填写 GPUStack 主机 IP 和服务端口。', { exact: true }).isVisible(), true);
-    await page.getByLabel('GPU 主机 IP', { exact: true }).fill('192.0.2.20');
-    await page.getByLabel('GPUStack 服务端口', { exact: true }).fill('8080');
-    await page.getByRole('button', { name: '下一步', exact: true }).click();
+    assert.equal(await page.getByLabel('GPU 主机 IP', { exact: true }).isVisible(), false);
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
-    assert.match(await page.locator('#summary-apps').innerText(), /Grafana、Browser、CI/);
+    assert.equal(await page.locator('#summary-apps').innerText(), 'Nexus、Vasi、Apeiron');
     await page.getByRole('button', { name: '开始安装', exact: true }).click();
     await page.locator('#error').getByText(/已找到本次安装的集群，但入口端口与当前配置不同/).waitFor();
     assert.match(await page.locator('#summary-preflight').innerText(), /预检未通过：已找到本次安装的集群/, 'The summary preflight reports the same blocking reason');
@@ -430,7 +414,7 @@ try {
     assert.equal(await page.locator('#check-dns').isVisible(), false);
     assert.equal(dnsRequests.length, 0, 'Failed installation does not start access configuration');
     assert.equal((await fetch(url + 'api/ca.crt')).status, 404);
-    assert.equal(await page.getByText('本地测试 · K3d', { exact: true }).isVisible(), true, 'Reload retains the test-mode indicator');
+    assert.equal(await page.getByText('本地测试 · K3d', { exact: true }).count(), 0, 'Reload does not restore the removed test-mode label');
     assert.equal((await readFile(setup.calls, 'utf8')).trim().split('\n').length, 2, 'Reload does not start another deployment');
     assert.equal((await page.locator('body').textContent()).includes('private-log-test-key'), false);
     const [logPage] = await Promise.all([
@@ -455,8 +439,9 @@ try {
     assert.equal(saved.slug, 'example-team');
     assert.equal(saved.deployment.installation.entryIp, '127.0.0.1');
     assert.equal(saved.llm, undefined);
-    assert.deepEqual(saved.apps, ['apeiron', 'browser', 'ci', 'filer', 'gateway', 'git', 'gpustack', 'kps', 'langfuse', 'nexus', 'ontology', 'vasi', 'zygos']);
-    assert.deepEqual(saved.gpustack, { host: '192.0.2.20', port: 8080 });
+    assert.deepEqual(saved.apps, ['apeiron', 'nexus', 'vasi']);
+    assert.equal(saved.gpustack, undefined);
+    assert.equal(saved.deployment.installation.distro, 'minimal');
     assert.equal((await stat(path)).mode & 0o777, 0o600);
     const installCatalogPath = join(setup.root, 'setup/install.json');
     const installCatalog = JSON.parse(await readFile(installCatalogPath, 'utf8'));
@@ -483,20 +468,17 @@ try {
     await page.screenshot({ path: join(dir, 'mobile-stopped.png'), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 920 });
     await page.getByRole('button', { name: '返回修改' }).click();
-    assert.equal(await page.getByRole('radio', { name: /单机 K3d/ }).isChecked(), true);
+    assert.equal(await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).isChecked(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    await page.getByRole('heading', { name: '选择应用与场景', exact: true }).waitFor();
-    for (const name of [...required, ...optional])
-        assert.equal(await app(name).isChecked(), true);
-    for (const name of defaults)
-        assert.equal(await app(name).isChecked(), false);
+    await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
+    assert.equal(await minimal.isChecked(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '域名、访问方式与模型', exact: true }).waitFor();
     await configureModels();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
-    await freshInstallFixture(dir, setup, 0);
+    await minimalFixture(0);
     await page.getByRole('button', { name: '开始安装', exact: true }).click();
     await page.getByRole('heading', { name: '配置访问', exact: true }).waitFor();
     assert.match(await page.locator('.steps [aria-current=step]').innerText(), /7[\s\S]*配置访问/);
@@ -558,7 +540,7 @@ try {
     await page.getByRole('heading', { name: '配置访问', exact: true }).waitFor();
     await page.getByText('本机解析与 HTTPS 检查通过，可以打开 Apeiron。', { exact: true }).waitFor();
     assert.equal(accessRequests, 2);
-    assert.equal(await page.getByText('本地测试 · K3d', { exact: true }).isVisible(), true);
+    assert.equal(await page.getByText('本地测试 · K3d', { exact: true }).count(), 0);
     const retried = JSON.parse(await readFile(path, 'utf8'));
     assert.equal(retried.deployment.installation.topology, 'single-k3d');
     assert.equal(retried.deployment.runner, 'docker');
@@ -653,7 +635,7 @@ try {
     remaining.releaseLock();
     output += await new Response(child.stderr).text();
     assert.equal(output.includes('private-log-test-key'), false);
-    console.log(`PASS compiled CLI + fixture deployer: landing/instances entry, eight-step setup (topology, apps/scenarios, coexistence/budget, domain/access/models, summary), initial admin display/copy/download, connection tests, separate deployment/access, local installation/cancellation/retry, machine probe/offline switch, selections, failure/retry, browser log view/download, reload, finish, desktop/mobile\nscreenshots: ${dir}`);
+    console.log(`PASS compiled CLI + fixture deployer: landing/instances entry, eight-step setup (topology, distro, coexistence/budget, domain/access/models, summary), initial admin display/copy/download, connection tests, separate deployment/access, local installation/cancellation/retry, machine probe/offline switch, selections, failure/retry, browser log view/download, reload, finish, desktop/mobile\nscreenshots: ${dir}`);
 }
 catch (error) {
     // Keep failure diagnostics at the same public boundary as the assertions.

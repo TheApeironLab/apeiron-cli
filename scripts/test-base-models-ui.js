@@ -27,17 +27,12 @@ try {
             { mode: 'fast', elapsedMs: 400 }, { mode: 'deep', elapsedMs: 1250 }
         ] } });
     });
+    await page.route('**/api/applications', route => route.fulfill({ json: { apps: ['nexus', 'vasi', 'apeiron'].map(id => ({ id, name: id, description: id, required: true, releases: [id], requires: [] })), distro: 'minimal' } }));
     await page.goto(server.url);
     await page.getByRole('button', { name: '直接配置当前实例（不新建）' }).click();
-    await page.getByRole('radio', { name: /单机 K3d/ }).check();
+    await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    for (const name of ['Nexus', 'Vasi', 'Apeiron', 'Gateway']) {
-        const checkbox = page.getByRole('checkbox', { name: new RegExp('^' + name + ' ') });
-        assert.equal(await checkbox.isChecked(), true);
-        assert.equal(await checkbox.isDisabled(), true);
-    }
-    for (const name of ['Limani', 'Task', 'Corpus', 'Chat', 'Files', '邮件'])
-        assert.equal(await page.getByRole('checkbox', { name: new RegExp('^' + name + ' ') }).isChecked(), false);
+    assert.equal(await page.getByRole('radio', { name: /^Minimal/ }).isChecked(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     const provider = page.getByRole('textbox', { name: 'Provider', exact: true });
@@ -85,7 +80,7 @@ try {
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
     assert.equal((await page.getByRole('main').innerText()).includes('fixture-only-key'), false);
     console.log(`Model result screenshots: ${screenshots}`);
-    console.log('PASS base wizard: four required system apps, Bailian defaults, password input, mandatory model setup, deterministic model discovery/test, redacted summary');
+    console.log('PASS minimal wizard: fixed distro, Bailian defaults, password input, mandatory model setup, deterministic model discovery/test, redacted summary');
 } finally {
     await browser.close();
     await server.stop();

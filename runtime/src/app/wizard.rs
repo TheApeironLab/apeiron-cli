@@ -140,12 +140,23 @@ impl State {
         let data = match route {
             "api/instances/create" => {
                 let select = input.get("select").map(Value::as_bool).unwrap_or(Some(false));
-                if input
-                    .as_object()
-                    .is_none_or(|o| o.len() != 2 + usize::from(input.get("select").is_some()))
-                    || select.is_none()
+                if input.as_object().is_none_or(|o| {
+                    o.len()
+                        != 1 + usize::from(input.get("topology").is_some())
+                            + usize::from(input.get("select").is_some())
+                            + usize::from(input.get("location").is_some())
+                }) || select.is_none()
                 {
-                    return Err(fail("创建实例需要 name 和 topology（可选 select）。", 400));
+                    return Err(fail("创建实例需要 name（可选 select）。", 400));
+                }
+                if input.get("location").is_some() && !matches!(input["location"].as_str(), Some("local" | "ssh")) {
+                    return Err(fail("请选择本机或远端 SSH。", 400));
+                }
+                if input
+                    .get("topology")
+                    .is_some_and(|v| !v.as_str().is_some_and(|t| instances::TOPOLOGIES.contains(&t)))
+                {
+                    return Err(fail("部署类型格式不正确。", 400));
                 }
                 let name = input["name"].as_str().unwrap_or("");
                 let topology = input["topology"].as_str().unwrap_or("");
@@ -158,7 +169,13 @@ impl State {
                     .and_then(|r| instances::entry(&r, &instances::id_for(&path)).ok().cloned())
                     .filter(|e| e["name"] == name);
                 if let Some(entry) = existing {
-                    if entry["topology"] != topology {
+                    if (!topology.is_empty() && entry["topology"] != topology)
+                        || input.get("location").is_some_and(|loc| {
+                            let saved = config::read(&path).unwrap_or(Value::Null);
+                            let i = &saved["config"]["deployment"]["installation"];
+                            loc != if config::remote_installation(i) { "ssh" } else { "local" }
+                        })
+                    {
                         // Changing only the index leaves the saved configuration
                         // and reserved ports on the original topology. Creation
                         // is idempotent only for the same installation identity.
@@ -166,7 +183,13 @@ impl State {
                     }
                     json!({"instance":instances::status(&entry, &runner),"existing":true,"selected":true})
                 } else {
-                    let source = config::read(&path).map(|c| c["config"].clone()).unwrap_or(Value::Null);
+                    let mut source = config::read(&path).map(|c| c["config"].clone()).unwrap_or(json!({}));
+                    if let Some(location) = input.get("location") {
+                        if source.is_null() {
+                            source = json!({});
+                        }
+                        source["deployment"]["installation"]["location"] = location.clone();
+                    }
                     let root = instances::root(&path, &base);
                     let creation = instances::Creation {
                         base: &base,
@@ -186,6 +209,18 @@ impl State {
                     }
                     data
                 }
+            }
+            "api/instances/target" => {
+                if input
+                    .as_object()
+                    .is_none_or(|o| o.len() != 2 || !o.contains_key("revision") || !o.contains_key("deployment"))
+                {
+                    return Err(fail("请提供部署位置和配置版本。", 400));
+                }
+                let configured = instances::configure_target(&base, &path, input, &runner, &self.cancel)?;
+                let mut result = config::public(&configured);
+                result["instance"] = self.current_instance(&path);
+                result
             }
             "api/instances/select" => {
                 if input.as_object().is_none_or(|o| o.len() != 1) {
@@ -455,9 +490,9 @@ impl State {
             }
             "api/applications" => {
                 // Applications come from the chosen package (offline directory or the pinned
-                // online release), so the wizard lists them only after step one.
+                // online release), checked when continuing from distro selection.
                 self.busy()?;
-                // Step one only: the package source, before domain or nodes are filled in.
+                // Resolve the package source before validating the complete installation.
                 let d = &input["deployment"];
                 let bundle = d["bundleDir"].as_str().unwrap_or("");
                 if !bundle.is_empty() && !Path::new(bundle).is_absolute() {
@@ -470,7 +505,20 @@ impl State {
                 } else {
                     "k3s-"
                 };
-                json!({"apps":resources::package_applications(&root, family)?, "distro":resources::package_distro(&root, family)?})
+                let distro = resources::package_distro(&root, family)?;
+                if d["installation"]
+                    .get("distro")
+                    .is_some_and(|requested| requested != &distro)
+                {
+                    return Err(fail(
+                        "所选发行版与安装包不匹配，请返回部署选项选择对应的安装包。当前向导提供 Minimal。",
+                        400,
+                    ));
+                }
+                let catalog = resources::package_catalog(&root, family)?;
+                let apps = resources::applications(&catalog)?;
+                json!({"apps":apps, "distro":distro, "releaseCatalog":catalog["releaseCatalog"],
+                       "resourceBudget":catalog["resourceBudget"]})
             }
             "api/preflight" => {
                 // Read-only coexistence/port preflight for the summary step; nothing is saved.

@@ -49,9 +49,10 @@ try {
     await page.route('**/api/probe', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({
         machine: { os: { name: 'Ubuntu', version: '22.04', kernel: '6.8.0-fixture' }, hardware: { architecture: 'amd64', runtimeArchitecture: 'amd64', cpu: 'Fixture CPU', cores: 8, memoryGiB: 16 } },
         checkedAt: new Date().toISOString(), network: { status: 'skipped', checks: [] } }) }));
+    await page.route('**/api/applications', route => route.fulfill({ json: { apps: ['nexus', 'vasi', 'apeiron'].map(id => ({ id, name: id, description: id, required: true, releases: [id], requires: [] })), distro: 'minimal' } }));
     await page.goto(url);
     await page.getByRole('heading', { name: '选择要进行的操作', exact: true }).waitFor();
-    assert.match(await page.locator('#instance-chip').innerText(), /^default · [a-f0-9]{12}$/, 'The adopted packaged instance is shown as current');
+    assert.match(await page.locator('#instance-chip').innerText(), /^default$/, 'The adopted packaged instance is shown as current');
     assert.match(await page.locator('#home-instance-count').innerText(), /1 个实例/);
     await page.screenshot({ path: join(dir, 'home.png'), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -80,19 +81,21 @@ try {
     await page.getByRole('button', { name: '创建并开始配置', exact: true }).click();
     await page.getByText('请填写有效的实例名称。', { exact: true }).waitFor();
     await page.getByLabel('实例名称', { exact: true }).fill('lab');
-    await page.getByLabel('拓扑', { exact: true }).selectOption('single-k3d');
     await page.getByRole('button', { name: '创建并开始配置', exact: true }).click();
-    await page.getByRole('heading', { name: '选择拓扑', exact: true }).waitFor();
-    assert.match(await page.locator('#instance-chip').innerText(), /^lab · [a-f0-9]{12}$/);
-    assert.equal(await page.getByRole('radio', { name: /单机 K3d/ }).isChecked(), true);
+    await page.getByRole('heading', { name: '选择部署位置', exact: true }).waitFor();
+    assert.match(await page.locator('#instance-chip').innerText(), /^lab$/);
+    assert.match(await page.locator('#instance-chip').getAttribute('title'), /实例 ID：[a-f0-9]{12}/);
+    assert.equal(await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).isChecked(), true);
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
+    await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
     const labHttpPort = Number(await page.locator('#http-port').inputValue());
     assert.ok(labHttpPort >= 54322, 'Allocate available ports after the adopted default instance');
     assert.equal(await page.locator('#https-port').inputValue(), String(labHttpPort + 1));
     assert.equal(await page.locator('#http-port').getAttribute('readonly'), '');
-    await page.getByRole('button', { name: '下一步', exact: true }).click();
+
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '共存配置与资源预算', exact: true }).waitFor();
-    assert.match(await page.locator('#coexist-instance').innerText(), /^lab · /);
+    assert.match(await page.locator('#coexist-instance').innerText(), /^lab$/);
     assert.match(await page.locator('#coexist-config').innerText(), /instances\/lab\/config\.json$/);
     assert.match(await page.locator('#coexist-ports').innerText(), new RegExp(`HTTP ${labHttpPort} / HTTPS ${labHttpPort + 1}`));
     const registry = JSON.parse(await readFile(join(home, '.apeiron/instances.json'), 'utf8'));
@@ -147,7 +150,7 @@ try {
     assert.equal(await Bun.file(path).exists(), false, 'Uninstall removes the instance directory');
     // Switching back into the only remaining instance continues its configuration.
     await page.locator('.instance-card').getByRole('button', { name: '继续配置', exact: true }).click();
-    await page.getByRole('heading', { name: '选择拓扑', exact: true }).waitFor();
+    await page.getByRole('heading', { name: '选择部署位置', exact: true }).waitFor();
     assert.deepEqual(errors, []);
     console.log(`PASS instance landing and list: adopted packaged instance, create with server-side ports, switch, diagnostics, uninstall confirmation, desktop/mobile\nscreenshots: ${dir}`);
 }
