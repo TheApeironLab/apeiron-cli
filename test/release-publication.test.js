@@ -6,7 +6,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { baseVersion } from '../scripts/version';
-import { acceptanceTargets, acceptanceChecks } from '../scripts/lib/distribution.js';
+import { acceptanceTargets, acceptanceChecks, requiredTargets } from '../scripts/lib/distribution.js';
 
 const publisher = new URL('../scripts/publish-release.js', import.meta.url).pathname;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -40,7 +40,7 @@ async function fixture(version, fn) {
       chentu: { version, revision: 'c'.repeat(40), sha256: digest('chentu'),
         url: `https://downloads.apeironlab.cn/chentu/releases/${version}/chentu-${version}.tar.gz` },
       cli: { revision, files: artifacts }, inputSha256,
-      acceptance: Object.entries(acceptanceTargets).map(([target, t]) => ({ schemaVersion: 1, target, version, revision,
+      acceptance: requiredTargets(version).map(target => [target, acceptanceTargets[target]]).map(([target, t]) => ({ schemaVersion: 1, target, version, revision,
         distributionSha256: inputSha256, runId: '123', archiveSha256: artifacts[`apeiron-${version}-${t.cli}.tar.gz`].sha256,
         os: t.os, arch: t.arch, topology: t.topology, osRelease: 'ubuntu:22.04', servers: t.servers, agents: 0,
         applications: acceptanceScope(version, applications).applications, deferredApplications: acceptanceScope(version, applications).deferredApplications,
@@ -170,7 +170,7 @@ test('missing or incomplete deployment acceptance cannot write any public object
   await writeFile(path, JSON.stringify(distribution));
   const result = await run();
   expect(result.code).not.toBe(0);
-  expect(result.stderr).toContain('All four deployment targets must pass');
+  expect(result.stderr).toContain('Every required deployment target must pass');
   expect(await Bun.file(join(cloud, `releases/${baseVersion}/install.sh`)).exists()).toBe(false);
   expect(await Bun.file(join(cloud, 'channels/stable.txt')).exists()).toBe(false);
 }));

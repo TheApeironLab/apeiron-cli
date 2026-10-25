@@ -8,6 +8,11 @@ export const acceptanceTargets = Object.freeze({
   'k3s-single-amd64': { cli: 'linux-x64', topology: 'single-k3s', os: 'linux', arch: 'x64', servers: 1 },
   'k3s-multi-amd64': { cli: 'linux-x64', topology: 'multi-k3s', os: 'linux', arch: 'x64', servers: 3 },
 });
+// nightly publishes after both K3d hosts pass; stable also requires native single and three-server K3s.
+export function requiredTargets(version) {
+  const nightly = parseReleaseVersion(version).channel === 'nightly';
+  return Object.keys(acceptanceTargets).filter(name => !nightly || acceptanceTargets[name].topology === 'single-k3d');
+}
 export const acceptanceChecks = Object.freeze(['installation', 'nodes', 'images', 'credentials', 'https', 'login', 'applications', 'workloads']);
 const requireValue = (value, message) => { if (!value) throw new Error(message); };
 const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
@@ -63,11 +68,13 @@ export function validateAcceptance(receipt, release, distributionHash, runId, ap
 }
 
 export function validateAcceptanceSet(receipts, release, distributionHash, runId, applications) {
-  requireValue(Array.isArray(receipts) && receipts.length === Object.keys(acceptanceTargets).length, 'All four deployment targets must pass');
+  const required = requiredTargets(release.version);
+  requireValue(Array.isArray(receipts) && receipts.length === required.length, 'Every required deployment target must pass: ' + required.join(', '));
   const seen = new Set();
   for (const receipt of receipts) {
     validateAcceptance(receipt, release, distributionHash, runId, applications);
     requireValue(!seen.has(receipt.target), 'Duplicate acceptance target');
+    requireValue(required.includes(receipt.target), 'Acceptance target is not required for this channel: ' + receipt.target);
     seen.add(receipt.target);
   }
 }
