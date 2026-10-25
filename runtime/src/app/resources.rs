@@ -6,9 +6,9 @@ use std::{
     io::BufReader,
     path::{Component, PathBuf},
 };
-const VERSION: &str = "0.2.1-nightly.20261025.40174006374";
+const VERSION: &str = "0.2.1-nightly.20261026.40210505757";
 const REVISION: &str = "14f7676305e56e057e5890d58e1924601e51697f";
-const DIGEST: &str = "c841b2b1d43bdf96101a4954e88b01f29553910eb91f467deaecf3a80806d8a0";
+const DIGEST: &str = "5a257dde44e586fc9fb727777de33e38d3268a9cb28828f5a3c6d800ff27a0c3";
 const HOST: &str = "downloads.apeironlab.cn";
 const ENTRIES: [&str; 5] = [
     "deploy/helmfile/run.sh",
