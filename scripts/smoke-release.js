@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { version, baseVersion, channel } from './version';
+import { smokeSudocode } from './smoke-sudo.js';
 const binary = process.argv[2] && resolve(process.argv[2]);
 if (!binary)
     throw new Error('Usage: bun run test:release /path/to/apeiron');
@@ -21,6 +22,11 @@ const revision = Bun.spawnSync(['git', 'rev-parse', 'HEAD']);
 assert.equal(revision.exitCode, 0);
 assert.equal(build.revision, revision.stdout.toString().trim());
 const directory = await mkdtemp(join(tmpdir(), 'apeiron-release-smoke-'));
+const sudo = Bun.spawnSync([binary, 'sudo', '--version'], { env: { PATH: '/usr/bin:/bin', HOME: directory } });
+assert.equal(sudo.exitCode, 0, sudo.stderr.toString());
+assert.ok(sudo.stdout.toString().includes(build.sudocode.version.replace(/^v/, '')));
+assert.equal(build.sudocode.embedded, true);
+await smokeSudocode(binary);
 const child = spawn(binary, ['init', '--no-open', '--config', join(directory, 'config.json')], {
     env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: directory }, stdio: ['ignore', 'pipe', 'pipe'],
 });

@@ -8,6 +8,17 @@ fn git(root: &PathBuf, args: &[&str]) -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 fn main() {
+    let scode = env::var_os("APEIRON_SCODE_ARCHIVE");
+    let payload = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("scode.tar.gz");
+    if let Some(path) = scode {
+        println!("cargo:rerun-if-changed={}", PathBuf::from(&path).display());
+        std::fs::copy(path, &payload).expect("Cannot read Sudocode archive");
+    } else {
+        std::fs::write(&payload, []).expect("Cannot initialize Sudocode payload");
+    }
+    println!("cargo:rerun-if-env-changed=APEIRON_SCODE_ARCHIVE");
+    println!("cargo:rerun-if-changed=../release/sudocode-runtime.json");
+    println!("cargo:rerun-if-changed=../docs/sudo-tools.md");
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
         .parent()
         .unwrap()
