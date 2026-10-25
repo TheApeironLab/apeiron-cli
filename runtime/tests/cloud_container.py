@@ -30,6 +30,7 @@ class Fixture:
         self.name = "apeiron-receiver-contract-" + uuid.uuid4().hex[:12]
         self.temporary = tempfile.TemporaryDirectory(prefix="apeiron-cloud-contract-")
         self.home = Path(self.temporary.name)
+        self.defaults = tempfile.TemporaryDirectory(prefix="apeiron-cloud-defaults-")
         self.binding = "12" * 16
         self.sequence = 0
         self.received_sequence = 0
@@ -44,12 +45,12 @@ class Fixture:
         for capability in ["CHOWN", "FOWNER", "DAC_OVERRIDE", "SETUID", "SETGID"]:
             command += ["--cap-add", capability]
         if binary:
-            defaults = self.home / 'defaults'
-            defaults.mkdir()
+            defaults = Path(self.defaults.name)
+            defaults.chmod(0o755)
             for name in ['sudocode.json', 'settings.json']:
                 (defaults / name).write_text('{}\n')
             command += ["--mount", f"type=bind,src={binary},dst=/usr/local/bin/apeiron,readonly",
-                        "--mount", f"type=bind,src={self.home / 'defaults'},dst=/opt/apeiron/defaults,readonly"]
+                        "--mount", f"type=bind,src={self.defaults.name},dst=/opt/apeiron/defaults,readonly"]
         # The argv has whitespace and nested JSON; only the receiver controls
         # outer records. A child cannot turn its stdout into a permit frame.
         self.agent = "import json,sys\nfor line in sys.stdin:\n m=json.loads(line); print(json.dumps({'jsonrpc':'2.0','id':m.get('id'),'result':m}),flush=True)"
@@ -181,6 +182,7 @@ class Fixture:
                "--entrypoint", "chown", self.image, "-hR",
                f"{os.getuid()}:{os.getgid()}", "/home/user")
         self.temporary.cleanup()
+        self.defaults.cleanup()
 
 
 def contract(image, binary, runtime):
