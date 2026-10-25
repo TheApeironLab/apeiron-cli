@@ -5,6 +5,8 @@
 `apeiron sudo` 启动随发行版交付的 Sudocode 本地 AI agent，参数直接传给 `scode`。
 配置模型 base URL、API key 和模型即可使用，无需 Gateway 或 Apeiron Backend；agent 也能通过
 原生 CLI 工具目录发现并调用 `apeiron`。交互、脚本模式、配置和离线交付见 [Sudocode 入口](docs/sudo.md)。
+源码通过 `third_party/sudocode` 子模块固定；发行时打包对应的预编译 `scode`，更新子模块后用
+`scripts/pin-sudocode.js` 生成制品清单，下载源可使用上游或 OSS，详见上述更新说明。
 
 ## 安装发行版
 

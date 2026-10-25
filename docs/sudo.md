@@ -77,12 +77,42 @@ verifies the archive and executable SHA-256 and installs it atomically under
 the cached executable. Installation and launch need no runtime download. Model
 inference still requires access to the selected endpoint.
 
-`release/sudocode-runtime.json` pins all four macOS/Linux ARM64/x64 assets and
-must match `release/recipe.json`'s Sudocode version and source commit. The build
+`third_party/sudocode` is a Git submodule of the Sudocode repository; its gitlink
+selects the source revision. This integration packages the upstream `scode`
+binary rather than linking the agent's Rust crates into Apeiron.
+`release/sudocode-runtime.json` records generated pins for all four macOS/Linux
+ARM64/x64 assets. The build checks both the submodule and `release/recipe.json`
+against those pins and rejects drift. The build
 fetches assets only in the external preparation environment, or reads a prepared
 directory via `APEIRON_SCODE_ARCHIVE_DIR`. Both paths verify the same reviewed
 digests. Users receive these bytes through Apeiron's normal OSS distribution.
-The MIT notice is included in the archive’s `README.md`.
+Download URLs come from the manifest and may use GitHub or an HTTPS OSS mirror;
+the build does not hardcode a repository or download host. The MIT notice is
+read from the pinned submodule and included in the archive’s `README.md`.
+
+### Updating the packaged agent
+
+1. Fetch Sudocode tags and check out the selected release in `third_party/sudocode`.
+2. Prepare that release's four `scode-{macos,linux}-{arm64,x64}.tar.gz` archives
+   and its published `SHA256SUMS.txt` in a directory outside the checkout.
+3. Generate the pins, supplying the directory URL where those same bytes will
+   be available to release builders (an upstream release directory or OSS):
+
+   ```sh
+   bun scripts/pin-sudocode.js /external/scode-release https://download.example.internal/scode/vX.Y.Z/
+   ```
+
+The generator reads the version and commit from the clean submodule, requires
+the matching release tag, verifies the published archive checksums, and derives
+archive and executable digests. It updates the runtime manifest and the recipe
+together after checking all four assets. Review and commit those generated
+files with the submodule gitlink, then run the release smoke checks. The supplied
+archives/checksum file must come from the selected release; checksum validation
+alone does not prove binary-to-source provenance. This command does not upload
+assets or publish a release. Repeating it for the same inputs is deterministic.
+
+Advancing the submodule alone deliberately fails packaging until its binary pins
+are regenerated. No launcher code needs changing when updating Sudocode.
 
 Automatic Sudocode update checks are disabled for this managed runtime. Upgrade
 through the Apeiron installer; do not modify its cached executable. Both

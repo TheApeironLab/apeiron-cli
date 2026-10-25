@@ -7,3 +7,6 @@
 [submodule "third_party/apeiron-iam"]
 	path = third_party/apeiron-iam
 	url = https://github.com/TheApeironLab/apeiron-iam.git
+[submodule "third_party/sudocode"]
+	path = third_party/sudocode
+	url = https://github.com/sudoprivacy/sudocode.git
