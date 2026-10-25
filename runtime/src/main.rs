@@ -1,4 +1,4 @@
-//! Standalone CLI command dispatch; the machine runtime is owned by Apeiron.
+//! Standalone CLI dispatch, including the local and cloud machine runtime.
 
 mod app;
 mod apps;
@@ -18,5 +18,5 @@ fn main() -> Result<()> {
     if let Some(code) = app::run() {
         std::process::exit(code);
     }
-    apeiron_runtime::run()
+    apeiron::run()
 }

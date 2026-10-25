@@ -300,9 +300,10 @@ bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
 
-当前尚未发布到 npm registry。`connect` / `status` / `disconnect` / `serve` 使用
-`third_party/apeiron/cli` 的 Rust 连接运行时，通过 Git submodule 锁定上游提交并静态链接，
-不再维护连接运行时的源码副本。SSO、IAM、Task 暂时保留本仓库现有实现；
+当前尚未发布到 npm registry。`connect` / `status` / `disconnect` / `serve` 和
+`cloud-receiver` 的 Rust 实现与验证由本仓库 `runtime/` 维护，使用 CLI 自身的版本。
+`third_party/apeiron` 仅保留部署发行的源码版本记录，不再提供 CLI 的 Cargo 依赖。
+协议变更需与 Apeiron 服务端的本机及云端契约验证配套。SSO、IAM、Task 使用本仓库现有入口；
 `platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
 
 部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）

@@ -84,33 +84,9 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "apeiron"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "clap",
- "filetime",
- "futures-util",
- "libc",
- "rand 0.8.8",
- "reqwest",
- "rustls",
- "rustls-platform-verifier",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tokio-tungstenite",
- "url",
-]
-
-[[package]]
-name = "apeiron"
 version = "0.2.1"
 dependencies = [
  "anyhow",
- "apeiron 0.1.0",
  "apeiron-iam-cli",
  "base64 0.22.1",
  "chrono",
@@ -124,6 +100,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rustls",
+ "rustls-platform-verifier",
  "serde",
  "serde_json",
  "serde_yaml_ng",
