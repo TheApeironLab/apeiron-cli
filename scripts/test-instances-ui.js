@@ -85,6 +85,8 @@ try {
     await page.getByRole('heading', { name: '选择部署位置', exact: true }).waitFor();
     assert.match(await page.locator('#instance-chip').innerText(), /^lab$/);
     assert.match(await page.locator('#instance-chip').getAttribute('title'), /实例 ID：[a-f0-9]{12}/);
+    // This case exercises K3d port allocation; Ubuntu defaults to native K3s.
+    await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
     assert.equal(await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).isChecked(), true);
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
