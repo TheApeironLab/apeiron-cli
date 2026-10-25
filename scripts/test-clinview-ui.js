@@ -42,15 +42,25 @@ try {
     ] } }));
     await page.goto(server.url);
     await page.getByRole('button', { name: '直接配置当前实例（不新建）' }).click();
-    await page.getByRole('radio', { name: /单机 K3d/ }).check();
+    await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    for (const name of ['Nexus', 'Vasi', 'Apeiron', 'Clinview']) {
-        const checkbox = page.getByRole('checkbox', { name: new RegExp('^' + name + ' ') });
-        assert.equal(await checkbox.isChecked(), true);
-        assert.equal(await checkbox.isDisabled(), true);
-    }
-    assert.equal(await page.getByRole('checkbox', { name: /^Gateway / }).count(), 0);
-    assert.match(await page.getByRole('main').innerText(), /Clinview：[\s\S]*本机使用包含 scode/);
+    await page.getByRole('heading', { name: '选择发行版', exact: true }).waitFor();
+    await page.getByRole('radio', { name: /^Clinview/ }).check();
+    assert.equal(await page.getByRole('radio', { name: /^Clinview/ }).isChecked(), true);
+    assert.equal(await page.getByRole('button', { name: '仅必选', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: '核心协作', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('checkbox', { name: /Nexus|Vasi|Apeiron|Gateway/ }).count(), 0);
+    assert.equal(await page.getByRole('list', { name: '发行版组件' }).count(), 0);
+    assert.equal(await page.getByRole('radio', { name: 'Clinview ClinView 品牌与病例审阅。', exact: true }).isChecked(), true);
+    await page.screenshot({ path: '/tmp/apeiron-distro-clinview.png', fullPage: true });
+    // A stale base package cannot be relabelled as Clinview by the browser.
+    catalog.distro = 'base';
+    await writeFile(catalogPath, JSON.stringify(catalog));
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
+    await page.getByText(/所选发行版与安装包不匹配/).waitFor();
+    assert.equal(await page.getByRole('heading', { name: '选择发行版', exact: true }).isVisible(), true);
+    catalog.distro = 'clinview';
+    await writeFile(catalogPath, JSON.stringify(catalog));
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     assert.match(await page.getByRole('main').innerText(), /Apeiron 直接连接模型服务/);
@@ -66,7 +76,32 @@ try {
     assert.equal((await page.getByRole('main').innerText()).includes('fixture-only-clinview-key'), false);
     assert.equal(preflightInput.deployment.installation.distro, 'clinview');
     assert.deepEqual(preflightInput.apps.sort(), ['apeiron', 'clinview', 'nexus', 'vasi']);
-    console.log('PASS C-DEP-65 clinview wizard @gate @cap-DEP: required apps, bundled scode, direct models, redacted summary');
+    // New packages describe every native release; the app label changes only entry visibility.
+    const names = ['cert-manager', 'postgres', 'seaweedfs', 'keycloak', 'cluster-access', 'nexus', 'vasi', 'apeiron', 'clinview'];
+    catalog.releaseCatalog = { schemaVersion: 1, releases: names.map(name => ({
+        name, namespace: name, component: name === 'cert-manager' ? 'ingress' : name,
+        required: true, needs: [], labels: { catalog: 'release-v1',
+            ...(['nexus', 'vasi', 'apeiron', 'clinview'].includes(name) ? { app: 'true' } : {}) }
+    })) };
+    catalog.applications = catalog.releaseCatalog.releases.map(r => ({
+        id: r.name, name: r.name, description: '', releases: [r.name], requires: [], required: true,
+        app: r.labels.app === 'true'
+    }));
+    catalog.resourceBudget = { basis: 'helm-template', workloads: 9, memoryRequestsBytes: 0,
+        memoryRequestsBytesPerNode: 0, missingMemoryRequests: ['postgres/StatefulSet/postgres/postgres'], transientWorkloads: [] };
+    await writeFile(catalogPath, JSON.stringify(catalog));
+    await page.goto(server.url);
+    await page.getByRole('button', { name: '直接配置当前实例（不新建）' }).click();
+    await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
+    await page.getByRole('radio', { name: /^Clinview/ }).check();
+    await page.getByRole('button', { name: '下一步', exact: true }).click();
+    await page.getByText('9 个 release，其中 4 个应用入口：nexus、vasi、apeiron、clinview', { exact: true }).waitFor();
+    await page.getByText('查看全部 release', { exact: true }).click();
+    assert.equal(await page.getByRole('list', { name: '发行版 release' }).getByRole('listitem').count(), 9);
+    await page.getByText('Chart 未完整声明 memory requests（1 个容器缺失），暂不提供总内存估算。', { exact: true }).waitFor();
+    assert.equal((await page.getByRole('main').innerText()).includes('7.5 GiB'), false);
+    console.log('PASS C-DEP-65 clinview wizard @gate @cap-DEP: Clinview distro selection, concise description, rejects base package, direct models, redacted summary');
 } finally {
     await browser.close();
     await server.stop();

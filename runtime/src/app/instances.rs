@@ -138,15 +138,19 @@ fn validate_registry(v: &Value) -> Result<()> {
         let id = i["id"].as_str().unwrap_or("");
         let name = i["name"].as_str().unwrap_or("");
         let path = i["config"].as_str().unwrap_or("");
+        let draft = i.get("topology") == Some(&Value::Null)
+            && i.get("httpPort") == Some(&Value::Null)
+            && i.get("httpsPort") == Some(&Value::Null);
         if !config::matches(r"^[a-f0-9]{12}$", id)
             || !config::safe_name(name)
-            || !TOPOLOGIES.contains(&i["topology"].as_str().unwrap_or(""))
+            || (!draft && !TOPOLOGIES.contains(&i["topology"].as_str().unwrap_or("")))
             || !Path::new(path).is_absolute()
             || path.chars().any(char::is_control)
             || id != id_for(Path::new(path))
-            || ["httpPort", "httpsPort"]
-                .iter()
-                .any(|k| !i[k].as_u64().is_some_and(|p| (1..=65535).contains(&p)))
+            || (!draft
+                && ["httpPort", "httpsPort"]
+                    .iter()
+                    .any(|k| !i[k].as_u64().is_some_and(|p| (1..=65535).contains(&p))))
             || !ids.insert(id)
             || !names.insert(name)
         {
@@ -273,13 +277,17 @@ fn template(name: &str, topology: &str, http: u16, https: u16, source: &Value) -
         json!([])
     };
     let text = |k: &str| i[k].as_str().filter(|_| same).unwrap_or("");
-    json!({"schemaVersion":2,"slug":name,"apps":apps,"deployment":{
+    let mut result = json!({"schemaVersion":2,"slug":name,"apps":apps,"deployment":{
         "runner":if local{"docker"}else{"native"},
         "installation":{"topology":topology,"domain":format!("{name}.apeironlab.internal"),
             "entryIp":if local{"127.0.0.1"}else{""},"httpPort":http,"httpsPort":https,"ha":false,
             "sshUser":text("sshUser"),"sshKey":text("sshKey"),"sshPort":i["sshPort"].as_u64().filter(|_|same).unwrap_or(22),"nodes":nodes},
         "root":"","environment":"","kubeconfig":"","workDir":"","image":"chentu-lab",
-        "offline":d["offline"].as_bool().unwrap_or(false),"bundleDir":d["bundleDir"].as_str().unwrap_or("")}})
+        "offline":d["offline"].as_bool().unwrap_or(false),"bundleDir":d["bundleDir"].as_str().unwrap_or("")}});
+    if let Some(location) = i.get("location") {
+        result["deployment"]["installation"]["location"] = location.clone();
+    }
+    result
 }
 fn record(config: &Path, name: &str, topology: &str, http: u16, https: u16) -> Value {
     json!({"id":id_for(config),"name":name,"topology":topology,"config":config,"httpPort":http,"httpsPort":https,"createdAt":chrono::Utc::now().to_rfc3339()})
@@ -296,7 +304,7 @@ pub fn create(c: &Creation, name: &str, topology: &str) -> Result<Value> {
     if !config::safe_name(name) {
         return Err(fail("实例名称须为小写字母、数字和连字符。", 400));
     }
-    if !TOPOLOGIES.contains(&topology) {
+    if !topology.is_empty() && !TOPOLOGIES.contains(&topology) {
         return Err(fail("请选择安装方式。", 400));
     }
     let _lock = scheduler(c.base, Duration::from_secs(30), c.cancel)?;
@@ -313,7 +321,9 @@ pub fn create(c: &Creation, name: &str, topology: &str) -> Result<Value> {
         return Err(fail("实例名称或目录已存在。", 409));
     }
     config::location(&config)?;
-    let (http, https) = if topology == "single-k3d" {
+    let (http, https) = if topology.is_empty() {
+        (0, 0)
+    } else if topology == "single-k3d" {
         let ps = c
             .runner
             .run("docker", &["ps", "-a", "--format", "{{.Ports}}"])
@@ -322,16 +332,106 @@ pub fn create(c: &Creation, name: &str, topology: &str) -> Result<Value> {
     } else {
         (80, 443)
     };
+    let draft = topology.is_empty();
+    let document = if draft {
+        let source = c
+            .source
+            .get("deployment")
+            .or_else(|| c.source.get("setupSource"))
+            .unwrap_or(&Value::Null);
+        json!({"schemaVersion":2,"slug":name,"apps":[],"setupSource":{"offline":source["offline"]==true,"bundleDir":source["bundleDir"].as_str().unwrap_or("")}})
+    } else {
+        template(name, topology, http, https, c.source)
+    };
+    config::validate(&document, &Value::Null)?;
     process::private_directory(&directory)?;
     private_write(
         &config,
-        (serde_json::to_string_pretty(&template(name, topology, http, https, c.source)).unwrap() + "\n").as_bytes(),
+        (serde_json::to_string_pretty(&document).unwrap() + "\n").as_bytes(),
     )?;
     config::read(&config)?;
-    let entry = record(&config, name, topology, http, https);
+    let mut entry = record(&config, name, topology, http, https);
+    if draft {
+        for key in ["topology", "httpPort", "httpsPort"] {
+            entry[key] = Value::Null;
+        }
+    }
     registry["instances"].as_array_mut().unwrap().push(entry.clone());
     write_registry(c.base, &registry)?;
     Ok(entry)
+}
+/// Confirm step one's target. Creation itself neither chooses a topology nor reserves ports.
+pub fn configure_target(
+    base: &Path,
+    path: &Path,
+    input: &Value,
+    runner: &dyn Runner,
+    cancel: &Cancellation,
+) -> Result<Value> {
+    let _lock = scheduler(base, Duration::from_secs(30), cancel)?;
+    let mut registry = read_registry(base)?;
+    let id = id_for(path);
+    let old_entry = entry(&registry, &id)?.clone();
+    let saved = config::read(path)?;
+    if input.get("revision") != saved.get("revision") {
+        return Err(fail("配置已变化，请刷新后重试。", 409));
+    }
+    let mut candidate = saved["config"].clone();
+    candidate["deployment"] = input["deployment"].clone();
+    candidate["revision"] = saved["revision"].clone();
+    candidate.as_object_mut().unwrap().remove("setupSource");
+    let validated = config::validate(&candidate, &saved["config"])?;
+    let i = &validated["deployment"]["installation"];
+    if !i.is_object() {
+        return Err(fail("请选择部署位置。", 400));
+    }
+    if config::remote_installation(i) && i["nodes"].as_array().is_none_or(Vec::is_empty) {
+        return Err(fail("请先添加并检测 SSH 目标机器。", 400));
+    }
+    let previous = &saved["config"]["deployment"]["installation"];
+    if resume::recovery(path)?.is_some()
+        && (previous["topology"] != i["topology"]
+            || previous["nodes"] != i["nodes"]
+            || config::remote_installation(previous) != config::remote_installation(i))
+    {
+        return Err(fail("已有部署记录的实例不能更换部署目标，请创建新实例。", 409));
+    }
+    let (http, https) = if i["topology"] == "single-k3d" {
+        if old_entry["topology"] == "single-k3d" {
+            (
+                old_entry["httpPort"].as_u64().unwrap() as u16,
+                old_entry["httpsPort"].as_u64().unwrap() as u16,
+            )
+        } else {
+            let ps = runner
+                .run("docker", &["ps", "-a", "--format", "{{.Ports}}"])
+                .map_err(|_| fail("无法检查 Docker，请确认 Docker 已启动。", 400))?;
+            allocate_ports(&registry, &bindable, &ps)?
+        }
+    } else {
+        (80, 443)
+    };
+    candidate["deployment"]["installation"]["httpPort"] = json!(http);
+    candidate["deployment"]["installation"]["httpsPort"] = json!(https);
+    let index = registry["instances"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|e| e["id"] == id)
+        .unwrap();
+    registry["instances"][index]["topology"] = i["topology"].clone();
+    registry["instances"][index]["httpPort"] = json!(http);
+    registry["instances"][index]["httpsPort"] = json!(https);
+    // Reserve first: interruption may leave a spare reservation, never two users of one port.
+    write_registry(base, &registry)?;
+    match config::save(path, &candidate) {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            registry["instances"][index] = old_entry;
+            write_registry(base, &registry)?;
+            Err(error)
+        }
+    }
 }
 /// Registers an existing `<root>/<name>/config.json` (for example the one a
 /// packaged start.sh selected) so the registry reflects its reserved ports.
@@ -341,11 +441,25 @@ pub fn adopt(base: &Path, config: &Path, cancel: &Cancellation) -> Result<Option
     };
     let _lock = scheduler(base, Duration::from_secs(2), cancel)?;
     let mut registry = read_registry(base)?;
-    if let Ok(existing) = entry(&registry, &id_for(config)) {
-        return Ok(Some(existing.clone()));
-    }
     let saved = config::read(config)?;
     let i = &saved["config"]["deployment"]["installation"];
+    if let Ok(existing) = entry(&registry, &id_for(config)) {
+        let mut existing = existing.clone();
+        if existing["topology"].is_null() && i.is_object() {
+            for key in ["topology", "httpPort", "httpsPort"] {
+                existing[key] = i[key].clone();
+            }
+            let index = registry["instances"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|e| e["id"] == existing["id"])
+                .unwrap();
+            registry["instances"][index] = existing.clone();
+            write_registry(base, &registry)?;
+        }
+        return Ok(Some(existing));
+    }
     let topology = i["topology"].as_str().unwrap_or("single-k3d").to_owned();
     let local = topology == "single-k3d";
     let http = i["httpPort"].as_u64().unwrap_or(if local { 54320 } else { 80 }) as u16;
@@ -358,7 +472,14 @@ pub fn adopt(base: &Path, config: &Path, cancel: &Cancellation) -> Result<Option
     {
         return Err(fail("同名实例已注册到其他配置路径。", 409));
     }
-    let entry = record(config, &name, &topology, http, https);
+    let mut entry = record(config, &name, &topology, http, https);
+    // Existing packaged launchers reserve their legacy default before writing
+    // config.json. A saved name-only draft deliberately has no target or ports.
+    if i.is_null() && !saved["config"].is_null() {
+        for key in ["topology", "httpPort", "httpsPort"] {
+            entry[key] = Value::Null;
+        }
+    }
     registry["instances"].as_array_mut().unwrap().push(entry.clone());
     write_registry(base, &registry)?;
     Ok(Some(entry))
@@ -420,6 +541,7 @@ pub fn status(entry: &Value, runner: &dyn Runner) -> Value {
     out["phase"] = json!(match resume::recovery(config) {
         Ok(Some(r)) if r["succeeded"] == true => "succeeded",
         Ok(Some(_)) => "interrupted",
+        Ok(None) if exists && entry["topology"].is_null() => "draft",
         Ok(None) if exists => "idle",
         Ok(None) => "new",
         Err(_) => "blocked",
@@ -590,6 +712,61 @@ mod tests {
         drop(held);
         assert!(receive.recv_timeout(Duration::from_secs(5)).unwrap());
         worker.join().unwrap();
+    }
+
+    #[test]
+    fn name_only_creation_defers_docker_and_ports_until_target_confirmation() {
+        let temp = Temp::new();
+        let base = temp.0.join("apeiron");
+        let root = base.join("instances");
+        let cancel = Cancellation::default();
+        let runner = Fake::new(|program, args| {
+            if program == "docker" && args.first() == Some(&"ps") {
+                Ok(String::new())
+            } else {
+                Err(fail("unexpected command", 500))
+            }
+        });
+        let source = json!({"deployment":{"offline":true,"bundleDir":"/opt/fixture"}});
+        let creation = Creation {
+            base: &base,
+            root: &root,
+            source: &source,
+            bind: &|_| true,
+            runner: &runner,
+            cancel: &cancel,
+        };
+        let draft = create(&creation, "draft", "").unwrap();
+        let path = Path::new(draft["config"].as_str().unwrap());
+        assert!(runner.calls().is_empty(), "naming must never probe Docker");
+        for key in ["topology", "httpPort", "httpsPort"] {
+            assert!(draft[key].is_null());
+        }
+        let saved = config::read(path).unwrap();
+        assert!(saved["config"].get("deployment").is_none());
+        assert_eq!(saved["config"]["setupSource"]["bundleDir"], "/opt/fixture");
+        assert_eq!(status(&draft, &runner)["phase"], "draft");
+        let deployment = template("draft", "single-k3d", 54320, 54321, &source)["deployment"].clone();
+        let input = json!({"revision":saved["revision"],"deployment":deployment});
+        let configured = configure_target(&base, path, &input, &runner, &cancel).unwrap();
+        let http = configured["config"]["deployment"]["installation"]["httpPort"]
+            .as_u64()
+            .unwrap();
+        assert!(http >= 54320);
+        assert_eq!(runner.calls().len(), 1);
+        let registry = read_registry(&base).unwrap();
+        assert_eq!(
+            entry(&registry, draft["id"].as_str().unwrap()).unwrap()["httpPort"],
+            http
+        );
+        assert!(
+            configure_target(&base, path, &input, &runner, &cancel).is_err(),
+            "stale revisions cannot change reservations"
+        );
+        let repeat = json!({"revision":configured["revision"],"deployment":configured["config"]["deployment"]});
+        let again = configure_target(&base, path, &repeat, &runner, &cancel).unwrap();
+        assert_eq!(again["config"]["deployment"]["installation"]["httpPort"], http);
+        assert_eq!(runner.calls().len(), 1, "confirmation retries reuse reserved ports");
     }
 
     #[test]

@@ -473,9 +473,33 @@ pub fn merge(base: &mut Value, addition: &Value) -> Result<()> {
     }
     Ok(())
 }
-/// The package's applications (Chentu `applications.yaml` in install.json), each with
-/// `releases` and `requires` derived from Helmfile needs.
+/// New catalogs project one native release per ID; old package aliases stay compatible.
 pub fn applications(c: &Value) -> Result<&Vec<Value>> {
+    if let Some(releases) = release_catalog(c)? {
+        let apps = c["applications"]
+            .as_array()
+            .ok_or_else(|| fail("安装包缺少 release 目录。", 400))?;
+        if apps.len() != releases.len()
+            || releases.iter().any(|r| {
+                !apps.iter().any(|a| {
+                    a["id"] == r["name"]
+                        && a["name"] == r["name"]
+                        && a["releases"] == json!([r["name"]])
+                        && a["required"] == r["required"]
+                        && a["app"] == json!(r["labels"]["app"] == "true")
+                        && a["requires"]
+                            == json!(r["needs"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|n| n.as_str().unwrap().rsplit('/').next().unwrap())
+                                .collect::<Vec<_>>())
+                })
+            })
+        {
+            return Err(fail("安装包应用身份必须与 Helmfile release 一一对应。", 400));
+        }
+    }
     c["applications"]
         .as_array()
         .filter(|rows| {
@@ -491,18 +515,59 @@ pub fn applications(c: &Value) -> Result<&Vec<Value>> {
         })
         .ok_or_else(|| fail("安装包缺少应用目录，请使用新版安装包。", 400))
 }
+pub fn release_catalog(c: &Value) -> Result<Option<&Vec<Value>>> {
+    if c.get("releaseCatalog").is_none_or(Value::is_null) {
+        return Ok(None);
+    }
+    let value = &c["releaseCatalog"];
+    let rows = value["releases"]
+        .as_array()
+        .ok_or_else(|| fail("release 目录无效。", 400))?;
+    let mut names = std::collections::BTreeSet::new();
+    if value["schemaVersion"] != 1
+        || rows.is_empty()
+        || rows.iter().any(|r| {
+            let name = r["name"].as_str().unwrap_or("");
+            !config::safe_name(name)
+                || !names.insert(name)
+                || !config::safe_name(r["namespace"].as_str().unwrap_or(""))
+                || !config::safe_name(r["component"].as_str().unwrap_or(""))
+                || !r["required"].is_boolean()
+                || r["labels"]["catalog"] != "release-v1"
+                || r["labels"].get("app").is_some_and(|v| v != "true" && v != "false")
+                || r["needs"]
+                    .as_array()
+                    .is_none_or(|needs| needs.iter().any(|n| !n.is_string()))
+        })
+    {
+        return Err(fail("release 目录身份或标签无效。", 400));
+    }
+    Ok(Some(rows))
+}
+fn resource_component<'a>(c: &'a Value, name: &'a str) -> &'a str {
+    c["releaseCatalog"]["releases"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["name"] == name))
+        .and_then(|r| r["component"].as_str())
+        .unwrap_or(name)
+}
 /// A deployer checkout's own declaration (`deploy/helmfile/applications.yaml`), for
 /// existing clusters that are not installed from a package catalog.
 pub fn declared_applications(root: &Path) -> Result<Vec<Value>> {
+    if root.join("setup/install.json").is_file() {
+        let package = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)?;
+        let catalog = package["catalogs"]
+            .as_object()
+            .and_then(|m| m.values().next())
+            .unwrap_or(&package);
+        if catalog.get("releaseCatalog").is_some() {
+            return applications(catalog).cloned();
+        }
+    }
     yaml(&root.join("deploy/helmfile/applications.yaml"))?["applications"]
         .as_array()
         .cloned()
         .ok_or_else(|| fail("部署程序缺少应用目录。", 400))
-}
-/// The applications of a package for a runtime family (`k3d-` or `k3s-`); every target of
-/// one package is built from the same Chentu declaration.
-pub fn package_applications(root: &Path, family: &str) -> Result<Value> {
-    Ok(json!(applications(&package_catalog(root, family)?)?))
 }
 pub fn package_distro(root: &Path, family: &str) -> Result<String> {
     let catalog = package_catalog(root, family)?;
@@ -512,7 +577,7 @@ pub fn package_distro(root: &Path, family: &str) -> Result<String> {
     }
     Ok(distro.to_owned())
 }
-fn package_catalog(root: &Path, family: &str) -> Result<Value> {
+pub fn package_catalog(root: &Path, family: &str) -> Result<Value> {
     let release = json_file(&root.join("setup/install.json"), 4 * 1024 * 1024)
         .map_err(|_| fail("安装包缺少有效 setup/install.json 资源清单。", 400))?;
     let catalog = match release["catalogs"].as_object() {
@@ -572,7 +637,7 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
     for name in base.iter().chain(&releases(declared, apps)?) {
         visit(
             c,
-            name.as_str().ok_or_else(|| fail("组件名称无效。", 400))?,
+            resource_component(c, name.as_str().ok_or_else(|| fail("组件名称无效。", 400))?),
             &mut vec![],
             &mut done,
         )?;
@@ -620,7 +685,9 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
         if !release.is_object() {
             return Err(fail("安装包应用配置必须是对象。", 400));
         }
-        release["enabled"] = json!(done.iter().any(|component| component == name));
+        release["enabled"] = json!(done
+            .iter()
+            .any(|component| component == resource_component(c, name.as_str().unwrap())));
     }
     let arch = target.rsplit('-').next().unwrap();
     if env.get("profile").is_some() || env.get("architecture").is_some_and(|a| a != "__ARCH__" && a != arch) {
@@ -667,7 +734,7 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
         return Err(fail("安装包没有可校验资源。", 400));
     }
     Ok(
-        json!({"components":done,"files":files,"target":t,"environment":env,"images":images.values().collect::<Vec<_>>(),"applications":declared}),
+        json!({"components":done,"files":files,"target":t,"environment":env,"images":images.values().collect::<Vec<_>>(),"applications":declared,"releaseCatalog":c["releaseCatalog"]}),
     )
 }
 fn resource_description(file: &Value) -> String {

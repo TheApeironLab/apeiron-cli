@@ -22,7 +22,7 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
     let servers = nodes.iter().filter(|n| n["role"] == "server").count();
     let ok = match topology {
         "multi-k3s" => nodes.len() >= 3 && servers == nodes.len() && servers % 2 == 1,
-        "single-k3s" => nodes.len() == 1 && nodes[0]["host"] == "localhost" && servers == 1,
+        "single-k3s" => nodes.len() == 1 && servers == 1,
         _ => false,
     };
     if !ok {
@@ -31,7 +31,7 @@ pub fn hosted_nodes(topology: &str, nodes: &[Value]) -> Result<()> {
                 "multi-k3s" => {
                     "原生 Nexus-first 多机部署需要至少 3 个、奇数个 server 节点且没有 agent 节点；尚未修改集群。"
                 }
-                "single-k3s" => "原生 Nexus-first 单机部署以管理机为唯一节点，不接受远程节点；尚未修改集群。",
+                "single-k3s" => "原生 Nexus-first 单节点部署需要一个控制节点；尚未修改集群。",
                 _ => "原生 Nexus-first 不支持该拓扑；尚未修改集群。",
             },
             400,
@@ -275,7 +275,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     } else {
         vec!["bash", "tar", "python3"]
     };
-    if i["topology"] == "multi-k3s" {
+    if config::remote_installation(&i) {
         system_tools.push("ssh");
     }
     // These tools cannot be supplied by target-node resources. Fail before
@@ -288,10 +288,13 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
     target["root"] = json!(root);
     let mut arch = discovery::architecture(std::env::consts::ARCH).to_owned();
     let mut nodes = i["nodes"].as_array().unwrap().clone();
+    if config::remote_installation(&i) && nodes.is_empty() {
+        return Err(fail("请先添加并检测 SSH 目标机器；尚未修改集群。", 400));
+    }
     let mut facts = Vec::new();
     if !docker {
         c.event("复查节点系统、架构、权限和已有集群。");
-        facts = if i["topology"] == "multi-k3s" {
+        facts = if config::remote_installation(&i) {
             let mut input = i.clone();
             input["hosts"] = json!(nodes.iter().map(|n| n["host"].clone()).collect::<Vec<_>>());
             discovery::nodes(&input, &c.cancel)?["nodes"]
@@ -313,7 +316,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         {
             return Err(fail("请选择 CPU 架构一致的节点。", 400));
         }
-        if i["topology"] == "single-k3s" {
+        if !config::remote_installation(&i) && i["topology"] == "single-k3s" {
             let addresses = facts[0]["addresses"].as_array().unwrap();
             nodes.push(json!({"host":"localhost","name":facts[0]["name"],"address":if addresses.contains(&i["entryIp"]){i["entryIp"].clone()}else{addresses[0].clone()},"role":"server"}));
         }
@@ -924,7 +927,7 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
         &env,
         "校验应用配置",
     )?;
-    let multi = i["topology"] == "multi-k3s";
+    let multi = config::remote_installation(&i);
     let bundle = if multi {
         format!(
             "/opt/chentu/bundles/{}",
@@ -1461,6 +1464,55 @@ fi
     }
 
     #[test]
+    fn single_ssh_bootstrap_stages_resources_and_never_uses_local_connection() {
+        let temp = Temp::new();
+        temp.write("bootstrap/management_cli.py", "# fixture");
+        for name in ["python3", "ansible-playbook"] {
+            temp.tool(
+                name,
+                r#"#!/bin/sh
+if [ "${2:-}" = plan ]; then
+    for argument do output="$argument"; done
+    printf '%s' '["apeiron.example.internal","iam.example.internal","nexus.example.internal","registry.example.internal"]' > "$output"
+fi
+"#,
+            );
+        }
+        let cli = json!({"archive":"clients/apeiron.tar.gz","target":"linux-x64", "version":"0.2.1", "scodeVersion":"v0.2.33", "revision":"a".repeat(40), "binarySha256":"b".repeat(64), "sha256":"c".repeat(64), "size":123});
+        let p = Prepared {
+            target: Value::Null,
+            values: Value::Null,
+            plan: json!({"target":{"managementCli":cli}, "files":[{"path":"clients/apeiron.tar.gz","sha256":"c".repeat(64),"size":123}]}),
+            nodes: vec![json!({"host":"node-0","name":"node-0","address":"192.0.2.10","role":"server"})],
+            bundle: temp.0.clone(),
+            cluster: "fixture".into(),
+            arch: "amd64".into(),
+            generated: vec![],
+            tool_env: temp.env(),
+        };
+        let i = json!({"distro":"minimal","topology":"single-k3s","location":"ssh","domain":"example.internal","entryIp":"192.0.2.10","sshPort":22,"sshKey":"","sshUser":""});
+        let mut target = json!({"runner":"native","root":temp.0,"workDir":temp.0,"environment":temp.0.join("environment.yaml"),"kubeconfig":temp.0.join("kubeconfig"),"installation":i});
+        bootstrap(&mut target, &Context::fixture(&temp.0), &p).unwrap();
+        let inventory = resources::yaml(&temp.0.join("inventory.yaml")).unwrap();
+        assert_eq!(inventory["all"]["vars"]["chentu_distro"], "minimal");
+        assert_eq!(inventory["all"]["vars"]["chentu_management_cli"], cli);
+        assert!(inventory["all"]["children"]["server"]["hosts"]["node-0"].is_object());
+        assert!(inventory["all"]["children"]["server"]["hosts"]["node-0"]
+            .get("ansible_connection")
+            .is_none());
+        assert_eq!(
+            inventory["all"]["children"]["server"]["hosts"]["node-0"]["ansible_host"],
+            "node-0"
+        );
+        assert!(inventory["all"]["vars"]["chentu_bundle"]
+            .as_str()
+            .unwrap()
+            .starts_with("/opt/chentu/bundles/"));
+        let preflight = fs::read_to_string(temp.0.join("prepare-hosts.yaml")).unwrap();
+        assert!(preflight.contains("Copy verified resources"));
+    }
+
+    #[test]
     fn native_bootstrap_checks_configuration_and_copies_verified_packages_before_host_installation() {
         let temp = Temp::new();
         let c = Context::fixture(&temp.0);
@@ -1621,7 +1673,7 @@ mod tests {
         hosted_nodes("single-k3s", &[node("localhost", "server")]).unwrap();
         assert!(hosted_nodes("single-k3s", &three).is_err());
         assert!(hosted_nodes("single-k3s", &[node("localhost", "server"), node("b", "agent")]).is_err());
-        assert!(hosted_nodes("single-k3s", &[node("remote", "server")]).is_err());
+        hosted_nodes("single-k3s", &[node("remote", "server")]).unwrap();
         // 3. K3d never reaches the native rule; any other topology is refused.
         assert!(hosted_nodes("single-k3d", &[]).is_err());
     }

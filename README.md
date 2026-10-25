@@ -300,9 +300,7 @@ bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
 
 该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
 
-当前尚未发布到 npm registry。`connect` / `status` / `disconnect` / `serve` 使用
-`third_party/apeiron/cli` 的 Rust 连接运行时，通过 Git submodule 锁定上游提交并静态链接，
-不再维护连接运行时的源码副本。SSO、IAM、Task 暂时保留本仓库现有实现；
+当前尚未发布到 npm registry。SSO、IAM、Task 使用本仓库现有入口；
 `platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
 
 部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）
@@ -451,10 +449,6 @@ apeiron zygos model list
 ```
 
 连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
-本机连接的上游是 `third_party/apeiron`，接收端上报的软件版本来自上游 `VERSION`；
-宿主 `apeiron --version` 仍报告本 CLI 的发行版本。更新时先在 Apeiron 上游验证并合并，
-再更新 gitlink 与 Cargo.lock；不要在构建中追踪浮动分支或复制运行时代码。
-宿主保留真实可执行文件的生命周期集成测试，CI 另外运行 vendor 内的 Rust 检查与测试。
 CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos 与 Apeiron；名称沿用现有配置。
 
 源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
@@ -480,3 +474,75 @@ Minimal 要求当前 CLI 包含 scode（`apeiron sudo`）。原生 K3s 包还必
 原生管理机 CLI 契约，另将 Clinview 列为必选应用。Apeiron 根界面必须在构建镜像时
 选择 `FRONTEND_ROOT_BRAND=clinview`；向导不在运行时替换品牌或镜像。
 应用和依赖仍来自 Chentu catalog / 原生 Helmfile needs。
+
+## 本机连接运行时
+
+`connect` / `status` / `disconnect` / `serve` 和 `cloud-receiver` 由本仓库 `runtime/` 维护，
+接收端与 `apeiron --version` 使用同一个 CLI 发行版本。`third_party/apeiron` 仅记录部署发行的
+服务端源码版本，不再提供 CLI 的 Cargo 依赖。协议变更需配套验证
+[Apeiron 服务端契约](https://github.com/TheApeironLab/apeiron/blob/main/backend/AGENTS.md)。
+
+在 Apeiron 的“设置 → 本地电脑”获取连接命令，或使用该平台签发的个人访问令牌：
+
+```sh
+apeiron connect --server https://apeiron.example.internal --token-file /absolute/path/to/token
+apeiron status
+apeiron disconnect
+# 在当前终端运行，不安装后台服务
+apeiron serve --server https://apeiron.example.internal --token-file /absolute/path/to/token
+```
+
+`connect` 在 macOS 使用 launchd、在 Linux 使用 systemd 用户服务；`serve` 前台运行。
+服务凭据保存在 `~/.config/apeiron/token`，权限为 0600，日志位于 `~/.local/state/apeiron/apeiron.log`。
+Linux 注销后持续运行需要为当前用户启用 linger。服务端吊销连接令牌后，接收端退出并卸载对应后台服务。
+
+工作区用 `--root` 指定，默认 `~/.apeiron/workspaces`；`--config-home` 默认为 `~/.apeiron/sudocode`。
+接收端优先启动托管安装器放在 `~/.apeiron/bin` 的 scode，否则使用 PATH 中的 `scode acp`；可用
+`--agent` 指定命令。agent 使用当前用户的权限和模型配置，配置与工作区应由用户明确选择。
+本仓库保留真实可执行文件的生命周期、TLS、Task 和云端容器契约测试；服务端另行验证连接与执行协议。
+
+### 安装机与目标机器
+
+向导首页只填写实例名称，创建尚无部署目标、无端口占用的草稿实例。在下一页的部署选项中选择“这台机器”或“远端机器 · SSH”，点击“下一步”后保存目标；本机 K3d 的端口在此时分配，重试复用已分配端口。本机选择 Docker 中运行 K3d 或 Ubuntu 上安装 K3s；SSH 在配置页添加一台或多台节点并检测连接，节点数量决定 single-k3s / multi-k3s，不再让用户另外选择单机、多机。
+`deployment.installation.location` 保存 local / ssh；旧配置的 multi-k3s 按 ssh 读取，其余按 local 读取。SSH 单节点使用远端资源暂存和 Ansible SSH 连接，不会把安装机当作目标节点；未检测节点不能开始部署。
+实例 ID 保留在详情提示中，顶部仅展示实例名与目标位置。正式发行包的安装机平台与多节点规模约束仍由原有验证器执行；本次界面变更不代表 Mac 跨平台 SSH 部署已通过验收。
+
+### 安装向导的发行版选择
+
+第 2 步为“选择发行版”，提供 Minimal 与 Clinview；选项仅展示名称和一行简介，不再展示组件清单、场景组合或逐应用勾选。点击该步的“下一步”才读取安装包清单，要求包内 distro 与所选发行版一致，并包含必选的 Nexus、Vasi、Apeiron 应用入口；Clinview 还必须包含 Clinview 应用。旧基础版包不会被重新标为 Minimal；不匹配会停留在发行版页，提示返回部署选项选择匹配的安装包。现有实例的旧配置与应用管理 API 保持兼容。
+
+### Minimal 在线开发预览
+
+在线预览使用小型部署程序包和固定 SHA-256 的资源清单，镜像、Chart、CLI 包按清单从 OSS 下载。
+`scripts/prepare-distro-material.py` 从已有 catalog 复用资源，以 Chentu 原生 Helmfile 渲染结果确定
+Minimal 组件；通过 `--cli-release` 和重复的 `--cli-archive` 提供经发行记录校验的 Rust CLI 包。
+原生 K3s 另需 `--management-cli`。随后由 Chentu 的 `bundle/hosted_release.py` 生成 Nexus 分发材料。
+
+材料上传并回读校验后，可为单个目标制作开发预览：
+
+```sh
+python3 scripts/package-distro-preview.py --profile /external/profile-handoff --out /external/minimal-preview
+bun scripts/publish-deployment.js /external/minimal-preview/upload-plan.json
+# 下载 preview.json 中 archive.url，核对 SHA-256，解压到仓库外目录。
+APEIRON_CHENTU_ROOT=/external/unpacked/chentu apeiron init --config /external/minimal-test/config.json
+```
+
+预览包保留源码与生成文件的摘要，启动前不需要下载完整资源。此开发入口不会修改内置发行版固定值、
+stable/nightly 通道或旧安装实例；不设置 `APEIRON_CHENTU_ROOT` 的已发行 CLI 仍使用其原有安装包。
+`preview.json` 明确记录目标和未验收状态；单个目标的预览不能代表原生主机或离线验收。
+
+开发预览打包器在完整校验输入来源后，可修复旧材料中 `tools` 重复登记
+`sources/deployment-source.tar.gz` 的已知问题，并在 `catalogRepairs` 中记录。
+它只修改生成的目录和对应摘要，不修改源码、资源内容或已发布对象；其它重复资源仍拒绝。
+安装失败时，向导当前阶段显示实际失败原因，不沿用上一条资源校验成功的进度文字。
+
+### Release 目录与预算
+
+新安装包以 Chentu 的 `releaseCatalog` 为准：`helmfile build` 中每个 release 对应一个管理 ID，
+`labels.app: "true"` 仅标记应用入口。Minimal 显示 8 个 release、其中 3 个应用入口，并可展开完整列表。
+新格式的 `applications` 数组只是 release 目录的兼容投影，不定义别名或多 release 应用。
+旧包继续按自身原有目录处理，不能把新格式的别名映射伪装成有效 release。
+
+预算使用包内 `resourceBudget`，由 Chentu 对实际 `helmfile template` 输出计算。
+requests 不代表实际占用；缺失声明时显示未知，不再使用固定基础内存或按应用个数加总。
+DaemonSet 按目标节点数量计量，迁移 Job/CronJob 不计入常驻请求总量。
