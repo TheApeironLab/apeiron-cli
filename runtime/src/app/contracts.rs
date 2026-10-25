@@ -646,6 +646,37 @@ fn minimal_distro_keeps_required_models_but_routes_directly_without_gateway() {
 }
 
 #[test]
+fn clinview_distro_keeps_required_models_but_routes_directly_without_gateway() {
+    let mut installation = install("single-k3d");
+    installation["distro"] = json!("clinview");
+    let mut c = input(installation, false);
+    c["apps"] = json!(["nexus", "vasi", "apeiron", "clinview"]);
+    c["models"] = json!({"provider":"direct","baseUrl":"https://models.example.internal/v1", "apiKey":"fixture-only", "fast":"model-a", "deep":"model-a"});
+    let c = valid(&c);
+    assert_eq!(c["deployment"]["installation"]["distro"], "clinview");
+    models::require_for_installation(&c).unwrap();
+    assert!(!models::uses_gateway(&c));
+    let values = deploy::environment_for(
+        &c,
+        &[],
+        json!({"distro":"clinview", "releases":{"gateway":{"enabled":false}}}),
+    )
+    .unwrap();
+    assert_eq!(values["releases"]["gateway"]["enabled"], false);
+    assert_eq!(
+        values["releases"]["apeiron"]["values"]["models"]["providers"][0]["baseUrl"],
+        "https://models.example.internal/v1"
+    );
+    assert!(!values.to_string().contains("fixture-only"));
+    let mut missing = c.clone();
+    missing["models"] = Value::Null;
+    assert!(models::require_for_installation(&missing).is_err());
+    let mut legacy = c;
+    legacy["deployment"]["installation"]["distro"] = json!("base");
+    assert!(models::require_for_installation(&legacy).is_err());
+}
+
+#[test]
 #[cfg(unix)]
 fn gateway_upstream_key_is_sent_only_to_gateway_secret_over_stdin() {
     let dir = Temp::new();

@@ -468,6 +468,13 @@ Minimal 要求当前 CLI 包含 scode（`apeiron sudo`）。原生 K3s 包还必
 开发验证：`APEIRON_TEST_BIN=/absolute/path/apeiron bun scripts/test-minimal-ui.js`。
 该浏览器测试使用确定性 HTTP fixture，不调用真实模型；不能替代原生主机与断网验收。
 
+### Clinview distro
+
+`distro: clinview` 从固定安装包读取，沿用 Minimal 的模型直连、必选 Apeiron 和
+原生管理机 CLI 契约，另将 Clinview 列为必选应用。Apeiron 根界面必须在构建镜像时
+选择 `FRONTEND_ROOT_BRAND=clinview`；向导不在运行时替换品牌或镜像。
+应用和依赖仍来自 Chentu catalog / 原生 Helmfile needs。
+
 ## 本机连接运行时
 
 `connect` / `status` / `disconnect` / `serve` 和 `cloud-receiver` 由本仓库 `runtime/` 维护，
@@ -502,7 +509,7 @@ Linux 注销后持续运行需要为当前用户启用 linger。服务端吊销�
 
 ### 安装向导的发行版选择
 
-第 2 步为“选择发行版”，目前只提供 Minimal；选项仅展示名称和一行简介，不再展示组件清单、场景组合或逐应用勾选。点击该步的“下一步”才读取安装包清单，要求包内 `distro: minimal`，并包含必选的 Nexus、Vasi、Apeiron 应用入口。旧基础版包不会被重新标为 Minimal；不匹配会停留在发行版页，提示返回部署选项选择匹配的安装包。现有实例的旧配置与应用管理 API 保持兼容。
+第 2 步为“选择发行版”，提供 Minimal 与 Clinview；选项仅展示名称和一行简介，不再展示组件清单、场景组合或逐应用勾选。点击该步的“下一步”才读取安装包清单，要求包内 distro 与所选发行版一致，并包含必选的 Nexus、Vasi、Apeiron 应用入口；Clinview 还必须包含 Clinview 应用。旧基础版包不会被重新标为 Minimal；不匹配会停留在发行版页，提示返回部署选项选择匹配的安装包。现有实例的旧配置与应用管理 API 保持兼容。
 
 ### Minimal 在线开发预览
 

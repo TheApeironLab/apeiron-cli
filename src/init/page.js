@@ -108,6 +108,7 @@ export function renderPage(nonce) {
 <div data-panel hidden>
 <fieldset class="choice-field"><legend>发行版</legend><div class="choices">
 <label class="choice"><input type="radio" name="distro" value="minimal" checked><strong>Minimal</strong><small>基础平台与 AI 能力。</small></label>
+<label class="choice"><input type="radio" name="distro" value="clinview"><strong>Clinview</strong><small>ClinView 品牌与病例审阅。</small></label>
 </div></fieldset>
 
 </div>

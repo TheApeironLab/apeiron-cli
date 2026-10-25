@@ -510,8 +510,14 @@ impl State {
                     .get("distro")
                     .is_some_and(|requested| requested != &distro)
                 {
+                    let source = if d["offline"] == true {
+                        "所选离线安装包"
+                    } else {
+                        "当前在线安装源"
+                    };
+                    let requested = d["installation"]["distro"].as_str().unwrap_or("");
                     return Err(fail(
-                        "所选发行版与安装包不匹配，请返回部署选项选择对应的安装包。当前向导提供 Minimal。",
+                        format!("所选发行版与安装包不匹配：{source}提供 {distro}，所选为 {requested}。需要先准备并接入对应发行版的安装包。"),
                         400,
                     ));
                 }

@@ -94,6 +94,7 @@
 <div data-panel hidden>
 <fieldset class="choice-field"><legend>发行版</legend><div class="choices">
 <label class="choice"><input type="radio" name="distro" value="minimal" checked><strong>Minimal</strong><small>基础平台与 AI 能力。</small></label>
+<label class="choice"><input type="radio" name="distro" value="clinview"><strong>Clinview</strong><small>ClinView 品牌与病例审阅。</small></label>
 </div></fieldset>
 
 </div>
@@ -792,6 +793,7 @@ ${access.domain}      A    ${access.entryIp}`;
     return [54320, 54321];
   }
   function target() {
+    distro = document.querySelector('[name="distro"]:checked').value;
     const mode = topology(), paired = accessMode() === "relay" ? selectedConnection() : void 0, nodes = remote() ? Array.from(get("node-results").querySelectorAll(".node-result")).map((row) => ({
       host: row.dataset.host,
       name: row.querySelector("[data-field=name]")?.value.trim() ?? "",
@@ -812,6 +814,8 @@ ${access.domain}      A    ${access.entryIp}`;
   }
   function applyTarget(value) {
     const install = value.installation;
+    if (["minimal", "clinview"].includes(install?.distro))
+      document.querySelector(`[name="distro"][value="${install.distro}"]`).checked = !0;
     distro = document.querySelector('[name="distro"]:checked').value;
     const published = install?.publicAccess;
     renderConnections(published?.pairingId ?? "");
@@ -973,9 +977,9 @@ ${access.domain}      A    ${access.entryIp}`;
   function renderSummary() {
     const value = target(), install = value.installation;
     get("summary-instance").textContent = instanceLabel();
-    get("summary-topology").textContent = install.topology === "single-k3d" ? "\u5355\u673A K3d\uFF08\u672C\u673A Docker\uFF09" : install.topology === "multi-k3s" ? `\u591A\u673A K3s${install.ha ? " \xB7 \u63A7\u5236\u5E73\u9762\u9AD8\u53EF\u7528" : ""}` : "\u5355\u673A K3s\uFF08\u5F53\u524D\u4E3B\u673A\uFF09";
-    get("summary-nodes").textContent = install.topology === "multi-k3s" ? install.nodes.map((node) => `${node.host}\uFF08${node.role === "server" ? "\u63A7\u5236" : "\u5DE5\u4F5C"} \xB7 ${node.address}\uFF09`).join("\u3001") || "\u5C1A\u672A\u68C0\u6D4B" : install.topology === "single-k3d" ? "\u672C\u673A Docker \u5BB9\u5668" : "\u5F53\u524D\u4E3B\u673A";
-    get("summary-source").textContent = "Minimal \xB7 " + (value.offline ? `\u79BB\u7EBF \xB7 ${value.bundleDir}` : "\u5728\u7EBF\u4E0B\u8F7D\u56FA\u5B9A\u53D1\u884C\u7248");
+    get("summary-topology").textContent = install.topology === "single-k3d" ? "\u5355\u673A K3d\uFF08\u672C\u673A Docker\uFF09" : install.topology === "multi-k3s" ? `\u591A\u673A K3s${install.ha ? " \xB7 \u63A7\u5236\u5E73\u9762\u9AD8\u53EF\u7528" : ""}` : install.location === "ssh" ? "\u5355\u673A K3s\uFF08\u8FDC\u7AEF SSH\uFF09" : "\u5355\u673A K3s\uFF08\u5F53\u524D\u4E3B\u673A\uFF09";
+    get("summary-nodes").textContent = install.location === "ssh" ? install.nodes.map((node) => `${node.host}\uFF08${node.role === "server" ? "\u63A7\u5236" : "\u5DE5\u4F5C"} \xB7 ${node.address}\uFF09`).join("\u3001") || "\u5C1A\u672A\u68C0\u6D4B" : install.topology === "single-k3d" ? "\u672C\u673A Docker \u5BB9\u5668" : "\u5F53\u524D\u4E3B\u673A";
+    get("summary-source").textContent = (install.distro === "clinview" ? "Clinview" : "Minimal") + " \xB7 " + (value.offline ? `\u79BB\u7EBF \xB7 ${value.bundleDir}` : "\u5728\u7EBF\u4E0B\u8F7D\u56FA\u5B9A\u53D1\u884C\u7248");
     get("summary-domain").textContent = install.domain || "\u2014";
     get("summary-entry").textContent = install.publicAccess ? `${install.publicAccess.mode === "relay" ? "ECS \u8F6C\u53D1" : "\u516C\u7F51\u76F4\u8FDE"} \xB7 ${install.publicAccess.publicIp}` : `\u5185\u7F51 \xB7 ${install.entryIp || "\u2014"}`;
     get("summary-ports").textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;
@@ -1817,14 +1821,14 @@ ${access.domain}      A    ${access.entryIp}`;
         if (!response.ok)
           throw Error(result.error || "\u65E0\u6CD5\u8BFB\u53D6\u53D1\u884C\u7248\u5B89\u88C5\u5305\u3002");
         if (result.distro !== distro)
-          throw Error("\u6240\u9009 Minimal \u4E0E\u5B89\u88C5\u5305\u4E0D\u5339\u914D\uFF0C\u8BF7\u8FD4\u56DE\u90E8\u7F72\u9009\u9879\u9009\u62E9 Minimal \u5B89\u88C5\u5305\u3002");
+          throw Error("\u6240\u9009\u53D1\u884C\u7248\u4E0E\u5B89\u88C5\u5305\u4E0D\u5339\u914D\uFF0C\u8BF7\u8FD4\u56DE\u90E8\u7F72\u9009\u9879\u9009\u62E9\u5BF9\u5E94\u7684\u5B89\u88C5\u5305\u3002");
         if (result.releaseCatalog) {
           if (result.releaseCatalog.schemaVersion !== 1 || !result.releaseCatalog.releases.length || result.apps.length !== result.releaseCatalog.releases.length || result.apps.some((app) => app.releases.length !== 1 || app.releases[0] !== app.id))
             throw Error("\u5B89\u88C5\u5305\u7684 release \u76EE\u5F55\u4E0D\u5B8C\u6574\u3002");
         } else {
-          const roots = [...result.apps].map((app) => app.id).sort();
-          if (JSON.stringify(roots) !== JSON.stringify(["apeiron", "nexus", "vasi"]) || result.apps.some((app) => !app.required))
-            throw Error("Minimal \u5B89\u88C5\u5305\u7684\u5E94\u7528\u6E05\u5355\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u4F7F\u7528\u5339\u914D\u7684\u53D1\u884C\u5305\u3002");
+          const roots = [...result.apps].map((app) => app.id).sort(), expected = distro === "clinview" ? ["apeiron", "clinview", "nexus", "vasi"] : ["apeiron", "nexus", "vasi"];
+          if (JSON.stringify(roots) !== JSON.stringify(expected) || result.apps.some((app) => !app.required))
+            throw Error("\u53D1\u884C\u7248\u5B89\u88C5\u5305\u7684\u5E94\u7528\u6E05\u5355\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u4F7F\u7528\u5339\u914D\u7684\u53D1\u884C\u5305\u3002");
         }
         apps = result.apps;
         releaseCatalog = result.releaseCatalog ?? null;

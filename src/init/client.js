@@ -638,6 +638,7 @@ export function initWizard(supportsK3sHost) {
         return [54320, 54321];
     }
     function target() {
+        distro = document.querySelector('[name="distro"]:checked').value;
         const mode = topology();
         const paired = accessMode() === 'relay' ? selectedConnection() : undefined;
         const nodes = remote() ? Array.from(get('node-results').querySelectorAll('.node-result')).map(row => ({
@@ -652,6 +653,8 @@ export function initWizard(supportsK3sHost) {
     }
     function applyTarget(value) {
         const install = value.installation;
+        if (["minimal", "clinview"].includes(install?.distro))
+            document.querySelector(`[name="distro"][value="${install.distro}"]`).checked = true;
         distro = document.querySelector('[name="distro"]:checked').value;
         const published = install?.publicAccess;
         renderConnections(published?.pairingId ?? '');
@@ -813,9 +816,9 @@ export function initWizard(supportsK3sHost) {
         const value = target();
         const install = value.installation;
         get('summary-instance').textContent = instanceLabel();
-        get('summary-topology').textContent = install.topology === 'single-k3d' ? '单机 K3d（本机 Docker）' : install.topology === 'multi-k3s' ? `多机 K3s${install.ha ? ' · 控制平面高可用' : ''}` : '单机 K3s（当前主机）';
-        get('summary-nodes').textContent = install.topology === 'multi-k3s' ? install.nodes.map(node => `${node.host}（${node.role === 'server' ? '控制' : '工作'} · ${node.address}）`).join('、') || '尚未检测' : install.topology === 'single-k3d' ? '本机 Docker 容器' : '当前主机';
-        get('summary-source').textContent = 'Minimal · ' + (value.offline ? `离线 · ${value.bundleDir}` : '在线下载固定发行版');
+        get('summary-topology').textContent = install.topology === 'single-k3d' ? '单机 K3d（本机 Docker）' : install.topology === 'multi-k3s' ? `多机 K3s${install.ha ? ' · 控制平面高可用' : ''}` : install.location === 'ssh' ? '单机 K3s（远端 SSH）' : '单机 K3s（当前主机）';
+        get('summary-nodes').textContent = install.location === 'ssh' ? install.nodes.map(node => `${node.host}（${node.role === 'server' ? '控制' : '工作'} · ${node.address}）`).join('、') || '尚未检测' : install.topology === 'single-k3d' ? '本机 Docker 容器' : '当前主机';
+        get('summary-source').textContent = (install.distro === 'clinview' ? 'Clinview' : 'Minimal') + ' · ' + (value.offline ? `离线 · ${value.bundleDir}` : '在线下载固定发行版');
         get('summary-domain').textContent = install.domain || '—';
         get('summary-entry').textContent = install.publicAccess ? `${install.publicAccess.mode === 'relay' ? 'ECS 转发' : '公网直连'} · ${install.publicAccess.publicIp}` : `内网 · ${install.entryIp || '—'}`;
         get('summary-ports').textContent = `HTTP ${install.httpPort} / HTTPS ${install.httpsPort}`;
@@ -1671,7 +1674,7 @@ export function initWizard(supportsK3sHost) {
                 const response = await fetch(endpoint('applications'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deployment: target() }) });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || '无法读取发行版安装包。');
-                if (result.distro !== distro) throw new Error('所选 Minimal 与安装包不匹配，请返回部署选项选择 Minimal 安装包。');
+                if (result.distro !== distro) throw new Error('所选发行版与安装包不匹配，请返回部署选项选择对应的安装包。');
                 if (result.releaseCatalog) {
                     if (result.releaseCatalog.schemaVersion !== 1 || !result.releaseCatalog.releases.length
                         || result.apps.length !== result.releaseCatalog.releases.length
@@ -1679,8 +1682,9 @@ export function initWizard(supportsK3sHost) {
                         throw new Error('安装包的 release 目录不完整。');
                 } else {
                     const roots = [...result.apps].map(app => app.id).sort();
-                    if (JSON.stringify(roots) !== JSON.stringify(['apeiron', 'nexus', 'vasi']) || result.apps.some(app => !app.required))
-                        throw new Error('Minimal 安装包的应用清单不完整，请使用匹配的发行包。');
+                    const expected = distro === 'clinview' ? ['apeiron', 'clinview', 'nexus', 'vasi'] : ['apeiron', 'nexus', 'vasi'];
+                    if (JSON.stringify(roots) !== JSON.stringify(expected) || result.apps.some(app => !app.required))
+                        throw new Error('发行版安装包的应用清单不完整，请使用匹配的发行包。');
                 }
                 apps = result.apps;
                 releaseCatalog = result.releaseCatalog ?? null;

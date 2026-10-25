@@ -138,10 +138,12 @@ pub fn require_for_installation(config: &Value) -> Result<()> {
                 400,
             ));
         }
-        if config["deployment"]["installation"]["distro"] != "minimal"
-            && !config["apps"]
-                .as_array()
-                .is_some_and(|apps| apps.contains(&json!("gateway")))
+        if !matches!(
+            config["deployment"]["installation"]["distro"].as_str(),
+            Some("minimal" | "clinview")
+        ) && !config["apps"]
+            .as_array()
+            .is_some_and(|apps| apps.contains(&json!("gateway")))
         {
             return Err(fail("基础安装必须启用 Gateway。", 400));
         }
