@@ -69,7 +69,7 @@ fn management_cli_contract(plan: &Value, root: &Path, arch: &str) -> Result<()> 
         })
     {
         return Err(fail(
-            "minimal 安装包缺少匹配架构、摘要或安装程序的管理机 CLI；尚未修改主机。",
+            "minimal/clinview 安装包缺少匹配架构、摘要或安装程序的管理机 CLI；尚未修改主机。",
             400,
         ));
     }
@@ -333,10 +333,10 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         return Err(fail("安装包与所选发行方案不一致，请重新读取安装包。", 400));
     }
     let mut plan = resources::plan(&catalog, &key, &config["apps"])?;
-    if distro == "minimal" {
+    if ["minimal", "clinview"].contains(&distro) {
         if !super::sudo::build_info()["embedded"].as_bool().unwrap_or(false) {
             return Err(fail(
-                "minimal 需要包含 scode 的 apeiron-cli 发行包；尚未修改集群。",
+                "minimal/clinview 需要包含 scode 的 apeiron-cli 发行包；尚未修改集群。",
                 400,
             ));
         }
@@ -949,9 +949,9 @@ pub fn bootstrap(target: &mut Value, c: &Context, p: &Prepared) -> Result<BTreeM
             .collect::<serde_json::Map<_, _>>()
     };
     let mut vars = json!({"ansible_become":true,"ansible_ssh_common_args":"-o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=8","ansible_port":i["sshPort"],"chentu_domain":i["domain"],"chentu_architecture":p.arch,"chentu_bundle":bundle,"chentu_remote_repo":"/opt/chentu/setup","chentu_kubeconfig":target["kubeconfig"]});
-    if i["distro"] == "minimal" {
+    if matches!(i["distro"].as_str(), Some("minimal" | "clinview")) {
         management_cli_contract(&p.plan, &root, &p.arch)?;
-        vars["chentu_distro"] = json!("minimal");
+        vars["chentu_distro"] = i["distro"].clone();
         vars["chentu_management_cli"] = p.plan["target"]["managementCli"].clone();
         c.event("将在首个控制节点安装 apeiron-cli，并验证内嵌 scode。其他节点不安装 CLI。");
     }

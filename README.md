@@ -473,3 +473,10 @@ Minimal 要求当前 CLI 包含 scode（`apeiron sudo`）。原生 K3s 包还必
 
 开发验证：`APEIRON_TEST_BIN=/absolute/path/apeiron bun scripts/test-minimal-ui.js`。
 该浏览器测试使用确定性 HTTP fixture，不调用真实模型；不能替代原生主机与断网验收。
+
+### Clinview distro
+
+`distro: clinview` 从固定安装包读取，沿用 Minimal 的模型直连、必选 Apeiron 和
+原生管理机 CLI 契约，另将 Clinview 列为必选应用。Apeiron 根界面必须在构建镜像时
+选择 `FRONTEND_ROOT_BRAND=clinview`；向导不在运行时替换品牌或镜像。
+应用和依赖仍来自 Chentu catalog / 原生 Helmfile needs。

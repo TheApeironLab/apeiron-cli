@@ -507,7 +507,7 @@ pub fn package_applications(root: &Path, family: &str) -> Result<Value> {
 pub fn package_distro(root: &Path, family: &str) -> Result<String> {
     let catalog = package_catalog(root, family)?;
     let distro = catalog["distro"].as_str().unwrap_or("base");
-    if !["base", "minimal"].contains(&distro) {
+    if !["base", "minimal", "clinview"].contains(&distro) {
         return Err(fail("安装包发行方案不受支持。", 400));
     }
     Ok(distro.to_owned())

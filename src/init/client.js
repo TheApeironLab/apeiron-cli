@@ -822,8 +822,8 @@ export function initWizard(supportsK3sHost) {
     function updateSelection() {
         get('selected-count').textContent = `已选择 ${selectedApps().length} 个应用（${apps.filter(app => app.required).length} 个必选）`;
         const selected = selectedApps();
-        get('distro-note').textContent = distro === 'minimal' ? 'Minimal：证书、数据库、对象存储、身份、集群权限、Nexus、Vasi 和 Apeiron。' : '基础版：系统服务与 Gateway 模型网关。';
-        get('management-cli-note').textContent = distro !== 'minimal' ? '' : topology() === 'single-k3d'
+        get('distro-note').textContent = distro === 'clinview' ? 'Clinview：Minimal 基础服务、ClinView 品牌的 Apeiron 与病例审阅应用。' : distro === 'minimal' ? 'Minimal：证书、数据库、对象存储、身份、集群权限、Nexus、Vasi 和 Apeiron。' : '基础版：系统服务与 Gateway 模型网关。';
+        get('management-cli-note').textContent = !['minimal', 'clinview'].includes(distro) ? '' : topology() === 'single-k3d'
             ? '本机使用包含 scode 的 apeiron-cli，提供 apeiron sudo。'
             : topology() === 'single-k3s' ? '将在本机安装 apeiron-cli（含 scode），完成后可直接运行 apeiron sudo。'
             : '将在首个控制节点安装 apeiron-cli（含 scode）；其他节点不安装。';

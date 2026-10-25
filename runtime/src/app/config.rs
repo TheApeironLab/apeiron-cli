@@ -71,7 +71,7 @@ pub fn connection(v: &Value) -> Result<Value> {
 }
 pub fn installation(v: &Value) -> Result<Value> {
     let distro = v["distro"].as_str().unwrap_or("base");
-    if !["base", "minimal"].contains(&distro) {
+    if !["base", "minimal", "clinview"].contains(&distro) {
         return Err(fail("安装包发行方案不受支持。", 400));
     }
     let topology = text(v, "topology", 32, false)?;
@@ -143,7 +143,7 @@ pub fn installation(v: &Value) -> Result<Value> {
         return Err(fail("单机部署不接受远程节点。", 400));
     }
     let mut out = connection(v)?;
-    if distro == "minimal" {
+    if ["minimal", "clinview"].contains(&distro) {
         out["distro"] = json!(distro);
     }
     for (k,value) in json!({"topology":topology,"domain":domain,"entryIp":ip,"httpPort":http,"httpsPort":https,"ha":ha,"nodes":nodes}).as_object().unwrap(){out[k]=value.clone();}
