@@ -200,7 +200,10 @@ jobs:
         run: docker run --rm -v "$RUNNER_TEMP/smoke:/candidate:ro" -v "$PWD/scripts:/checks:ro" ubuntu:22.04 bash /checks/smoke-linux.sh
       - name: Cloud receiver wire and process authority contract
         if: runner.os == 'Linux'
-        run: python3 runtime/tests/cloud_container.py python:3.12-slim-bookworm --binary "$RUNNER_TEMP/smoke/apeiron"
+        run: |
+          # Image download is setup, not part of the receiver handshake deadline.
+          docker pull python:3.12-slim-bookworm
+          python3 runtime/tests/cloud_container.py python:3.12-slim-bookworm --binary "$RUNNER_TEMP/smoke/apeiron"
       - name: Verify selections against the public default install package
         # The current pinned Chentu package provides a native ARM64 toolbox.
         # Run real Helmfile and check.py, without a cluster or container network.
