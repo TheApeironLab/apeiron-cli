@@ -182,3 +182,16 @@ K3d 验收不覆盖原生主机引导、多机存储或真实断网首装；这�
 K3d 的 kubeconfig 由 CLI 预先创建为当前用户拥有的 `0600` 普通文件，工具箱原位写入；
 这样 Linux Docker 不会留下 CLI 无权读取的 root 专有文件。重试保留已有文件与凭据，
 拒绝符号链接、特殊文件和不可读文件，不扩大读取权限。
+
+### 统一 IAM 制品来源
+
+统一 IAM 产品的发布 catalog 使用 `preparationSource` 约束镜像准备路径：
+Keycloak 是 `public-required`，来源由 chentu 的已提交契约锁定到官方 Quay 仓库；
+IAM UI 是 `oss-only`，沿用匹配发行包的 OSS 文件下载。公网镜像准备失败不回退到 OSS。
+CLI 调用已校验 chentu 源码包中的 OCI 验证器，同时校验回执来源、digest、目标架构、
+归档 SHA-256/size 和实际文件字节，成功才原子写入缓存。已经验证的缓存可复用；
+离线模式只接受完整缓存，不联网准备缺失镜像。
+
+此功能需要同时发布匹配的 chentu、IAM Chart 与 CLI。旧发行版不会因本地修改自动
+切换来源。Chart 与 UI 制品在 OSS 发布，部署时镜像仍供给到站点 Nexus；来源选择
+发生在管理机准备阶段。

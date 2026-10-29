@@ -407,6 +407,7 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         }
         c.event("私有安装将按入口 IP 配置管理机、节点和集群内部解析，无需预先配置外部 DNS。");
     }
+    resources::prepare_image_sources(&root, &plan, &cache, &arch, target["offline"] == true, &c.cancel, &|m| c.event(m))?;
     if target["offline"] != true && plan["target"]["publicPreparation"] == 1 {
         require_tools(&["python3"], &BTreeMap::new())?;
     }
