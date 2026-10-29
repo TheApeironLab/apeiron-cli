@@ -50,3 +50,5 @@ apeiron-cli Settings → Secrets and variables → Actions 中设置以上专用
 
 没有该 secret 的 fork PR 无法检出私有子模块，需要有权限的受信任分支执行 CI；
 不要通过 pull_request_target 执行未信任 PR 代码来绕过此边界。
+
+Chentu 部署引擎也以 `third_party/chentu` 固定提交；同一只读 token 需有 Chentu 仓库的 Contents: read 权限。

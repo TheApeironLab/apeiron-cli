@@ -19,7 +19,7 @@ test('PR builds use the committed distribution version and reject a different Ca
     }
     const nightly = '0.2.1-nightly.20261023.123';
     expect((await build(nightly)).exitCode).toBe(0);
-    expect(await readFile(env.GITHUB_ENV, 'utf8')).toBe(`APEIRON_BUILD_VERSION=${nightly}\n`);
+    expect(await readFile(env.GITHUB_ENV, 'utf8')).toBe(`APEIRON_BUILD_VERSION=${nightly}\nCHENTU_BUILD_VERSION=${nightly}\n`);
     expect((await build('0.2.2')).exitCode).not.toBe(0);
     expect(await readFile(env.GITHUB_ENV, 'utf8')).toBe('');
     expect((await build('0.2.1-rc.5')).exitCode).not.toBe(0);

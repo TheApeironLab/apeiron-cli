@@ -30,17 +30,12 @@ try {
     const target = `k3d-${process.arch === 'x64' ? 'amd64' : process.arch}`;
     if (!root) {
         // Read the runtime's exact pin, so CI cannot silently validate a different package.
-        const source = await readFile(new URL('../runtime/src/app/resources.rs', import.meta.url), 'utf8');
-        const pin = name => {
-            const value = new RegExp(`^const ${name}: &str = "([^"]+)";`, 'm').exec(source)?.[1];
-            assert.ok(value, `Cannot read runtime ${name} pin`);
-            return value;
-        };
-        const version = pin('VERSION');
+        const pin = JSON.parse(await readFile(new URL('../release/distribution-input.json', import.meta.url), 'utf8')).chentu;
+        const version = pin.version;
         // The historical default remains readable until its pin PR is merged.
         if (version !== '0.1.0-rc.5') parseReleaseVersion(version);
         const archive = join(directory, 'chentu.tar.gz');
-        await download(`https://${pin('HOST')}/chentu/releases/${version}/chentu-${version}.tar.gz`, archive, pin('DIGEST'));
+        await download(pin.url, archive, pin.sha256);
         await run(['tar', '-xzf', archive, '-C', directory]);
         root = join(directory, `chentu-${version}`);
     }

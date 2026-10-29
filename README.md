@@ -1,6 +1,8 @@
 # Apeiron CLI
 
-统一入口：`apeiron <模块> <命令>`。`apeiron init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。Rust 单文件程序，内嵌浏览器向导；运行不需要 Bun/Node。onto 模块需要外部 CLI 或已安装依赖的 ontology 仓库。
+部署核心与安装网页由 `third_party/chentu/rust` 对应的 Chentu 源码持有；本仓库只嵌入该 crate 并适配命令。旧 `apeiron init/app/platform` 暂保留兼容。
+
+统一入口：`apeiron <模块> <命令>`。`apeiron chentu init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。Rust 单文件程序，内嵌浏览器向导；运行不需要 Bun/Node。onto 模块需要外部 CLI 或已安装依赖的 ontology 仓库。
 
 `apeiron sudo` 启动随发行版交付的 Sudocode 本地 AI agent，参数直接传给 `scode`。
 配置模型 base URL、API key 和模型即可使用，无需 Gateway 或 Apeiron Backend；agent 也能通过
@@ -14,10 +16,10 @@ macOS / Linux，ARM64 或 x64：
 
 ```sh
 curl -fsSL https://downloads.apeironlab.cn/apeiron-cli/install.sh | sh
-apeiron init
+apeiron chentu init
 ```
 
-安装器自动选择平台并校验 SHA-256，优先原位更新已能找到的 `apeiron`，否则选择当前 PATH 中的常用 bin 目录。用户目录可直接写入；系统目录不可写时会请求 sudo 授权。安装后当前终端即可直接运行 `apeiron`，无需手动修改 PATH。`apeiron init` 自动打开默认浏览器。重新运行安装命令可升级 CLI，不会重新部署平台或修改配置。独立文件也可从 GitHub Releases（需要仓库权限）或公开 OSS 下载；离线安装和固定版本见 [发布与安装说明](docs/releases.md)。
+安装器自动选择平台并校验 SHA-256，优先原位更新已能找到的 `apeiron`，否则选择当前 PATH 中的常用 bin 目录。用户目录可直接写入；系统目录不可写时会请求 sudo 授权。安装后当前终端即可直接运行 `apeiron`，无需手动修改 PATH。`apeiron chentu init` 自动打开默认浏览器。重新运行安装命令可升级 CLI，不会重新部署平台或修改配置。独立文件也可从 GitHub Releases（需要仓库权限）或公开 OSS 下载；离线安装和固定版本见 [发布与安装说明](docs/releases.md)。
 
 新版安装器默认选择 `stable`，`latest.txt` 保留为 stable 的兼容入口。主动试用开发版或固定版本：
 
@@ -43,7 +45,7 @@ Caddy 自动管理公网证书，ECS 转发使用由 systemd 管理的受限 SSH
 ## 源码开发安装
 
 ```sh
-git clone https://github.com/TheApeironLab/apeiron-cli.git
+git clone --recurse-submodules https://github.com/TheApeironLab/apeiron-cli.git
 cd apeiron-cli
 cargo install --path runtime --locked
 apeiron --help
@@ -119,7 +121,7 @@ apeiron task project delete <项目ID> --confirm --json
 ## 浏览器部署向导
 
 ```sh
-apeiron init
+apeiron chentu init
 ```
 
 命令监听 `127.0.0.1` 的空闲端口，自动打开网页。首屏有两个入口：**创建新安装实例**（填写实例名称与拓扑，服务端分配入口端口并登记到 `~/.apeiron/instances.json`）和**管理已有安装实例**（列表显示 ID、名称、拓扑、域名、端口、状态；可选择／继续、采集诊断日志、卸载未运行的 K3d 实例）；页眉始终显示当前正在操作的实例。创建流程分为八步：
@@ -226,10 +228,10 @@ Limani 对应 `ontology`，Chat 对应 `matrix`，邮件对应 `stalwart`，代�
 保存采用文件锁、版本检查和临时文件替换，防止旧窗口覆盖新配置。
 
 ```sh
-apeiron init --no-open                       # 手动打开终端输出的地址
-apeiron init --port 3210                     # 指定本地端口
-apeiron init --config /external/apeiron.json  # 指定配置文件
-apeiron init --help
+apeiron chentu init --no-open                       # 手动打开终端输出的地址
+apeiron chentu init --port 3210                     # 指定本地端口
+apeiron chentu init --config /external/apeiron.json  # 指定配置文件
+apeiron chentu init --help
 ```
 
 页面、脚本、样式与官方 Apeiron logo、favicon 直接包含在 CLI，无 CDN、独立前端服务或 LLM 依赖。
@@ -240,7 +242,7 @@ apeiron init --help
 
 ```sh
 cargo build --release --locked
-./target/release/apeiron init
+./target/release/apeiron chentu init
 ```
 
 构建生成当前系统架构的可执行文件，包含本地配置页面；Linux 使用 musl 静态构建，macOS 只使用系统库。使用向导无需在目标机器安装 Bun。
@@ -286,7 +288,7 @@ bun run test:ui
 apeiron verify
 ```
 
-开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。`src/init/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；Apeiron 自身不包含 TypeScript，独立的 Zygos 子模块不受此语言限制。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
+开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。Chentu 的 `rust/ui/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；Apeiron 自身不包含 TypeScript，独立的 Zygos 子模块不受此语言限制。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
 
 首次浏览器验证需先运行 `bunx playwright install chromium`。`test:ui` 从临时目录启动编译后的二进制，
 用隔离的部署替身验证首屏入口、八步配置、场景组合、共存预检与摘要、必选项、失败/重试、刷新恢复、部署后进入访问配置、系统授权取消/重试的页面状态、凭据读取／隐藏／复制／下载、连接检查失败与重试、完成退出、桌面/手机布局以及没有外部网络请求。授权测试使用隔离替身，不弹出真实管理员授权或修改开发机信任库。它不对真实集群执行 sync。
@@ -317,7 +319,7 @@ K3d 来自运行 Docker 的本机架构；不同架构不混用安装包。原�
 sudo apeiron platform entry pair --domain team.example.com --public-ip <公网IPv4>
 ```
 
-在 Spark 等部署主机运行 `apeiron init`，选择 ECS 转发，粘贴完整配对码。配对码 10 分钟有效，只绑定一个设备；同一设备可在有效期内重试。配对后不需要提供 ECS 管理员 SSH 私钥，域名与入口地址由配对记录限定。配对码含临时认证材料，不要分享或写入日志。
+在 Spark 等部署主机运行 `apeiron chentu init`，选择 ECS 转发，粘贴完整配对码。配对码 10 分钟有效，只绑定一个设备；同一设备可在有效期内重试。配对后不需要提供 ECS 管理员 SSH 私钥，域名与入口地址由配对记录限定。配对码含临时认证材料，不要分享或写入日志。
 
 部署环境与第 5 步提供状态、DNS/HTTPS 测试和确认撤销。终端也可使用：
 
@@ -411,15 +413,15 @@ Zygos 可在安装向导中选择，需使用包含其 API、Web、Worker、Eval
 
 ## 单应用安装、更新与卸载
 
-对已完成 `apeiron init` 的实例操作，显式指定实例，避免操作到其它集群：
+对已完成 `apeiron chentu init` 的实例操作，显式指定实例，避免操作到其它集群：
 
 ```sh
-apeiron app list --instance my-team
-apeiron app install zygos --instance my-team --bundle-dir /absolute/chentu-package --dry-run
-apeiron app install zygos --instance my-team --bundle-dir /absolute/chentu-package
-apeiron app update zygos --instance my-team --bundle-dir /absolute/next-package
-apeiron app uninstall zygos --instance my-team --dry-run
-apeiron app uninstall zygos --instance my-team --yes
+apeiron chentu app list --instance my-team
+apeiron chentu app install zygos --instance my-team --bundle-dir /absolute/chentu-package --dry-run
+apeiron chentu app install zygos --instance my-team --bundle-dir /absolute/chentu-package
+apeiron chentu app update zygos --instance my-team --bundle-dir /absolute/next-package
+apeiron chentu app uninstall zygos --instance my-team --dry-run
+apeiron chentu app uninstall zygos --instance my-team --yes
 ```
 
 也可使用 `--config /absolute/config.json`。程序仍是 Rust 单文件，运行不需要 Bun/Node。
@@ -449,7 +451,7 @@ apeiron zygos model list
 ```
 
 连接、认证、JSON 输出、字段选择和退出码沿用 Zygos CLI。API 服务仍需单独部署。
-CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos 与 Apeiron；名称沿用现有配置。
+CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos、Apeiron、Apeiron IAM 与 Chentu；名称沿用现有配置。
 
 源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
 `apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
@@ -517,7 +519,7 @@ Minimal 组件；通过 `--cli-release` 和重复的 `--cli-archive` 提供经�
 python3 scripts/package-distro-preview.py --profile /external/profile-handoff --out /external/minimal-preview
 bun scripts/publish-deployment.js /external/minimal-preview/upload-plan.json
 # 下载 preview.json 中 archive.url，核对 SHA-256，解压到仓库外目录。
-APEIRON_CHENTU_ROOT=/external/unpacked/chentu apeiron init --config /external/minimal-test/config.json
+APEIRON_CHENTU_ROOT=/external/unpacked/chentu apeiron chentu init --config /external/minimal-test/config.json
 ```
 
 预览包保留源码与生成文件的摘要，启动前不需要下载完整资源。此开发入口不会修改内置发行版固定值、

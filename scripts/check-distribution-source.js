@@ -13,10 +13,11 @@ const git = (...args) => {
 const input = validateDistribution(JSON.parse(await readFile(inputPath, 'utf8')), { version, revision: git('rev-parse', 'HEAD') });
 const apeiron = git('rev-parse', 'HEAD:third_party/apeiron');
 if (input.apeiron.revision !== apeiron) throw new Error('Distribution does not match the Apeiron gitlink');
-const resources = await readFile(new URL('../runtime/src/app/resources.rs', import.meta.url), 'utf8');
-for (const [constant, expected] of [['VERSION', input.chentu.version], ['REVISION', input.chentu.revision], ['DIGEST', input.chentu.sha256]]) {
-  const actual = resources.match(new RegExp(`^const ${constant}: &str = "([^"]+)";`, 'm'))?.[1];
-  if (actual !== expected) throw new Error(`Distribution differs from compiled Chentu ${constant}`);
+const compiled = JSON.parse(await readFile(new URL('../release/distribution-input.json', import.meta.url), 'utf8'));
+for (const field of ['version', 'revision', 'sha256', 'url']) {
+  if (compiled.chentu[field] !== input.chentu[field]) throw new Error(`Distribution differs from compiled Chentu ${field}`);
 }
+const engine = git('rev-parse', 'HEAD:third_party/chentu');
+if (engine !== git('-C', 'third_party/chentu', 'rev-parse', 'HEAD')) throw new Error('Chentu engine differs from its gitlink');
 await verifyPublicDeployment(input.chentu);
 console.log(`Validated source pins and public Chentu archive for ${version}`);

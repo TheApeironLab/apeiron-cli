@@ -37,7 +37,7 @@ wheel does not prove that a runtime invocation without a version constraint sele
 that version.
 
 For an older source revision, copy this adapter and expose `app::config` as
-`pub(crate)` in `runtime/src/app/mod.rs`. Record both adapter hash and this visibility
+the public maintainer adapter API in `third_party/chentu/rust/src/tooling`. Record both adapter hash and this visibility
 change; do not change the release's configuration/resource/distribution implementation.
 An uncommitted adapter produces `validator.sourceClean = "false"`, and must never be
 presented as a clean release rebuild. Record the exact parser source hashes alongside

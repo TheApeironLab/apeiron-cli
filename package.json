@@ -14,7 +14,7 @@
     "test:ui": "bun scripts/test-ui.js",
     "test:deployment-ui": "bun scripts/test-deployment-stages.js",
     "test:instances-ui": "bun scripts/test-instances-ui.js",
-    "test:rust": "cargo test --locked && cargo build --locked --bin apeiron --example build-support && bun test",
+    "test:rust": "cargo test --locked -p apeiron -p chentu && cargo build --locked --bin apeiron --example build-support && bun test",
     "check": "bun scripts/check-sources.js"
   },
   "packageManager": "bun@1.3.14",

@@ -40,3 +40,5 @@ zygos-cli = { path = "../third_party/zygos/apps/cli" }
 rustls-platform-verifier = "=0.7.0"
 
 apeiron-iam-cli = { path = "../third_party/apeiron-iam/cli" }
+
+chentu = { path = "../third_party/chentu/rust" }

@@ -89,6 +89,7 @@ dependencies = [
  "anyhow",
  "apeiron-iam-cli",
  "base64 0.22.1",
+ "chentu",
  "chrono",
  "clap",
  "filetime",
@@ -267,6 +268,32 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.3.1",
  "rand_core 0.10.1",
+]
+
+[[package]]
+name = "chentu"
+version = "0.2.1"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "filetime",
+ "flate2",
+ "hickory-resolver",
+ "libc",
+ "rand 0.8.8",
+ "regex",
+ "reqwest",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "tar",
+ "tiny_http",
+ "tokio",
+ "url",
+ "x509-parser",
 ]
 
 [[package]]
