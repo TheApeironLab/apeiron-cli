@@ -15,7 +15,7 @@ await mkdir(join(dir, 'home'));
 const catalogPath = join(setup.root, 'setup/install.json');
 const catalog = JSON.parse(await readFile(catalogPath, 'utf8'));
 catalog.distro = 'minimal';
-catalog.applications = catalog.applications.filter(app => ['nexus', 'vasi', 'apeiron'].includes(app.id));
+catalog.applications = catalog.applications.filter(app => ['nexus', 'vasi', 'apeiron', 'gateway'].includes(app.id));
 for (const target of Object.values(catalog.targets)) target.environment.distro = 'minimal';
 await writeFile(catalogPath, JSON.stringify(catalog));
 const server = await startInitServer({ path: join(dir, 'config.json'), env: {
@@ -60,7 +60,7 @@ try {
     await writeFile(catalogPath, JSON.stringify(catalog));
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    assert.match(await page.getByRole('main').innerText(), /Apeiron 直接连接模型服务/);
+    assert.match(await page.getByRole('main').innerText(), /Apeiron 通过 Gateway 使用模型/);
     await page.getByRole('textbox', { name: 'Slug name', exact: true }).fill('minimal-test');
     await page.getByRole('textbox', { name: 'Base URL', exact: true }).fill('https://models.example.internal/v1');
     await page.getByLabel(/^API Key/).fill('fixture-only-minimal-key');
@@ -72,19 +72,19 @@ try {
     await page.getByRole('heading', { name: '预检与部署摘要', exact: true }).waitFor();
     assert.equal((await page.getByRole('main').innerText()).includes('fixture-only-minimal-key'), false);
     assert.equal(preflightInput.deployment.installation.distro, 'minimal');
-    assert.deepEqual(preflightInput.apps.sort(), ['apeiron', 'nexus', 'vasi']);
+    assert.deepEqual(preflightInput.apps.sort(), ['apeiron', 'gateway', 'nexus', 'vasi']);
     // New packages describe every native release; the app label changes only entry visibility.
-    const names = ['cert-manager', 'postgres', 'seaweedfs', 'keycloak', 'cluster-access', 'nexus', 'vasi', 'apeiron'];
+    const names = ['cert-manager', 'postgres', 'seaweedfs', 'keycloak', 'cluster-access', 'nexus', 'vasi', 'apeiron', 'gateway'];
     catalog.releaseCatalog = { schemaVersion: 1, releases: names.map(name => ({
         name, namespace: name, component: name === 'cert-manager' ? 'ingress' : name,
         required: true, needs: [], labels: { catalog: 'release-v1',
-            ...(['nexus', 'vasi', 'apeiron'].includes(name) ? { app: 'true' } : {}) }
+            ...(['nexus', 'vasi', 'apeiron', 'gateway'].includes(name) ? { app: 'true' } : {}) }
     })) };
     catalog.applications = catalog.releaseCatalog.releases.map(r => ({
         id: r.name, name: r.name, description: '', releases: [r.name], requires: [], required: true,
         app: r.labels.app === 'true'
     }));
-    catalog.resourceBudget = { basis: 'helm-template', workloads: 8, memoryRequestsBytes: 0,
+    catalog.resourceBudget = { basis: 'helm-template', workloads: 9, memoryRequestsBytes: 0,
         memoryRequestsBytesPerNode: 0, missingMemoryRequests: ['postgres/StatefulSet/postgres/postgres'], transientWorkloads: [] };
     await writeFile(catalogPath, JSON.stringify(catalog));
     await page.goto(server.url);
@@ -92,12 +92,12 @@ try {
     await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
     await page.getByRole('button', { name: '下一步', exact: true }).click();
-    await page.getByText('8 个 release，其中 3 个应用入口：nexus、vasi、apeiron', { exact: true }).waitFor();
+    await page.getByText('9 个 release，其中 4 个应用入口：nexus、vasi、apeiron、gateway', { exact: true }).waitFor();
     await page.getByText('查看全部 release', { exact: true }).click();
-    assert.equal(await page.getByRole('list', { name: '发行版 release' }).getByRole('listitem').count(), 8);
+    assert.equal(await page.getByRole('list', { name: '发行版 release' }).getByRole('listitem').count(), 9);
     await page.getByText('Chart 未完整声明 memory requests（1 个容器缺失），暂不提供总内存估算。', { exact: true }).waitFor();
     assert.equal((await page.getByRole('main').innerText()).includes('7.5 GiB'), false);
-    console.log('PASS C-DEP-63 minimal wizard @gate @cap-DEP: Minimal distro selection, concise description, rejects base package, direct models, redacted summary');
+    console.log('PASS C-DEP-63 minimal wizard @gate @cap-DEP: Minimal distro selection, concise description, rejects base package, Gateway models, redacted summary');
 } finally {
     await browser.close();
     await server.stop();

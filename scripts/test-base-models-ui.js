@@ -27,7 +27,7 @@ try {
             { mode: 'fast', elapsedMs: 400 }, { mode: 'deep', elapsedMs: 1250 }
         ] } });
     });
-    await page.route('**/api/applications', route => route.fulfill({ json: { apps: ['nexus', 'vasi', 'apeiron'].map(id => ({ id, name: id, description: id, required: true, releases: [id], requires: [] })), distro: 'minimal' } }));
+    await page.route('**/api/applications', route => route.fulfill({ json: { apps: ['nexus', 'vasi', 'apeiron', 'gateway'].map(id => ({ id, name: id, description: id, required: true, releases: [id], requires: [] })), distro: 'minimal' } }));
     await page.goto(server.url);
     await page.getByRole('button', { name: '直接配置当前实例（不新建）' }).click();
     await page.getByRole('radio', { name: /Docker 中运行 K3d/ }).check();
