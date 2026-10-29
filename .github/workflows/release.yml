@@ -148,6 +148,9 @@ jobs:
       - name: CLI and wizard HTTP contracts against Rust
         run: CHENTU_EMBEDDED=1 CARGO_TARGET_DIR="$PWD/target" APEIRON_TEST_BIN="$PWD/target/debug/apeiron" bun test
       - name: Browser wizard against Rust
+        env:
+          CHENTU_EMBEDDED: '1'
+          APEIRON_TEST_BIN: ${{ github.workspace }}/target/debug/apeiron
         run: |
           bunx playwright install --with-deps chromium
           bun scripts/test-ui.js "$PWD/target/debug/apeiron"
