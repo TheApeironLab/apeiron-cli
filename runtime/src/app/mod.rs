@@ -1,200 +1,38 @@
-mod access;
-mod applications;
-mod bootstrap;
 mod chat;
-mod cluster;
-pub(crate) mod config;
-#[cfg(test)]
-mod contracts;
-pub(crate) mod deploy;
-mod discovery;
-pub(crate) mod distribution;
-mod instances;
-mod models;
-mod pairing;
-mod process;
 mod register;
-pub(crate) mod resources;
-mod resume;
 #[path = "../sudo.rs"]
 pub(crate) mod sudo;
-mod wizard;
+use chentu::app::{client, fail, output, parse, private_write, required, token_file, Error, Result};
+use chentu::app::{config, process, resources, wizard};
 use serde_json::{json, Value};
-use std::{
-    collections::BTreeMap,
-    fs::OpenOptions,
-    io::{Read, Write},
-    path::Path,
-    time::Duration,
-};
+use std::{io::Read, path::Path, time::Duration};
 
-#[derive(Debug, Clone)]
-pub struct Error {
-    pub message: String,
-    pub code: i32,
+fn chentu_build_info() -> Value {
+    let mut info = chentu::build_info();
+    let distribution: Value = serde_json::from_str(include_str!("../../../release/distribution-input.json"))
+        .expect("validated distribution input");
+    info["deployment"] = distribution["chentu"].clone();
+    info
 }
-pub type Result<T> = std::result::Result<T, Error>;
-pub fn fail(message: impl Into<String>, code: i32) -> Error {
-    Error {
-        message: message.into(),
-        code,
-    }
+
+fn chentu_host() -> Result<chentu::Host> {
+    let distribution: Value = serde_json::from_str(include_str!("../../../release/distribution-input.json"))
+        .expect("validated distribution input");
+    let deployment = serde_json::from_value(distribution["chentu"].clone())
+        .map_err(|_| fail("Invalid compiled Chentu distribution", 2))?;
+    Ok(chentu::Host {
+        deployment: Some(deployment),
+        embedded_scode: Some(sudo::build_info()["embedded"] == true),
+    })
 }
-pub fn required<'a>(options: &'a BTreeMap<String, String>, name: &str) -> Result<&'a str> {
-    options
-        .get(name)
-        .filter(|s| !s.trim().is_empty())
-        .map(String::as_str)
-        .ok_or_else(|| fail(format!("Missing --{name}"), 2))
-}
-pub fn parse(args: &[String], strings: &[&str], flags: &[&str]) -> Result<(Vec<String>, BTreeMap<String, String>)> {
-    let mut pos = Vec::new();
-    let mut options = BTreeMap::new();
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        if arg == "-h" {
-            options.insert("help".into(), "true".into());
-        } else if let Some(key) = arg.strip_prefix("--") {
-            let (key, inline) = key.split_once('=').map_or((key, None), |(k, v)| (k, Some(v)));
-            if options.contains_key(key) {
-                return Err(fail(format!("Duplicate --{key}"), 2));
-            }
-            let value = if flags.contains(&key) {
-                if inline.is_some() {
-                    return Err(fail("Boolean flag has a value", 2));
-                }
-                "true".to_owned()
-            } else if strings.contains(&key) {
-                if let Some(value) = inline {
-                    value.to_owned()
-                } else {
-                    i += 1;
-                    args.get(i)
-                        .filter(|v| !v.starts_with("--"))
-                        .cloned()
-                        .ok_or_else(|| fail(format!("Missing --{key} value"), 2))?
-                }
-            } else {
-                return Err(fail(format!("Unknown --{key}"), 2));
-            };
-            options.insert(key.into(), value);
-        } else {
-            pos.push(arg.clone());
-        }
-        i += 1;
-    }
-    Ok((pos, options))
-}
-pub fn client(timeout: u64) -> Result<reqwest::blocking::Client> {
-    reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(timeout))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| fail("Cannot initialize HTTPS client", 9))
-}
-pub fn token_file(path: &Path) -> Result<String> {
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    }
-    let file = options.open(path).map_err(|_| fail("Cannot open credential file", 7))?;
-    let metadata = file.metadata().map_err(|_| fail("Cannot read credential file", 7))?;
-    if !metadata.is_file() || metadata.len() > 16384 {
-        return Err(fail("Credential must be a regular file under 16 KiB", 7));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if metadata.mode() & 0o077 != 0 || metadata.uid() != unsafe { libc::getuid() } {
-            return Err(fail("Credential file must be owned by current user with mode 0600", 7));
+pub fn run_chentu(args: &[String]) -> i32 {
+    match chentu_host() {
+        Ok(host) => chentu::run_with_host(args, host),
+        Err(error) => {
+            eprintln!("{}", error.message);
+            error.code
         }
     }
-    let mut token = String::new();
-    file.take(16385)
-        .read_to_string(&mut token)
-        .map_err(|_| fail("Invalid credential file", 7))?;
-    let token = token.trim();
-    if token.is_empty() || token.chars().any(char::is_whitespace) {
-        return Err(fail("Invalid credential file", 7));
-    }
-    Ok(token.to_owned())
-}
-pub fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options
-        .open(path)
-        .map_err(|_| fail("Cannot create output file; use a new writable path", 5))?;
-    file.write_all(bytes).map_err(|_| fail("Cannot write output file", 9))
-}
-pub fn output(mut data: Value, options: &BTreeMap<String, String>, schema: &str) -> Result<()> {
-    if let Some(path) = options.get("out") {
-        data["schema"] = json!(schema);
-        private_write(Path::new(path), serde_json::to_string_pretty(&data).unwrap().as_bytes())?;
-        data = json!({"saved":true,"path":path,"next_cursor":data.get("next_cursor")});
-    }
-    if options.contains_key("jsonl") || options.contains_key("json") {
-        data["schema"] = json!(schema);
-        println!("{data}");
-        return Ok(());
-    }
-    println!("schema={schema}");
-    let rows = data
-        .get("items")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_else(|| vec![data.clone()]);
-    let mut keys = Vec::new();
-    for row in &rows {
-        if let Some(obj) = row.as_object() {
-            for key in obj.keys() {
-                if !keys.contains(key) {
-                    keys.push(key.clone());
-                }
-            }
-        }
-    }
-    if !keys.is_empty() {
-        println!("{}", keys.join("\t"));
-    }
-    for row in &rows {
-        println!(
-            "{}",
-            keys.iter()
-                .map(|key| {
-                    let value = &row[key];
-                    let text = match value {
-                        Value::String(s) => s.clone(),
-                        Value::Null => String::new(),
-                        _ => value.to_string(),
-                    };
-                    text.chars()
-                        .map(|c| if c.is_control() { ' ' } else { c })
-                        .take(160)
-                        .collect::<String>()
-                })
-                .collect::<Vec<_>>()
-                .join("\t")
-        );
-    }
-    if data.get("items").is_some() {
-        println!("count={}", rows.len());
-    }
-    for key in ["next_cursor", "limited"] {
-        if let Some(value) = data.get(key) {
-            println!("{key}={value}");
-        }
-    }
-    Ok(())
 }
 pub fn run() -> Option<i32> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -206,18 +44,19 @@ pub fn run() -> Option<i32> {
         return None;
     }
     let result = match module {
-        "app" => applications::run(&args[1..]),
+        "chentu" => return Some(run_chentu(&args[1..])),
+        "app" | "init" | "platform" => return Some(run_chentu(&args)),
         "chat" => chat::run(&args[1..]),
-        "register" => register::run(&args[1..]),
-        "init" => wizard::run(&args[1..]),
-        "platform" => pairing::run(&args[1..]),
+        "register" => chentu_host()
+            .and_then(chentu::host::configure)
+            .and_then(|()| register::run(&args[1..])),
         "--build-info" => {
             println!(
                 "{}",
                 json!({"schemaVersion":1,"version":env!("APEIRON_VERSION"),"baseVersion":env!("CARGO_PKG_VERSION"),
                 "releaseChannel":if env!("APEIRON_VERSION").contains("-nightly.") { "nightly" } else { "stable" },
                 "revision":env!("APEIRON_SOURCE_REVISION"),"clean":env!("APEIRON_SOURCE_CLEAN") == "true",
-                "sudocode":sudo::build_info(),
+                "sudocode":sudo::build_info(),"chentu":chentu_build_info(),
                 "rustc":env!("APEIRON_BUILD_RUSTC"),"platform":std::env::consts::OS,"architecture":std::env::consts::ARCH})
             );
             Ok(())
@@ -227,7 +66,7 @@ pub fn run() -> Option<i32> {
             Ok(())
         }
         "--help" | "-h" | "describe" => {
-            println!("schema=apeiron.v1\ncommand\tusage\nsudo\tapeiron sudo [scode arguments] — local AI agent\napp\tapeiron app --help — install, update and uninstall applications\nsso\tapeiron sso login --server <URL> — platform SSO\ntask\tapeiron task --help — tasks, projects and workspaces\niam\tapeiron iam --help — organization, members and App access\nregister\tapeiron register --help — gateway enrollment\ninit\tapeiron init --help — browser installation wizard\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nzygos\tapeiron zygos --help — datasets, training, models and evaluations\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
+            println!("schema=apeiron.v1\ncommand\tusage\nsudo\tapeiron sudo [scode arguments] — local AI agent\nchentu\tapeiron chentu --help — installation and application lifecycle\napp\tCompatibility alias for apeiron chentu app\nsso\tapeiron sso login --server <URL> — platform SSO\ntask\tapeiron task --help — tasks, projects and workspaces\niam\tapeiron iam --help — organization, members and App access\nregister\tapeiron register --help — gateway enrollment\ninit\tCompatibility alias for apeiron chentu init\nplatform\tapeiron platform entry --help — public entry and connections\nchat\tapeiron chat --help — Matrix messaging\nconnect\tapeiron connect --help — attach this machine\nstatus\tapeiron status — local runtime service\ndisconnect\tapeiron disconnect — stop local runtime\nzygos\tapeiron zygos --help — datasets, training, models and evaluations\nonto\tapeiron onto <command> [flags]\n<module>\tAPEIRON_<MODULE>_BIN=/path/to/cli apeiron <module> <command>\nverify\tCheck ontology CLI entry point\n--version\tShow version");
             Ok(())
         }
         _ => forward(module, &args[1..]),

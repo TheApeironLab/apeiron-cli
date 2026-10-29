@@ -75,6 +75,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_version.rs");
     println!("cargo:rerun-if-changed=../Cargo.toml");
+    println!("cargo:rerun-if-changed=../third_party/chentu");
+    println!("cargo:rerun-if-changed=../release/distribution-input.json");
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=../Cargo.lock");
     println!("cargo:rerun-if-changed=../.gitmodules");

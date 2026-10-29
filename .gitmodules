@@ -10,3 +10,6 @@
 [submodule "third_party/sudocode"]
 	path = third_party/sudocode
 	url = https://github.com/sudoprivacy/sudocode.git
+[submodule "third_party/chentu"]
+	path = third_party/chentu
+	url = https://github.com/TheApeironLab/chentu.git

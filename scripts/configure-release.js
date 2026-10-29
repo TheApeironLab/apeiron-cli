@@ -13,9 +13,8 @@ if (!process.env.GITHUB_REF?.startsWith('refs/tags/') && !process.env.APEIRON_BU
 const { channel } = parseReleaseVersion(version);
 if (process.env.GITHUB_REF?.startsWith('refs/tags/') && channel === 'stable') {
   const apeiron = (await Bun.file(new URL('../third_party/apeiron/VERSION', import.meta.url)).text()).trim();
-  const resources = await Bun.file(new URL('../runtime/src/app/resources.rs', import.meta.url)).text();
-  const chentu = resources.match(/^const VERSION: &str = "([^"]+)";/m)?.[1];
+  const chentu = (await Bun.file(new URL('../release/distribution-input.json', import.meta.url)).json()).chentu.version;
   assertStableAlignment(version, apeiron, chentu);
 }
-await appendFile(process.env.GITHUB_ENV, `APEIRON_BUILD_VERSION=${version}\n`);
+await appendFile(process.env.GITHUB_ENV, `APEIRON_BUILD_VERSION=${version}\nCHENTU_BUILD_VERSION=${version}\n`);
 console.log(`Building ${version} (${channel})`);

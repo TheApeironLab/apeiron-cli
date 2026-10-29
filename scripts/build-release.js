@@ -32,7 +32,7 @@ for (const target of selected) {
         const sudocode = await prepareSudocode(root, target, stage);
         const build = Bun.spawn(['cargo', 'build', '--release', '--locked', '--target', triple], {
             cwd: root, stdout: 'inherit', stderr: 'inherit',
-            env: { ...process.env, APEIRON_BUILD_VERSION: version, APEIRON_RELEASE_SOURCE_REVISION: source.revision, APEIRON_SCODE_ARCHIVE: sudocode.path },
+            env: { ...process.env, APEIRON_BUILD_VERSION: version, CHENTU_BUILD_VERSION: version, APEIRON_RELEASE_SOURCE_REVISION: source.revision, APEIRON_SCODE_ARCHIVE: sudocode.path },
         });
         if (await build.exited !== 0)
             throw new Error(`Build failed for ${target}`);

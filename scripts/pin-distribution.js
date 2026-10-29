@@ -32,17 +32,9 @@ const existing = JSON.parse(run(['gh', 'pr', 'list', '--repo', repo, '--state', 
 if (existing.length) throw new Error(`Distribution already has a review: ${existing[0].url}; resume that immutable candidate`);
 run(['git', 'switch', '-c', branch]);
 run(['git', '-C', 'third_party/apeiron', 'checkout', '--detach', input.apeiron.revision]);
-const path = 'runtime/src/app/resources.rs';
-let resources = await readFile(path, 'utf8');
-for (const [name, value] of [['VERSION', input.chentu.version], ['REVISION', input.chentu.revision], ['DIGEST', input.chentu.sha256]]) {
-  const pattern = new RegExp(`^const ${name}: &str = "[^"]+";`, 'm');
-  if (!pattern.test(resources)) throw new Error(`Cannot find compiled ${name} pin`);
-  resources = resources.replace(pattern, `const ${name}: &str = "${value}";`);
-}
-await writeFile(path, resources);
 await mkdir('release', { recursive: true });
 await writeFile('release/distribution-input.json', JSON.stringify(publicDistribution(input), null, 2) + '\n');
-run(['git', 'add', path, 'third_party/apeiron', 'release/distribution-input.json']);
+run(['git', 'add', 'third_party/apeiron', 'release/distribution-input.json']);
 run(['git', 'diff', '--cached', '--check']);
 run(['git', '-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com',
   'commit', '-m', `chore(release): pin distribution ${input.version}`]);

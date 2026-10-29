@@ -32,10 +32,10 @@ HTTPS 使用 Let’s Encrypt。`Downloads HTTPS certificate` 工作流每天北�
 
 ```sh
 curl -fsSL https://downloads.apeironlab.cn/apeiron-cli/install.sh | sh
-apeiron init
+apeiron chentu init
 ```
 
-安装器使用当前终端已经包含在 PATH 中的目录，因此安装结束后直接运行 `apeiron init` 即可，向导自动打开默认浏览器。
+安装器使用当前终端已经包含在 PATH 中的目录，因此安装结束后直接运行 `apeiron chentu init` 即可，向导自动打开默认浏览器。
 
 已存在 `apeiron` 时，原位更新常用 bin 目录中的命令，保留父 shell 已缓存的命令路径；符号链接会被替换，链接原本指向的文件不变。首次安装选择 PATH 中可写的 `~/.local/bin`、`~/bin`、`/opt/homebrew/bin` 或 `/usr/local/bin`，缺失的用户 bin 目录会自动创建。不会把程序放入临时 PATH 目录、项目目录或版本管理器的 shims。
 
@@ -68,7 +68,7 @@ macOS 文件尚未做 Developer ID 签名和公证；浏览器下载后如被 Ga
 服务器无桌面时，在服务器运行：
 
 ```sh
-apeiron init --no-open --port 3210
+apeiron chentu init --no-open --port 3210
 ```
 
 本机建立 SSH 转发 `ssh -L 3210:127.0.0.1:3210 user@server`，再用本机浏览器打开服务器打印的完整 setup URL。页面操作的文件、Docker 和系统配置属于运行 CLI 的服务器。
@@ -107,7 +107,7 @@ JS 发布工具从 Cargo 基础版本及标签解析实际版本，通过 `APEIR
 
 ### 正式发行步骤
 
-1. 更新根 `Cargo.toml` 的 `workspace.package.version`（基础版本唯一来源）及 `Cargo.lock`。Chentu 更新时先发布并验证安装包，再同步更新 `runtime/src/app/resources.rs` 的版本、提交、URL 与 SHA-256。
+1. 更新根 `Cargo.toml` 的 `workspace.package.version`（基础版本唯一来源）及 `Cargo.lock`。Chentu 更新时先发布并验证安装包，再更新 `release/distribution-input.json` 的版本、提交、URL 与 SHA-256；部署引擎源码通过 `third_party/chentu` 固定提交。
 2. 运行 README 中的 Rust、等价性和浏览器验证，提交推送代码。
 3. 对待发布提交打相同版本标签并推送，例如 `git tag v0.2.1`、`git push origin v0.2.1`。不要求自动合并 PR。
 4. `Standalone CLI` 工作流构建四个平台：macOS ARM64/x64、Linux ARM64/x64（musl 静态链接）。四个平台均在对应原生 runner 构建并测试；Linux 额外在 Ubuntu 22.04 容器内验证。另在隔离 Ubuntu 容器内，从非管理员 shell 验证权限不足会失败、sudo 安装后同一 shell 可直接运行、重复更新和文件所有者/权限。
@@ -151,7 +151,7 @@ RAM 信任策略的 Action 为 `sts:AssumeRole`，Principal 为该 OIDC provider
 
 ## Chentu registry 镜像供给
 
-目标声明 `registryImages: 1` 的新包，在在线 `apeiron init` 完成发布清单校验后，
+目标声明 `registryImages: 1` 的新包，在在线 `apeiron chentu init` 完成发布清单校验后，
 非引导且带固定 `registrySource` 的镜像由 Chentu supply 直接复制到现场 Nexus，CLI 不下载其归档。
 普通文件、引导镜像与系统工具仍按原大小/SHA-256 校验。离线模式、旧包及无来源镜像使用完整归档。
 镜像源错误不会回退为 tag、其他镜像站或公网 Pod 拉取；运行时仍只使用现场 Nexus。
@@ -160,7 +160,7 @@ RAM 信任策略的 Action 为 `sts:AssumeRole`，Principal 为该 OIDC provider
 ### Chentu public preparation v1
 
 A target declaring `publicPreparation: 1` requires Python 3 on the online operator.
-Before cluster creation, `apeiron init` runs the Chentu package's standard-library
+Before cluster creation, `apeiron chentu init` runs the Chentu package's standard-library
 public preparation helper. It tries declared immutable public image/file sources,
 then downloads the original OSS resource only when those sources are unavailable.
 Image graph, target architecture and byte-integrity failures stop installation.

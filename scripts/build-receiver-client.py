@@ -24,7 +24,7 @@ def build(source, candidate, platform, out):
     # The executable itself always comes from the sole CLI release builder.
     release = out / 'release'
     subprocess.run(['bun', 'scripts/build-release.js', str(release), platform], cwd=source,
-                   env={**os.environ, 'APEIRON_BUILD_VERSION': version}, check=True)
+                   env={**os.environ, 'APEIRON_BUILD_VERSION': version, 'CHENTU_BUILD_VERSION': version}, check=True)
     binary = out / 'apeiron'
     with tarfile.open(release / f'apeiron-{version}-{platform}.tar.gz') as archive:
         binary.write_bytes(archive.extractfile('apeiron').read())
