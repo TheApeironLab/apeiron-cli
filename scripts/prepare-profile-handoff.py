@@ -21,7 +21,7 @@ def prepare(directory, output, plan_path):
         raise ValueError('handoff preparation requires complete local material')
     _, catalog, _ = package.read_profile(directory)
     records, objects = {}, {}
-    for item in catalog['files']:
+    for item in package.resource_files(catalog):
         path = package.safe_file(directory, item['path'])
         got = package.identity(path)
         if got != {k: item[k] for k in ('sha256', 'size')}:

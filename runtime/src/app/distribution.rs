@@ -461,6 +461,24 @@ mod tests {
         let plan = resources::plan(&catalog, "k3d-arm64", &json!(["apeiron"])).unwrap();
         (manifest, catalog, plan)
     }
+    // secrets: none
+    #[test]
+    fn c_sup_88_lazy_image_objects_preserve_release_closure_and_selection() {
+        let (manifest, mut catalog, _) = fixture();
+        let file = "image-objects/sha256/fixture";
+        catalog["imageObjects"] = json!([{"path":file,"size":3,"sha256":"c".repeat(64)}]);
+        catalog["components"]["apeiron"]["images"][0]["layerPreparation"] = json!(1);
+        catalog["components"]["apeiron"]["images"][0]["ociObjects"] = json!([{"file":file}]);
+        let mut plan = resources::plan(&catalog, "k3d-arm64", &json!(["apeiron"])).unwrap();
+        assert_eq!(plan["imageObjectFiles"], catalog["imageObjects"]);
+        assert!(!plan["files"].as_array().unwrap().iter().any(|f| f["path"] == file));
+        validate(&manifest, &catalog, &mut plan, "k3d-arm64", "single-k3d").unwrap();
+        let base = resources::plan(&catalog, "k3d-arm64", &json!([])).unwrap();
+        assert!(base["imageObjectFiles"].as_array().unwrap().is_empty());
+        catalog["imageObjects"] = json!([]);
+        assert!(resources::plan(&catalog, "k3d-arm64", &json!(["apeiron"])).is_err());
+    }
+
     fn native_fixture() -> (Value, Value, Value) {
         let (mut manifest, mut catalog, _) = fixture();
         let mut profile = manifest["profiles"]["k3d-arm64"].take();

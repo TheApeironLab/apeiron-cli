@@ -1,8 +1,7 @@
 {
   "schemaVersion": 1,
   "sources": {
-    "zygos": "7e5ef9abbbd464e841250561db1762285b763c89",
-    "chentu": "1e38479523ef903f04dcb689d845b545b9a8a9c9"
+    "zygos": "7e5ef9abbbd464e841250561db1762285b763c89"
   },
   "images": {
     "zygos-api": {
@@ -23,11 +22,6 @@
     "zygos-evalscope": {
       "source": "zygos",
       "recipe": "deploy/evalscope/Dockerfile",
-      "context": "."
-    },
-    "chrome-headless": {
-      "source": "chentu",
-      "recipe": "tests/lab/browser/headless.Dockerfile",
       "context": "."
     }
   },

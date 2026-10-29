@@ -45,7 +45,7 @@ def prepare(directory, output):
                 raise ValueError('duplicate component resource in preview input')
             component['files'] = list(dict.fromkeys(paths))
             repairs.append('tools: deduplicate sources/deployment-source.tar.gz')
-    for entry in catalog['files']:
+    for entry in package.resource_files(catalog):
         entry['url'] = package.PUBLIC + 'apeiron/blobs/sha256/' + entry['sha256']
         package.verify_public_resource({k: entry[k] for k in ('sha256', 'size', 'url')})
     files = {}
@@ -78,8 +78,8 @@ def prepare(directory, output):
                'sources': manifest['sources'], 'acceptance': 'not-yet-accepted',
                'catalogRepairs': repairs,
                'archive': {'url': package.PUBLIC + key, **identity},
-               'resourceCount': len(catalog['files']),
-               'resourceBytes': sum(item['size'] for item in catalog['files'])}
+               'resourceCount': len(package.resource_files(catalog)),
+               'resourceBytes': sum(item['size'] for item in package.resource_files(catalog))}
     (output / 'preview.json').write_text(json.dumps(preview, indent=2) + '\n')
     (output / 'upload-plan.json').write_text(json.dumps({'objects': {
         key: {'path': str(archive.resolve()), **identity}}}, indent=2) + '\n')
