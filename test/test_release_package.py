@@ -82,6 +82,32 @@ class DistributionPackage(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             package.combine(self.outputs, self.candidate, self.root / 'one')
 
+    def test_C_SUP_88_layer_objects_are_uploaded_once_without_eager_file_selection(self):
+        payload = b'shared-oci-object'
+        digest = hashlib.sha256(payload).hexdigest()
+        relative = 'image-objects/sha256/' + digest
+        for directory in self.outputs.values():
+            resource = directory / relative
+            resource.parent.mkdir(parents=True)
+            resource.write_bytes(payload)
+            path = directory / 'chentu/setup/install.json'
+            catalog = json.loads(path.read_text())
+            catalog['imageObjects'] = [{'path': relative, 'size': len(payload), 'sha256': digest}]
+            path.write_text(json.dumps(catalog))
+            self.sums(directory)
+        package.combine(self.outputs, self.candidate, self.root / 'layers')
+        upload = json.loads((self.root / 'layers/upload-plan.json').read_text())['objects']
+        key = 'apeiron/blobs/sha256/' + digest
+        self.assertEqual([name for name in upload if name == key], [key])
+        self.assertEqual(upload[key]['size'], len(payload))
+        with tarfile.open(self.root / 'layers/chentu-0.2.1.tar.gz') as archive:
+            catalog = json.load(archive.extractfile('chentu-0.2.1/setup/install.json'))
+            for value in catalog['catalogs'].values():
+                self.assertEqual(value['imageObjects'][0]['url'], package.PUBLIC + 'apeiron/blobs/sha256/' + digest)
+                self.assertNotIn(relative, [f['path'] for f in value['files']])
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            package.resource_files({'files':[{'path':relative}], 'imageObjects':[{'path':relative}]})
+
     def test_missing_profile_changed_resource_and_wrong_source_fail_before_output(self):
         output = self.root / 'result'
         with self.assertRaises(ValueError):

@@ -414,7 +414,11 @@ pub fn catalog(root: &Path, target: &str) -> Result<Value> {
         .as_array()
         .ok_or_else(|| fail("资源清单缺少 files。", 400))?;
     let mut paths = std::collections::HashSet::new();
-    for f in files {
+    let object_files = catalog
+        .get("imageObjects")
+        .map(|v| v.as_array().ok_or_else(|| fail("镜像对象目录格式无效。", 400)))
+        .transpose()?;
+    for f in files.iter().chain(object_files.into_iter().flatten()) {
         let p = f["path"].as_str().unwrap_or("");
         if !safe_relative(p)
             || p == "SHA256SUMS"
@@ -733,9 +737,218 @@ pub fn plan(c: &Value, target: &str, apps: &Value) -> Result<Value> {
     if files.is_empty() {
         return Err(fail("安装包没有可校验资源。", 400));
     }
-    Ok(
-        json!({"components":done,"files":files,"target":t,"environment":env,"images":images.values().collect::<Vec<_>>(),"applications":declared,"releaseCatalog":c["releaseCatalog"]}),
-    )
+    let mut object_paths = std::collections::HashSet::new();
+    for image in images.values() {
+        if let Some(objects) = image.get("ociObjects") {
+            if image["layerPreparation"] != 1 {
+                return Err(fail("镜像分层准备协议不受支持。", 400));
+            }
+            for object in objects.as_array().ok_or_else(|| fail("镜像对象清单无效。", 400))? {
+                let path = object["file"].as_str().ok_or_else(|| fail("镜像对象路径无效。", 400))?;
+                if !c["imageObjects"]
+                    .as_array()
+                    .is_some_and(|rows| rows.iter().any(|f| f["path"] == path))
+                {
+                    return Err(fail("镜像对象未列入安装资源。", 400));
+                }
+                object_paths.insert(path);
+            }
+        }
+    }
+    let object_files: Vec<_> = c["imageObjects"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| object_paths.contains(f["path"].as_str().unwrap()))
+        .cloned()
+        .collect();
+    Ok(json!({"components":done,"files":files,"target":t,"environment":env,
+        "images":images.values().collect::<Vec<_>>(),"imageObjectFiles":object_files,
+        "applications":declared,"releaseCatalog":c["releaseCatalog"]}))
+}
+/// Select the transport advertised by Chentu, after its release/bootstrap validation.
+/// The complete catalog remains unchanged and continues to describe offline delivery.
+pub fn select_image_transport(plan: &mut Value, offline: bool) -> Result<()> {
+    if plan["target"]["publicPreparation"] == 1 {
+        // Public preparation materializes verified local archives before bootstrap.
+        // Do not defer them to Nexus or omit the OSS fallback from preparation.
+        return Ok(());
+    }
+    if offline || plan["target"].get("registryImages").is_none() {
+        return Ok(());
+    }
+    if plan["target"]["registryImages"] != 1 || !plan["releaseManifest"].is_object() {
+        return Err(fail("安装包的 registry 镜像传输契约不受支持。", 400));
+    }
+    let bootstrap = plan["bootstrapImages"]
+        .as_array()
+        .ok_or_else(|| fail("缺少已校验的引导镜像集合。", 400))?;
+    let files = plan["files"].as_array().unwrap();
+    let mut images = plan["images"].as_array().unwrap().clone();
+    let mut registry_files = std::collections::BTreeSet::new();
+    let mut local_files = std::collections::BTreeSet::new();
+    for image in &mut images {
+        let file = image["file"].as_str().unwrap().to_owned();
+        if !bootstrap.contains(&image["reference"]) && image.get("registrySource").is_some() {
+            let source = image["registrySource"].as_str().unwrap_or("");
+            let (repository, digest) = source
+                .rsplit_once('@')
+                .ok_or_else(|| fail("镜像来源必须固定 digest。", 400))?;
+            let (authority, path) = repository
+                .split_once('/')
+                .ok_or_else(|| fail("镜像来源必须声明仓库。", 400))?;
+            let host = authority.split(':').next().unwrap();
+            if !config::matches(
+                r"^[a-z0-9.-]+(:[0-9]{1,5})?/[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$",
+                source,
+            ) || digest != image["digest"].as_str().unwrap_or("")
+                || !host.contains('.')
+                || [".localhost", ".local", "."]
+                    .iter()
+                    .any(|suffix| host.ends_with(suffix))
+                || host.parse::<std::net::IpAddr>().is_ok()
+                || host
+                    .split('.')
+                    .any(|label| !config::matches(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$", label))
+                || authority
+                    .split_once(':')
+                    .is_some_and(|(_, port)| port.parse::<u16>().ok().is_none_or(|p| p == 0))
+                || path
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "." || part == "..")
+            {
+                return Err(fail("镜像来源必须使用 TLS DNS 仓库并保持发行 digest。", 400));
+            }
+            let metadata = files
+                .iter()
+                .find(|f| f["path"] == file)
+                .ok_or_else(|| fail("镜像缺少离线材料声明。", 400))?;
+            image["size"] = metadata["size"].clone();
+            image["sha256"] = metadata["sha256"].clone();
+            image["transport"] = json!("registry");
+            registry_files.insert(file);
+        } else {
+            local_files.insert(file);
+        }
+    }
+    // Shared archives needed by any local image or system bootstrap stay local.
+    for field in ["k3sAirgap", "toolboxArchive"] {
+        if let Some(file) = plan["target"][field].as_str() {
+            local_files.insert(file.to_owned());
+        }
+    }
+    for archive in plan["target"]["dockerArchives"].as_array().into_iter().flatten() {
+        if let Some(file) = archive["file"].as_str() {
+            local_files.insert(file.to_owned());
+        }
+    }
+    plan["files"] = json!(files
+        .iter()
+        .filter(|f| {
+            let path = f["path"].as_str().unwrap();
+            !registry_files.contains(path) || local_files.contains(path)
+        })
+        .collect::<Vec<_>>());
+    plan["images"] = json!(images);
+    Ok(())
+}
+
+pub fn prepare_public_files(
+    root: &Path,
+    plan: &mut Value,
+    base: &Path,
+    offline: bool,
+    cancel: &Cancellation,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    if offline || plan["target"].get("publicPreparation").is_none() {
+        return Ok(());
+    }
+    if plan["target"]["publicPreparation"] != 1 || !plan["releaseManifest"].is_object() {
+        return Err(fail("安装包的公网准备协议不受支持。", 400));
+    }
+    let helper = root.join("cli/src/chentu/public_prepare.py");
+    if !helper.is_file() {
+        return Err(fail("安装包缺少公网资源准备程序。", 400));
+    }
+    let arch = plan["target"]["hostPlatform"]["architecture"]
+        .as_str()
+        .unwrap_or(if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "amd64"
+        })
+        .to_owned();
+    for index in 0..plan["files"].as_array().unwrap().len() {
+        cancel.check()?;
+        let file = plan["files"][index].clone();
+        let image = plan["images"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|image| {
+                image["file"] == file["path"]
+                    && (image.get("publicSources").is_some() || image.get("ociObjects").is_some())
+            })
+            .cloned();
+        if image.is_none() && file.get("publicUrls").is_none() && file.get("publicArtifacts").is_none() {
+            continue;
+        }
+        let dest = destination(base, file["path"].as_str().unwrap())?;
+        if valid_file(&dest, &file, cancel) {
+            continue;
+        }
+        progress(&format!("优先从公共源准备：{}", file["path"].as_str().unwrap()));
+        private_directory(dest.parent().unwrap())?;
+        let request = json!({"file":file,"image":image,"architecture":arch,"destination":dest,
+            "objectFiles":plan.get("imageObjectFiles").cloned().unwrap_or(json!([]))});
+        let bytes = process::capture(
+            std::process::Command::new("python3")
+                .args(["-m", "chentu.public_prepare"])
+                .env("PYTHONPATH", root.join("cli/src"))
+                .env("PYTHONDONTWRITEBYTECODE", "1"),
+            &serde_json::to_vec(&request).unwrap(),
+            Duration::from_secs(1800),
+            4096,
+            cancel,
+        )?;
+        let result: Value = serde_json::from_slice(&bytes).map_err(|_| fail("公网资源准备结果无效。", 502))?;
+        cancel.check()?;
+        if result["available"] == false {
+            if image.as_ref().is_some_and(|i| i.get("ociObjects").is_some()) {
+                return Err(fail("镜像对象准备不完整；不会回退下载整个镜像归档。", 502));
+            }
+            progress(&format!(
+                "公共源不可用，使用已校验的 OSS 材料：{}",
+                file["path"].as_str().unwrap()
+            ));
+            continue;
+        }
+        if result["available"] != true
+            || result["size"].as_u64().is_none()
+            || !config::matches(r"^[a-f0-9]{64}$", result["sha256"].as_str().unwrap_or(""))
+            || (image.is_none() && (result["size"] != file["size"] || result["sha256"] != file["sha256"]))
+        {
+            return Err(fail("公网资源准备结果不符合发行清单。", 502));
+        }
+        // OCI tar packaging differs from the OSS archive. The helper verified the
+        // complete pinned manifest graph; only this local staging plan changes.
+        plan["files"][index]["size"] = result["size"].clone();
+        plan["files"][index]["sha256"] = result["sha256"].clone();
+        if !valid_file(&dest, &plan["files"][index], cancel) {
+            return Err(fail("公网准备材料本地校验失败。", 502));
+        }
+        if let (Some(public), Some(oss), Some(cache)) = (
+            result["objectBytes"]["public"].as_u64(),
+            result["objectBytes"]["oss"].as_u64(),
+            result["objectBytes"]["cache"].as_u64(),
+        ) {
+            progress(&format!(
+                "镜像准备完成：公共源 {public} 字节，OSS {oss} 字节，缓存复用 {cache} 字节。"
+            ));
+        }
+    }
+    Ok(())
 }
 fn resource_description(file: &Value) -> String {
     let path = file["path"].as_str().unwrap_or("");
@@ -851,6 +1064,180 @@ pub fn prepare_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // secrets: none
+    #[test]
+    fn c_sup_87_public_archive_keeps_file_identity_and_offline_skips_helper() {
+        let temp = std::env::temp_dir().join(format!("public-file-{:016x}", rand::random::<u64>()));
+        let root = temp.join("root");
+        let cache = temp.join("cache");
+        let module = root.join("cli/src/chentu/public_prepare.py");
+        private_directory(module.parent().unwrap()).unwrap();
+        fs::write(
+            &module,
+            r#"import json,sys,pathlib,hashlib
+r=json.load(sys.stdin);p=pathlib.Path(r['destination']);p.write_bytes(b'binary')
+print(json.dumps({'available':True,'size':6,'sha256':hashlib.sha256(b'binary').hexdigest()}))
+"#,
+        )
+        .unwrap();
+        let original = json!({"target":{"publicPreparation":1},"releaseManifest":{},"images":[],
+            "files":[{"path":"bin/tool","size":6,"sha256":config::hash(b"binary"),
+                "publicArtifacts":[{"url":"https://upstream.example.internal/tool.tar.gz","member":"tool","format":"tar.gz"}]}]});
+        let cancel = Cancellation::default();
+        let mut plan = original.clone();
+        prepare_public_files(&root, &mut plan, &cache, true, &cancel, &|_| {}).unwrap();
+        assert!(!cache.exists());
+        prepare_public_files(&root, &mut plan, &cache, false, &cancel, &|_| {}).unwrap();
+        assert_eq!(plan, original);
+        assert_eq!(fs::read(cache.join("bin/tool")).unwrap(), b"binary");
+        fs::write(&module, "raise SystemExit(1)").unwrap();
+        prepare_public_files(&root, &mut plan, &cache, false, &cancel, &|_| {}).unwrap();
+        fs::remove_file(cache.join("bin/tool")).unwrap();
+        plan["files"][0]["sha256"] = json!("a".repeat(64));
+        fs::write(
+            &module,
+            r#"import json,sys,pathlib
+r=json.load(sys.stdin);pathlib.Path(r['destination']).write_bytes(b'binary')
+print(json.dumps({'available':True,'size':6,'sha256':'b'*64}))
+"#,
+        )
+        .unwrap();
+        assert!(prepare_public_files(&root, &mut plan, &cache, false, &cancel, &|_| {}).is_err());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    // secrets: none
+    #[test]
+    fn c_sup_88_layer_preparation_passes_objects_and_never_falls_back_to_archive() {
+        let temp = std::env::temp_dir().join(format!("layer-prepare-{:016x}", rand::random::<u64>()));
+        let root = temp.join("root");
+        let cache = temp.join("cache");
+        let module = root.join("cli/src/chentu/public_prepare.py");
+        private_directory(module.parent().unwrap()).unwrap();
+        fs::write(
+            &module,
+            r#"import json,sys,pathlib,hashlib
+r=json.load(sys.stdin)
+assert r['image']['layerPreparation']==1
+assert r['objectFiles']==[{'path':'image-objects/sha256/fixture'}]
+p=pathlib.Path(r['destination']);p.write_bytes(b'verified-oci')
+print(json.dumps({'available':True,'size':12,'sha256':hashlib.sha256(b'verified-oci').hexdigest()}))
+"#,
+        )
+        .unwrap();
+        let original = json!({"target":{"publicPreparation":1},"releaseManifest":{},
+            "files":[{"path":"images/app.tar","size":4,"sha256":"a".repeat(64)}],
+            "images":[{"file":"images/app.tar","layerPreparation":1,"ociObjects":[]}],
+            "imageObjectFiles":[{"path":"image-objects/sha256/fixture"}]});
+        let cancel = Cancellation::default();
+        let mut offline = original.clone();
+        prepare_public_files(&root, &mut offline, &cache, true, &cancel, &|_| {}).unwrap();
+        assert_eq!(offline, original);
+        assert!(!cache.exists());
+        let mut online = original.clone();
+        prepare_public_files(&root, &mut online, &cache, false, &cancel, &|_| {}).unwrap();
+        assert_eq!(online["files"][0]["size"], 12);
+        assert_eq!(online["files"].as_array().unwrap().len(), 1);
+        assert_eq!(online["images"], original["images"]);
+        prepare_files(&online, &cache, true, &cancel, &|_| {}).unwrap();
+        fs::write(&module, "import json; print(json.dumps({'available':False}))").unwrap();
+        let mut bad = original.clone();
+        assert!(prepare_public_files(&root, &mut bad, &cache, false, &cancel, &|_| {}).is_err());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    // secrets: none
+    #[test]
+    fn c_sup_86_public_preparation_stages_bootstrap_and_offline_never_starts_helper() {
+        let temp = std::env::temp_dir().join(format!("public-prepare-{:016x}", rand::random::<u64>()));
+        let root = temp.join("root");
+        let cache = temp.join("cache");
+        let module = root.join("cli/src/chentu/public_prepare.py");
+        private_directory(module.parent().unwrap()).unwrap();
+        fs::write(
+            &module,
+            r#"import json,sys,pathlib,hashlib
+r=json.load(sys.stdin)
+p=pathlib.Path(r['destination']);p.write_bytes(b'verified-oci')
+print(json.dumps({'available':True,'size':12,'sha256':hashlib.sha256(b'verified-oci').hexdigest()}))
+"#,
+        )
+        .unwrap();
+        let original = json!({"target":{"publicPreparation":1,"registryImages":1},
+            "releaseManifest":{},"bootstrapImages":["nexus:1"],
+            "files":[{"path":"images/nexus.tar","size":4,"sha256":"a".repeat(64)}],
+            "images":[{"file":"images/nexus.tar","reference":"nexus:1",
+                "publicSources":["source.example.internal/nexus@sha256:fixture"]}]});
+        let cancel = Cancellation::default();
+        let mut offline = original.clone();
+        prepare_public_files(&root, &mut offline, &cache, true, &cancel, &|_| {}).unwrap();
+        assert_eq!(offline, original);
+        assert!(!cache.exists());
+        let mut online = original.clone();
+        prepare_public_files(&root, &mut online, &cache, false, &cancel, &|_| {}).unwrap();
+        assert_eq!(online["files"][0]["size"], 12);
+        assert_eq!(online["images"], original["images"]);
+        select_image_transport(&mut online, false).unwrap();
+        assert_eq!(online["files"].as_array().unwrap().len(), 1);
+        prepare_files(&online, &cache, true, &cancel, &|_| {}).unwrap();
+        fs::write(&module, "import json; print(json.dumps({'available': False}))").unwrap();
+        let mut fallback = original.clone();
+        prepare_public_files(&root, &mut fallback, &cache, false, &cancel, &|_| {}).unwrap();
+        assert_eq!(fallback, original);
+        fs::write(&module, "raise SystemExit(1)").unwrap();
+        assert!(prepare_public_files(&root, &mut fallback, &cache, false, &cancel, &|_| {}).is_err());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    // secrets: none
+    #[test]
+    fn c_sup_85_registry_transport_keeps_bootstrap_and_offline_files() {
+        let digest = format!("sha256:{}", "a".repeat(64));
+        let fixture = json!({
+            "target":{"registryImages":1,"k3sAirgap":"system.tar"},
+            "releaseManifest":{"schemaVersion":2},"bootstrapImages":["nexus:1"],
+            "files":[{"path":"images/app.tar","size":7,"sha256":"b".repeat(64)},
+                     {"path":"images/nexus.tar"},{"path":"system.tar"},{"path":"cli.tar"}],
+            "images":[{"file":"images/app.tar","reference":"app:1","digest":digest,
+                       "registrySource":format!("source.example.internal/app@{digest}")},
+                      {"file":"images/nexus.tar","reference":"nexus:1","digest":digest,
+                       "registrySource":format!("source.example.internal/nexus@{digest}")}]
+        });
+        let mut online = fixture.clone();
+        select_image_transport(&mut online, false).unwrap();
+        assert_eq!(
+            online["files"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|f| f["path"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["images/nexus.tar", "system.tar", "cli.tar"]
+        );
+        assert_eq!(online["images"][0]["transport"], "registry");
+        assert_eq!(online["images"][0]["size"], 7);
+        assert!(online["images"][1].get("transport").is_none());
+        let mut offline = fixture.clone();
+        select_image_transport(&mut offline, true).unwrap();
+        assert_eq!(offline, fixture);
+        let mut old = fixture.clone();
+        old["target"].as_object_mut().unwrap().remove("registryImages");
+        let before = old.clone();
+        select_image_transport(&mut old, false).unwrap();
+        assert_eq!(old, before);
+        for source in [
+            "http://source.example.internal/app",
+            "source.example.internal/app:latest",
+            "127.0.0.1/app@sha256:bad",
+            "source.example.internal/app@sha256:bad",
+        ] {
+            let mut bad = fixture.clone();
+            bad["images"][0]["registrySource"] = json!(source);
+            assert!(select_image_transport(&mut bad, false).is_err());
+            assert_eq!(bad["files"], fixture["files"]);
+        }
+    }
 
     #[test]
     fn yaml_output_preserves_numeric_scalars_with_embedded_json_features() {

@@ -148,3 +148,40 @@ GitHub Actions 使用阿里云 OIDC，无长期 AccessKey。仓库变量为 `OSS
 RAM 信任策略的 Action 为 `sts:AssumeRole`，Principal 为该 OIDC provider。仓库启用了 immutable subject，`oidc:sub` 前缀应从 `gh api repos/TheApeironLab/apeiron-cli/actions/oidc/customization/sub` 读取，再追加 `:ref:refs/tags/v*`，不要只填写仓库名称。上传 job 显式设置 `ALIBABA_CLOUD_REGION_ID=cn-beijing`，不依赖开发机的阿里云 CLI 配置。
 
 回退 CLI 可重新安装指定旧版本；平台数据库、集群或应用不会随 CLI 回退。
+
+## Chentu registry 镜像供给
+
+目标声明 `registryImages: 1` 的新包，在在线 `apeiron init` 完成发布清单校验后，
+非引导且带固定 `registrySource` 的镜像由 Chentu supply 直接复制到现场 Nexus，CLI 不下载其归档。
+普通文件、引导镜像与系统工具仍按原大小/SHA-256 校验。离线模式、旧包及无来源镜像使用完整归档。
+镜像源错误不会回退为 tag、其他镜像站或公网 Pod 拉取；运行时仍只使用现场 Nexus。
+该能力需要匹配的新 Chentu 包，不改写已发行清单，也不自动发布任何镜像。
+
+### Chentu public preparation v1
+
+A target declaring `publicPreparation: 1` requires Python 3 on the online operator.
+Before cluster creation, `apeiron init` runs the Chentu package's standard-library
+public preparation helper. It tries declared immutable public image/file sources,
+then downloads the original OSS resource only when those sources are unavailable.
+Image graph, target architecture and byte-integrity failures stop installation.
+Bootstrap images participate; native K3s system archives and binaries can use
+SHA-256-verified official downloads. A generated OCI archive updates only the local
+staging plan's archive checksum, leaving the release catalog and image digest intact.
+Offline runs never invoke the helper; older catalogs keep their existing behavior.
+The new Chentu material must preserve upstream OCI manifests: old Docker-save-derived
+digests may not exist publicly and will legitimately fall back to OSS.
+
+Public preparation also recognizes `publicArtifacts` for fixed tar.gz/zip tool
+members. The packaged Python helper bounds download/extraction and verifies the
+original file SHA-256 and size. Unlike OCI repackaging, tool preparation cannot
+change the local plan identity. Valid cached files skip the helper; offline
+mode never invokes it. APT public URLs are publisher-bound to exact package bytes.
+
+### 未发布：自有镜像按 OCI 对象准备
+
+配套 chentu 的 `layerPreparation: 1` 将 `ociObjects` 引用绑定到 catalog 的
+`imageObjects` 资源目录。仅选中组件的对象元数据进入准备请求，普通 files 仍保留
+完整离线镜像归档；旧客户端不解析该附加目录，离线模式不启动公网准备程序。
+新客户端按已验证缓存、公共 registry、单对象 OSS 准备完整 OCI 图，错误内容或
+对象不可用停止，不回退下载整个镜像。发行合包、profile handoff 和 preview 都校验
+并绑定独立对象的内容地址。旧发行资源不改写；该能力须随新 chentu 与 CLI 一同发布。

@@ -407,6 +407,13 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
         }
         c.event("私有安装将按入口 IP 配置管理机、节点和集群内部解析，无需预先配置外部 DNS。");
     }
+    if target["offline"] != true && plan["target"]["publicPreparation"] == 1 {
+        require_tools(&["python3"], &BTreeMap::new())?;
+    }
+    resources::prepare_public_files(&root, &mut plan, &cache, target["offline"] == true, &c.cancel, &|m| {
+        c.event(m)
+    })?;
+    resources::select_image_transport(&mut plan, target["offline"] == true)?;
     resources::prepare_files(&plan, &cache, target["offline"] == true, &c.cancel, &|m| c.event(m))?;
     let work = if docker {
         cluster::identity(&c.config, i["domain"].as_str().unwrap()).0
@@ -437,14 +444,16 @@ pub fn prepare(config: &Value, c: &Context) -> Result<Prepared> {
             .iter()
             .map(|image| {
                 let mut image = image.clone();
-                let file = plan["files"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|f| f["path"] == image["file"])
-                    .unwrap();
-                image["size"] = file["size"].clone();
-                image["sha256"] = file["sha256"].clone();
+                if image["transport"] != "registry" {
+                    let file = plan["files"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|f| f["path"] == image["file"])
+                        .unwrap();
+                    image["size"] = file["size"].clone();
+                    image["sha256"] = file["sha256"].clone();
+                }
                 if plan.get("releaseManifest").is_some() {
                     image["bootstrap"] = json!(plan["bootstrapImages"]
                         .as_array()

@@ -99,11 +99,22 @@ def verify_public_resource(record):
     return got
 
 
+def resource_files(catalog):
+    """Complete publication resources; imageObjects are lazy installer resources."""
+    objects = catalog.get('imageObjects', [])
+    if not isinstance(objects, list):
+        raise ValueError('invalid image object resources')
+    rows = [*catalog['files'], *objects]
+    if len({r['path'] for r in rows}) != len(rows):
+        raise ValueError('duplicate installation/object resource path')
+    return rows
+
+
 def read_profile(directory, verified_public=None):
     verified_public = verified_public if verified_public is not None else {}
     records = public_resources(directory)
     catalog = json.loads((directory / 'chentu/setup/install.json').read_text())
-    catalog_files = {entry['path']: entry for entry in catalog['files']}
+    catalog_files = {entry['path']: entry for entry in resource_files(catalog)}
     for name, record in records.items():
         if name not in catalog_files or any(record[k] != catalog_files[name][k] for k in ('sha256', 'size')):
             raise ValueError('handoff resource differs from the catalog')
@@ -169,7 +180,7 @@ def combine(outputs, candidate, out):
         scope.validate_catalog(catalog)
         catalog = copy.deepcopy(catalog)
         listed = set()
-        for entry in catalog["files"]:
+        for entry in resource_files(catalog):
             path = safe_file(directory, entry["path"])
             got = (verified_public[(entry['sha256'], entry['size'])]
                    if entry['path'] in remote else identity(path))

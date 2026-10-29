@@ -13,6 +13,16 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
+class PlatformBuildScopeTests(unittest.TestCase):
+    def test_browser_uses_third_party_material_without_a_private_build(self):
+        """Regression for TheApeironLab/apeiron-cli#95."""
+        lock = json.loads((Path(__file__).parents[1] / 'release/platform-images.json').read_text())
+        for group in ('images', 'registryImages', 'sourceBuilds'):
+            self.assertNotIn('chrome-headless', lock.get(group, {}))
+        self.assertTrue({'zygos-api', 'zygos-web', 'zygos-worker', 'zygos-evalscope'} <= lock['images'].keys())
+        self.assertIn('sftpgo', lock['sourceBuilds'])
+
+
 class RegistryClosureTests(unittest.TestCase):
     def fixture(self, directory, *, omit_layer=False, corrupt_layer=False, arches=('amd64', 'arm64')):
         blobs = {}
