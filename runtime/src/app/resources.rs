@@ -1018,6 +1018,13 @@ pub fn prepare_files(
     for f in missing {
         cancel.check()?;
         let name = f["path"].as_str().unwrap();
+        if plan["images"].as_array().is_some_and(|images| {
+            images
+                .iter()
+                .any(|image| image["file"] == name && image["preparationSource"] == "public-required")
+        }) {
+            return Err(fail("此镜像必须从声明的公网源准备，禁止回退到 OSS。", 400));
+        }
         progress(&format!("准备资源：{name}"));
         let dest = destination(base, name)?;
         private_directory(dest.parent().unwrap())?;
@@ -1058,6 +1065,95 @@ pub fn prepare_files(
         result?;
     }
     progress("所选组件的资源文件均已完整校验。");
+    Ok(())
+}
+
+/// Prepare mandatory public images with the verified deployment package's OCI
+/// verifier. Archive bytes must match the release receipt as well as the OCI graph.
+/// Remaining files, including the private IAM UI, use the ordinary OSS downloader.
+pub fn prepare_image_sources(
+    root: &Path,
+    plan: &Value,
+    base: &Path,
+    architecture: &str,
+    offline: bool,
+    cancel: &Cancellation,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    if !["amd64", "arm64"].contains(&architecture) {
+        return Err(fail("公网镜像目标架构无效。", 400));
+    }
+    for image in plan["images"].as_array().into_iter().flatten() {
+        let Some(policy) = image.get("preparationSource") else {
+            continue;
+        };
+        match policy.as_str() {
+            Some("oss-only") => {
+                if ["publicSources", "registrySource", "ociObjects"]
+                    .iter()
+                    .any(|k| image.get(k).is_some())
+                {
+                    return Err(fail("OSS 镜像声明了其他下载来源。", 400));
+                }
+                continue;
+            }
+            Some("public-required") => {}
+            _ => return Err(fail("不支持的镜像下载来源约束。", 400)),
+        }
+        let sources = image["publicSources"]
+            .as_array()
+            .ok_or_else(|| fail("公网镜像缺少固定来源。", 400))?;
+        if sources.is_empty() || image.get("ociObjects").is_some() || image.get("registrySource").is_some() {
+            return Err(fail("公网镜像来源约束不完整。", 400));
+        }
+        let file = plan["files"]
+            .as_array()
+            .and_then(|files| files.iter().find(|f| f["path"] == image["file"]))
+            .ok_or_else(|| fail("公网镜像缺少文件摘要。", 400))?;
+        let path = destination(base, file["path"].as_str().ok_or_else(|| fail("镜像路径无效。", 400))?)?;
+        if valid_file(&path, file, cancel) || offline {
+            continue;
+        }
+        private_directory(path.parent().unwrap())?;
+        for module in ["public_prepare.py", "image_sources.py"] {
+            read(&root.join("cli/src/chentu").join(module), 4 * 1024 * 1024)?;
+        }
+        let temporary = path.with_file_name(format!(".public-{:016x}.part", rand::random::<u64>()));
+        let result = (|| {
+            progress(&format!(
+                "从公网准备镜像：{}",
+                image["reference"].as_str().unwrap_or("")
+            ));
+            let request = json!({"image":image,"architecture":architecture,"destination":temporary});
+            let output = process::capture(
+                std::process::Command::new("python3").args([
+                    "-B", "-c", "import runpy,sys; sys.path.insert(0,sys.argv[1]); runpy.run_module('chentu.public_prepare',run_name='__main__')",
+                ]).arg(root.join("cli/src")),
+                request.to_string().as_bytes(), Duration::from_secs(1800), 16384, cancel,
+            ).map_err(|_| fail("公网镜像准备失败，未回退到 OSS。", 400))?;
+            let receipt: Value = serde_json::from_slice(&output).map_err(|_| fail("公网镜像回执无效。", 400))?;
+            if receipt["available"] != true
+                || receipt["digest"] != image["digest"]
+                || receipt["architecture"] != architecture
+                || !sources.contains(&receipt["source"])
+                || receipt["sha256"] != file["sha256"]
+                || receipt["size"] != file["size"]
+                || !valid_file(&temporary, file, cancel)
+            {
+                return Err(fail("公网镜像来源、架构或摘要校验失败，未回退到 OSS。", 400));
+            }
+            fs::rename(&temporary, &path).map_err(|_| fail("无法保存公网镜像。", 500))?;
+            progress(&format!(
+                "公网镜像已校验：{}，{}，{} 字节",
+                receipt["source"].as_str().unwrap_or(""),
+                architecture,
+                receipt["size"]
+            ));
+            Ok(())
+        })();
+        let _ = fs::remove_file(&temporary);
+        result?;
+    }
     Ok(())
 }
 
@@ -1237,6 +1333,102 @@ print(json.dumps({'available':True,'size':12,'sha256':hashlib.sha256(b'verified-
             assert!(select_image_transport(&mut bad, false).is_err());
             assert_eq!(bad["files"], fixture["files"]);
         }
+    }
+
+    fn public_image_plan(data: &[u8]) -> Value {
+        json!({"files":[{"path":"images/keycloak.tar","size":data.len(),"sha256":config::hash(data)}],
+            "images":[{"file":"images/keycloak.tar","reference":"keycloak/keycloak:26.7.4",
+                "digest":format!("sha256:{}", "a".repeat(64)),"preparationSource":"public-required",
+                "publicSources":[format!("quay.io/keycloak/keycloak@sha256:{}", "a".repeat(64))]}]})
+    }
+
+    #[test]
+    fn required_public_image_cannot_fall_back_to_file_url() {
+        let temp = crate::app::contracts::Temp::new();
+        let mut plan = public_image_plan(b"archive");
+        plan["files"][0]["url"] = json!("https://oss.example.internal/keycloak.tar");
+        let error = prepare_files(&plan, &temp.0, false, &Cancellation::default(), &|_| {}).unwrap_err();
+        assert!(error.message.contains("禁止回退到 OSS"));
+        assert!(!temp.0.join("images/keycloak.tar").exists());
+    }
+
+    #[test]
+    fn mandatory_public_preparation_verifies_receipt_and_archive() {
+        let temp = crate::app::contracts::Temp::new();
+        let source = temp.0.join("source/cli/src/chentu");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(source.join("image_sources.py"), b"").unwrap();
+        fs::write(
+            source.join("public_prepare.py"),
+            br#"
+import json,sys,pathlib,hashlib
+r=json.load(sys.stdin); data=b'archive'
+pathlib.Path(r['destination']).write_bytes(data)
+print(json.dumps({'available':True,'source':r['image']['publicSources'][0],
+ 'digest':r['image']['digest'],'architecture':r['architecture'],
+ 'size':len(data),'sha256':hashlib.sha256(data).hexdigest()}))
+"#,
+        )
+        .unwrap();
+        let cache = temp.0.join("cache");
+        let root = temp.0.join("source");
+        let plan = public_image_plan(b"archive");
+        prepare_image_sources(&root, &plan, &cache, "arm64", false, &Cancellation::default(), &|_| {}).unwrap();
+        assert_eq!(fs::read(cache.join("images/keycloak.tar")).unwrap(), b"archive");
+        prepare_files(&plan, &cache, true, &Cancellation::default(), &|_| {}).unwrap();
+        // A broken helper or unavailable network is irrelevant to a verified cache.
+        fs::remove_dir_all(&root).unwrap();
+        prepare_image_sources(&root, &plan, &cache, "arm64", false, &Cancellation::default(), &|_| {}).unwrap();
+    }
+
+    #[test]
+    fn public_preparation_rejects_wrong_receipt_or_bytes_without_caching() {
+        for corruption in ["source", "architecture", "bytes"] {
+            let temp = crate::app::contracts::Temp::new();
+            let source = temp.0.join("source/cli/src/chentu");
+            fs::create_dir_all(&source).unwrap();
+            fs::write(source.join("image_sources.py"), b"").unwrap();
+            let helper = format!(
+                r#"
+import json,sys,pathlib,hashlib
+r=json.load(sys.stdin); data=b'archive'; kind='{corruption}'
+pathlib.Path(r['destination']).write_bytes(b'corrupt' if kind=='bytes' else data)
+print(json.dumps({{'available':True,'source':'wrong' if kind=='source' else r['image']['publicSources'][0],
+ 'digest':r['image']['digest'],'architecture':'amd64' if kind=='architecture' else r['architecture'],
+ 'size':len(data),'sha256':hashlib.sha256(data).hexdigest()}}))
+"#
+            );
+            fs::write(source.join("public_prepare.py"), helper).unwrap();
+            let cache = temp.0.join("cache");
+            assert!(prepare_image_sources(
+                &temp.0.join("source"),
+                &public_image_plan(b"archive"),
+                &cache,
+                "arm64",
+                false,
+                &Cancellation::default(),
+                &|_| {}
+            )
+            .is_err());
+            assert!(!cache.join("images/keycloak.tar").exists());
+            assert_eq!(fs::read_dir(cache.join("images")).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn offline_and_oss_only_images_never_invoke_public_helper() {
+        let temp = crate::app::contracts::Temp::new();
+        let root = temp.0.join("missing-source");
+        let mut plan = public_image_plan(b"archive");
+        prepare_image_sources(&root, &plan, &temp.0, "arm64", true, &Cancellation::default(), &|_| {}).unwrap();
+        assert!(prepare_files(&plan, &temp.0, true, &Cancellation::default(), &|_| {}).is_err());
+        plan["images"][0]["preparationSource"] = json!("oss-only");
+        plan["images"][0].as_object_mut().unwrap().remove("publicSources");
+        prepare_image_sources(&root, &plan, &temp.0, "arm64", false, &Cancellation::default(), &|_| {}).unwrap();
+        plan["images"][0]["publicSources"] = json!(["untrusted"]);
+        assert!(
+            prepare_image_sources(&root, &plan, &temp.0, "arm64", false, &Cancellation::default(), &|_| {}).is_err()
+        );
     }
 
     #[test]
