@@ -1,6 +1,6 @@
 # Apeiron CLI
 
-部署核心与安装网页由 `third_party/chentu/rust` 对应的 Chentu 源码持有；本仓库只嵌入该 crate 并适配命令。旧 `apeiron init/app/platform` 暂保留兼容。
+部署核心与安装网页由 `third_party/chentu/rust` 对应的 Chentu 源码持有；本仓库只嵌入该 crate 并适配命令。旧 `apeiron init/app/platform` 暂保留兼容。维护边界与验证见 [Chentu 宿主集成](docs/chentu-host.md)。
 
 统一入口：`apeiron <模块> <命令>`。`apeiron chentu init` 提供内置本地部署向导，`apeiron onto` 接入现有 Ontology CLI。Rust 单文件程序，内嵌浏览器向导；运行不需要 Bun/Node。onto 模块需要外部 CLI 或已安装依赖的 ontology 仓库。
 
@@ -118,125 +118,26 @@ apeiron task project delete <项目ID> --confirm --json
 服务端当前没有独立的 milestone 模型，因此 CLI 不提供 `--milestone`，也不会把自定义字段伪装成原生里程碑。
 这些新命令需要同时升级支持关系和项目删除的 Task Bearer 接口白名单；工作区权限仍由服务端检查。
 
-## 浏览器部署向导
+## 基础站点初始化
 
 ```sh
 apeiron chentu init
 ```
 
-命令监听 `127.0.0.1` 的空闲端口，自动打开网页。首屏有两个入口：**创建新安装实例**（填写实例名称与拓扑，服务端分配入口端口并登记到 `~/.apeiron/instances.json`）和**管理已有安装实例**（列表显示 ID、名称、拓扑、域名、端口、状态；可选择／继续、采集诊断日志、卸载未运行的 K3d 实例）；页眉始终显示当前正在操作的实例。创建流程分为八步：
+安装向导及部署规则由固定的 [Chentu 源码](third_party/chentu/rust/README.md) 提供。
+新流程为 **机器 → 站点 → 检查 → 安装 → 进入 Vasi**：先创建 K3s/K3d、引导 Nexus、
+供给固定材料，再启动 IAM 和 Vasi，完成站点交接。首装不选择业务应用或模型。
+后续应用管理在 Vasi 完成；IAM 管理成员和授权。
 
-1. **拓扑**：依次展示系统配置、网络测试、部署选项；选择在线／离线、单机 K3s／单机 K3d／多机 K3s（发行包为每个目标声明支持的拓扑）。多机时展开节点连接与 SSH 检测。
-2. **应用**：按“仅必选／核心协作／完整”场景组合快速选择，再按需增减；CI 需同时启用代码仓库。
-3. **共存与预算**：只读展示服务端分配的入口端口，执行宿主共存预检（已有 K3s、k3d 容器、路由与 Docker 子网重叠、iptables），给出资源估算。
-4. **域名与访问**：填写 Slug name，自动生成 `<slug>.apeironlab.internal`；可展开使用自定义域名。选择内网访问、公网直连或 ECS 转发（在线单机 K3s），填写入口 IP；配置必需的模型服务。
-5. **摘要**：核对实例、拓扑、节点、来源、域名、入口、端口、应用、模型与预检结果，点击“开始安装”。
-6. **部署**：完整准备并校验资源，创建集群，再运行宸途 `Helmfile sync`。显示进度、结果和日志入口。
-7. **配置访问**：部署成功后自动进入。在有桌面会话的 Mac 上可点击“一键配置本机访问”；其他电脑使用折叠的手动指引。可以返回查看部署记录，不会再次部署。
-8. **测试**：从访问配置点击“下一步：测试”。展示初始管理员用户名、默认隐藏的密码，提供显示／复制／下载，以及 Apeiron／Ops 登录入口。可以测试三处核心入口的解析和 HTTPS。
+新向导必须使用包含原生 release catalog、Chentu 管理执行器与 Vasi 的完整 v2 基础站点材料。
+仓库当前固定的旧发行包尚不具备此能力；更新 CLI 不会把旧包变成新包，也不会回退到 Minimal。
+开发验收在向导中明确选择已准备的配套材料；正式默认包待发布和目标验收后再更新。
+材料支持的平台、在线准备与断网验收范围均以该包声明为准。
 
-模型配置独立成页：预填百炼 `bailian` 标识和北京 Base URL `https://dashscope.aliyuncs.com/compatible-mode/v1`，填写同地域、同计费方案的 API Key；可修改为业务空间专属 OpenAI 兼容地址，获取模型列表，分别选择快速与深度思考模型，固定以 `apeiron-flash`（快速）和 `apeiron-pro`（深度思考）作为内部模型 ID，再发送简短请求测试（可能产生少量费用）。测试从 CLI 主机发起，部署后的集群也必须能访问模型服务；离线部署可使用内网模型端点。修改配置后须重新测试，基础安装不能跳过模型配置。Apeiron 通过必装的 Gateway 调用，供应商 Key 只写 Gateway Secret，Apeiron 使用网关签发的虚拟 Key。密钥仅保存于权限 0600 的本地配置及 Kubernetes Secret，不回传浏览器、不进入 Helm values。
-
-基础安装的默认出口允许公开 IPv4 HTTPS 并排除私有网段；发行包已有代理或 CIDR 策略时保留它。内网模型或受限出口需在发行环境中声明实际代理/出口。地址依据 [百炼官方 Base URL 文档](https://help.aliyun.com/zh/model-studio/base-url)。需要包含 Gateway 镜像与依赖的新安装包，旧包不被自动补齐或覆盖。
-
-基础模型向导的确定性浏览器验收：`APEIRON_TEST_BIN=/external/target/debug/apeiron bun scripts/test-base-models-ui.js`。测试拦截模型请求，不访问真实供应商。
-
-| 选择规则 | 应用 |
-| --- | --- |
-| 必选，不可取消 | Nexus、Vasi、Apeiron（含 Ops）、Gateway |
-| 默认不选 | Zygos、Limani、Task、Corpus、Chat、Files、邮件、Filer、代码仓库、GPUStack、Langfuse、Grafana、Browser（chrome-headless）、CI（woodpecker，需代码仓库） |
-
-默认仅选中 4 项必选。Keycloak、数据库和存储由安装包中 Helmfile 的依赖闭包提供。页面按必选和可选分组。重新打开保留可选应用选择；旧配置中缺少的必选应用会自动勾选，提交时才写入。可选应用仍受发行包声明的部署依赖约束。
-
-### 自动环境探测
-
-页面依次展示两个独立区域：第一块“系统配置”显示操作系统、内核、架构、逻辑核心、内存和 CPU；第二块“网络测试”用 Microsoft、GitHub、Google、下载源四张卡片显示连接状态与耗时。完整域名、HTTP 状态码和网络说明放在默认折叠的“检测详情”中，异常结果也不会自动展开。图标随 CLI 内嵌，无外部图片请求。
-
-第一步加载配置后，由 CLI 在本机检测操作系统（Linux 发行版/macOS/Windows）、硬件架构（AMD64/ARM64 等）、逻辑核心数与内存。macOS 上区分 ARM 硬件与 Rosetta 下运行的 x64 CLI。Linux 的运行时没有提供 CPU 名称时，回退到 `lscpu --json`，保留异构 CPU 的所有核心型号；仍无法识别时显示“CPU 型号未提供”。信息指运行 CLI 的主机，远程 K3s 节点不在此探测范围。
-
-在线模式向 `www.microsoft.com`、`www.google.com`、`api.github.com`、`release-assets.githubusercontent.com` 发起并行 HTTPS HEAD 请求，每项超时 4 秒，不携带配置或访问令牌，不跟随重定向。Google 单独展示，用于检查该站点的海外访问情况，不代表所有海外网站都可用。结果区分已连接、已响应但 HTTP 错误、DNS/TLS 失败和超时；下载域名根路径返回 404 时，以提示颜色注明“根路径没有资源，尚未验证具体安装包能否下载”，不能据此判断安装包存在或拥有下载权限。结果仅代表固定探测点的连通性，不自动切换部署模式或阻止继续填写。
-
-已保存的离线配置加载后不发起外网检测；页面切换到离线时取消正在执行的探测，仅显示本机信息。30 秒内复用最近结果，点击“重新检测”立即刷新。刷新检测不保存配置，也不连接 Kubernetes。
-
-### 全新安装
-
-第三块“部署选项”直接在页面内选择，不使用 CLI flags，也不提供“使用已有集群”。
-
-| 方式 | 目标与限制 | 执行入口 |
-| --- | --- | --- |
-| 单机 K3s | 当前 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64 主机；需要匹配的原生安装包、root 或免密 sudo | 自动生成 local inventory → `bootstrap/hosts.yaml` → Helmfile |
-| 单机 K3d | macOS / ARM64 + Docker；开发测试，使用发行包校验后的工具箱与镜像 | `tests/lab/helmfile.sh prepare` → `sync` |
-| 多机 K3s | SSH 连接的 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64 节点；节点须匹配同一安装包，管理机可为 macOS | 校验并分发资源 → 自动生成 inventory → `bootstrap/hosts.yaml` → Helmfile |
-
-普通多机至少 2 台，1 个控制节点加工作节点。控制平面高可用需至少 3 个、且为奇数个控制节点；不把“至少 3 台”强加给普通多机。SeaweedFS 使用 1 或 3 个存储节点；两节点部署使用 1 个 SeaweedFS 节点，Longhorn 副本数不超过节点数。这不等于所有应用都高可用。
-
-节点区可导入 `~/.ssh/config` 的显式 Host 别名，或每行输入一个地址。点击“自动检测节点”后通过 SSH 读取系统、架构、CPU、内存、根磁盘可用空间、内网 IPv4、sudo 权限与已有 K3s 数据，并生成可调整的名称／IP／角色。修改连接参数后检测结果失效。使用已有 SSH 配置或 Agent，可另填私钥路径；不会读取私钥内容到网页。严格检查 known_hosts，首次连接需先用 SSH 确认指纹。最多 32 节点，每批并行 4 台。
-
-安装前重新检测节点；多机还通过 Ansible 检查节点间 SSH 端口连通。K3s 端口尚未监听，不据此宣称防火墙已全面通过，实际加入由宸途检查。已有 K3s 数据会阻止全新安装，不自动清除或接管。域名 DNS、入口 VIP 和数据盘准备仍需完成；此版本不配置 DNS／VIP，不提供安装中断后的 K3s 接管或自动回滚。
-
-部署环境步骤为 K3s 建议单机主机的网卡 IP 或普通多机的控制节点 IP；HA 模式需显式填写已配置的稳定入口 IP，向导不创建负载均衡或 VIP。原生私有安装使用包内 `bootstrap/private_dns.py`：按本次域名和入口 IP，在管理机及安装节点合并受管 hosts 区块，K3s 启动后合并本域 CoreDNS 配置；保留其他域的配置，冲突时停止。管理机须有 root 或免密 sudo 权限。浏览器在其他电脑上时，可合并下载的 hosts，或使用 `*.<domain> A <entryIp>` 内网 DNS；向导不修改其他工作站。部署完成页的解析检查由用户点击触发，从 CLI 主机的系统解析器发起（包含 hosts／macOS scoped resolver），私有安装通过系统解析检查 Apeiron、IAM（包含 hosts）；公网模式检查随机子域名。要求所有返回地址与入口 IP 一致，单项最多 4 秒。重新部署会作废旧结果，完成页使用本次成功部署的域名和入口 IP。K3s 安装前，Ansible 在管理机及节点配置受管 hosts 后，核验安装包声明的各服务名称解析；应用同步前配置集群内部解析。旧包缺少内部解析 helper 时在修改主机前拒绝。此检查不代表浏览器、Pod、TLS 或应用健康检查已经通过。
-
-本机 K3d 默认使用 HTTP `54320`、HTTPS `54321`，可在部署环境中修改；应用 URL、登录回调与访问测试使用同一组端口，K3s 仍使用 80/443。点击开始部署时先检查端口：同一配置和域名持有的运行中集群按原端口重新部署，保留卷和凭据；其他服务占用、端口不匹配或 Docker 未启动时停留在配置页，不保存配置、下载资源或启动部署。创建集群前再次检查，避免检查后端口被抢占；不自动结束其他服务，也不接管无归属记录的集群。部署成功后的“配置访问”提供 Apeiron／IAM 的 hosts 示例和解析检测，本机模式只检测这两个名称，不要求 hosts 支持泛解析。部署成功后从宸途自有的 `chentu.lab.ingresshosts` 清单工具生成完整 hosts 文件。K3d 不在部署期间修改工作站 hosts 或 DNS；原生私有安装只配置 CLI 管理机和所选安装节点。部署后的 Mac 一键配置须由用户点击，合并本次域名的受管 hosts 区块，保留其他条目并备份原文件；检测到同名域名指向不同 IP 或不完整的区块时会停止，不覆盖冲突。手动配置仍需合并条目，不能覆盖原 hosts 文件。
-
-部署成功后提供平台链接、公开 CA 证书下载、SHA-256 指纹、有效期，以及 macOS／Windows／Ubuntu 的信任指引。CA 由宸途签发，CLI 只读取本次部署导出的证书，检查有效期和 CA 属性，拒绝私钥、混合 PEM 与符号链接；文件接口仅开放固定的本次产物，不接受用户文件路径。证书或 hosts 提取失败会单独提示，不伪造下载文件，也不会把已成功的 Helmfile 同步改成失败。CA 私钥备份、根 CA 轮换和全节点信任分发仍遵循宸途现有流程，当前 CLI 未增加自动轮换。
-
-Mac 一键配置使用 [AppleScript 系统管理员授权](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/reference/ASLR_cmds.html)：密码只输入 macOS 弹窗，不发送给网页或 CLI。将**本次成功部署**的公开 CA 加入系统钥匙串，并仅设置 SSL 信任用途；在 `/private/etc/apeiron-access.*/hosts.before` 留下 hosts 备份。安装命令嵌入经过校验的证书及 hosts，不接受浏览器传入的路径、命令或证书；系统授权后再次核对 hosts 内容，避免覆盖期间发生的其他修改。取消授权可以重试，重复安装只替换当前域名的受管区块。操作期间禁止关闭向导、修改配置或重启部署；刷新网页只读取状态。
-
-完成后从 CLI 主机检查 Apeiron／IAM 的系统解析和 HTTPS（使用系统信任、不跳过证书验证、不走环境代理），不把访问失败记成部署失败。浏览器独立信任库和代理仍可能需要单独设置；应让 `*.<平台域名>` 直连。页面始终标注实际被配置的 CLI 主机；非 macOS、SSH 或无桌面会话不提供一键按钮，可下载公开 CA 与 hosts 在浏览器所在电脑手动配置。不会把远程机器的系统配置误称为当前浏览器电脑已配置。
-
-测试页只在成功部署后通过同源 POST 读取本次生成的 kubeconfig 所指向的 `keycloak/keycloak-bootstrap` Secret，仅返回 `username`、`password`。Docker 模式复用已安装工具箱镜像，以只读 kubeconfig 和集群网络查询，无 Docker socket、不拉取镜像。口令不进入进程参数、配置快照、状态接口或部署日志，也不自动写入本机凭据文件；用户点击下载时才生成文件。离开测试页／关闭向导清除页面密码，刷新后重新读取并恢复隐藏状态。初始 Secret 不会跟踪用户之后在 IAM 中修改的密码，因此页面明确说明其仅为首次安装凭据。
-
-连接测试检查 Apeiron、Ops、IAM：从 CLI 主机解析地址，必须全部匹配部署入口，再使用系统证书信任发起 HTTPS HEAD。固定入口 IP、禁用环境代理、不跟随跳转、不会发送账号密码；HTTP 2xx／3xx 视为入口可访问，404 等错误或 TLS 失败不会通过。它不宣称用户已登录或应用功能全部正常；用户用显示的凭据打开应用完成登录测试。
-
-
-离线模式可选择 CLI 主机上的目录；macOS 桌面可打开目录选择器，远程／无桌面环境直接填写绝对路径。离线不下载资源，缺少所选应用或依赖的文件、大小或 SHA-256 不符即停止。在线模式只下载缺失或损坏的所需文件，必须收到完整 HTTP 200 响应并通过大小与 SHA-256 校验；404、截断响应与校验失败不能放行集群创建。公共网站卡片不充当资源检查门槛。
-
-**发行状态：CLI 固定使用兼容的 Chentu `0.1.0-rc.5` 预览包。** 包内提供 `deploymentTopology`、`clusterOidc`、自定义入口端口和 `setup/install.json`，按所选应用下载并校验资源。目前提供 `k3d-arm64` 目标，共 50 个资源文件，覆盖默认 9 个应用及可选 Gateway、Filer、代码仓库、Langfuse、Grafana；GPUStack 尚无对应资源，选择后会在修改集群前明确拒绝。
-
-源码基础提交为 `f109f8567b9df0cf1eeb1b6d6cbd7092be5f99c3`，具体修复以包内 `chentu-package.json.sourceOverlay` 的逐文件摘要为准。安装包 SHA-256：`f45a9a370a15e01697ba82d8ad1101853c040a3b1bbf1c0e1f557164d4706021`。来源、验证与限制见 [release.json](https://downloads.apeironlab.cn/chentu/releases/0.1.0-rc.5/release.json)，消费契约见 [docs/install-package.md](docs/install-package.md)。已验证本机 ARM64 K3d 部署与 Vasi 集群 SSO 权限；原生 Ubuntu、AMD64、多节点和断网安装尚需分别验收。Apeiron 的真实 LLM 可在 setup 的模型步骤配置，开发模型桩不代表真实对话已可用。
-
-环境 values、inventory、kubeconfig 由流程生成，不向用户索取。页面不再提供源码路径或开发选项：在线使用匹配版本的发行包，离线使用所选目录中的 `chentu/` 部署程序与应用资源。旧配置中的源码覆盖不会沿用到全新安装。仅 CLI 开发联调可显式设置进程变量 `APEIRON_CHENTU_ROOT`，该变量不写入安装配置，离线模式也不会使用它。
-
-K3d 安装时，CLI 还会准备并校验与 K3s 版本匹配的官方 ARM64 基础镜像包（约 231 MiB），节点启动时直接导入 Traefik、CoreDNS 等镜像。基础镜像计入资源准备进度；Traefik 就绪后才安装应用。准备期间每 15 秒报告等待时长与基础服务状态，并记录镜像拉取事件。可选择离线 K3d 并提供完整本地安装包；完整应用的断网部署尚需验收。
-
-### 配置与进度
-
-每次部署在配置目录的 `deployments/run-*/` 生成 `environment.yaml`、`inventory.yaml`（K3s）与 `install.log`。
-生成器以发行包声明为基础写入组织、域名、节点与存储规模，以及应用 `releases.<id>.enabled`。Helmfile 仍负责 release 默认值与 topology 预设合并、依赖校验、安装顺序和 hooks；资源清单仅负责文件选择与下载。
-
-部署模式同时决定 Nexus 公网代理：在线部署写入 `releases.nexus.values.publicProxies: true`，启用 Chentu 已有的 Docker／npm 代理；离线部署明确写入 `false`。重新生成配置时以本次部署模式为准，保留 Nexus 的其他配置。自定义上游仍遵循 Chentu 的优先级规则；这是仓库配置，不是集群出口防火墙策略。
-
-Limani 对应 `ontology`，Chat 对应 `matrix`，邮件对应 `stalwart`，代码仓库对应 `git`。Grafana 选项控制宸途 observability 组件的 `kps`、`loki`、`promtail` 三个 release；其余 ID 为小写应用名。Apeiron 包含 Ops，无需单独选择。
-取消选择只将相应 release 排除于本次同步，不卸载已有应用；平台访问权限仍由平台管理。
-
-网页展示部署状态、耗时、退出码、已识别的同步进度与日志路径。准备阶段的进度与错误也写入日志，失败时不会只留下空文件。“在网页打开日志”以纯文本展示本次运行的完整日志，刷新日志页可查看最新内容；“下载日志”保存同一文件。日志仍保存在 CLI 主机，使用 `0600` 权限；访问须经过本次向导的随机令牌和来源检查，接口不接受文件路径，拒绝符号链接。每次重试生成独立日志，页面链接随当前运行更新。完整输出可能含敏感诊断，不写入常规状态响应或终端；保管好向导链接及下载的日志。
-部署页横向展示六个阶段：检查安装包、准备集群、启动制品仓库、导入部署资源、安装与初始化应用、准备访问与验证；当前执行内容显示在阶段条下方。阶段状态来自实际部署事件，未执行的引导或导入阶段显示“无需执行”，失败或停止保留所在阶段，后续步骤保持等待。阶段完成后继续配置本机访问并测试登录，不将安装成功等同于业务验收通过。部署日志默认折叠，可随时展开。
-重复启动会被阻止，刷新页面会恢复当前进度。同一源环境文件的多个向导共享部署锁。
-第 4 步提供“停止部署”。停止资源下载或本机部署进程，并清理本次运行的临时工具箱；不会删除集群、卷或回滚已完成的变更。已提交给 Kubernetes 的任务可能继续运行。停止期间禁用修改和重新部署；清理失败会保留部署锁，检查 Docker／目录权限后可“重试停止”。关闭、刷新页面不会发起停止。
-
-正式 Nexus-first 安装成功后保存私有完成记录。重启同一个 CLI 后，可点击“恢复访问配置”：重新核对配置、安装包、资源和集群身份，再生成访问资料并进入访问／测试步骤，不再次执行同步；身份变化时拒绝恢复。新部署开始时撤销上次完成记录，原部署目录与日志仍保留。
-
-正式 Nexus-first 安装完成集群引导并生成恢复检查点后，停止、失败或 CLI 进程重启可点击“继续原部署”：核对同一 CLI、配置、安装包、资源与集群身份，保留原目录和日志，重新检查并同步应用，hooks 可能重复执行。不会按进度条跳过操作，也不会把新版本包作为原安装继续。引导尚未完成的硬退出不自动接管，旧进程或子进程仍存活时拒绝并发继续。没有检查点的正常失败仍可点击“重新部署”，重新检查资源并生成独立日志。配置在其他窗口或进程中变化后，必须返回修改确认。每次 sync 前通过当前集群的 Helm 元数据检查 pending-install／pending-upgrade／pending-rollback；检测到未完成操作或读取失败时，阻止本次 sync，提示涉及的 release，不自动删除 Helm 记录或回滚。
-
-管理机基础依赖在下载部署包前检查，缺失工具集中列出。原生应用需要可运行的 curl：可使用 CLI 主机已有工具或已校验离线包提供的工具，创建集群前执行版本检查；向导不会联网安装依赖。
-
-资源准备失败后也可返回修改。K3d 重试复用本次安装的集群和凭据；主机安装开始后已有的 K3s 数据仍会触发节点检查，需要人工确认恢复，不支持自动恢复任意阶段中断的 K3s 安装。
-
-默认配置路径为 `~/.apeiron/config.json`，部署日志与运行文件也保存在该目录下。可通过 `--config` 指定其他配置路径。
-当前配置为 schemaVersion 2，保存组织、模型、应用与部署目标；旧版 LLM 配置只保留在磁盘，不回传网页。
-配置文件和部署副本使用 `0600`，新建目录为 `0700`，禁止将配置保存到 Git 工作目录。
-保存采用文件锁、版本检查和临时文件替换，防止旧窗口覆盖新配置。
-
-```sh
-apeiron chentu init --no-open                       # 手动打开终端输出的地址
-apeiron chentu init --port 3210                     # 指定本地端口
-apeiron chentu init --config /external/apeiron.json  # 指定配置文件
-apeiron chentu init --help
-```
-
-页面、脚本、样式与官方 Apeiron logo、favicon 直接包含在 CLI，无 CDN、独立前端服务或 LLM 依赖。
-会话使用随机访问路径，写入接口校验同源请求。部署结束后点击“完成并关闭向导”，或在终端按 Ctrl+C 停止进程与本地服务。
-仅关闭网页不会停止部署。远程使用可通过 SSH 转发端口。
+`.apeiron` 配置、实例索引及缓存继续兼容；不迁移或重写已有凭据。旧 `apeiron init/app/platform`
+只是同一 Chentu 模块的兼容入口。安装参数、恢复与日志见
+[Chentu CLI](third_party/chentu/rust/README.md) 和
+[站点生命周期](third_party/chentu/docs/stack/site-lifecycle.md)。
 
 ## 独立可执行文件
 
@@ -275,41 +176,29 @@ apeiron wlk <command>
 
 ## 验证
 
+构建输出和测试依赖放在仓库外。先初始化固定子模块，再按 Chentu 文档准备其外部 UI 依赖：
+
 ```sh
-bun install --frozen-lockfile
-bun scripts/embed-assets.js --check
+export CARGO_TARGET_DIR=/external/apeiron-target
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
+cargo test --locked -p apeiron -p chentu
+cargo build --locked --bin apeiron --example build-support
+bun scripts/embed-assets.js --check
 bun run check
-bun run test:rust
-cargo build --release --locked
-bun run test:ui
-apeiron verify
+CHENTU_EMBEDDED=1 APEIRON_TEST_BIN="$CARGO_TARGET_DIR/debug/apeiron" bun test
+APEIRON_TEST_BIN="$CARGO_TARGET_DIR/debug/apeiron" bun run test:ui
+python3 -m unittest discover -s test -p 'test_*.py'
 ```
 
-开发验证使用 Rust（版本见 `rust-toolchain.toml`）与 Bun 1.3.14。Chentu 的 `rust/ui/client.js`、`page.js` 是浏览器前端真源；修改后运行 `bun scripts/embed-assets.js` 更新嵌入资源。Cargo 构建直接使用已提交资源。所有 CLI 和向导服务端逻辑均在 Rust 中；Apeiron 自身不包含 TypeScript，独立的 Zygos 子模块不受此语言限制。原服务端测试已迁为 Rust 契约测试及直接启动 Rust 二进制的 JavaScript HTTP/CLI 测试。浏览器页面与构建、发行、浏览器测试脚本使用 JavaScript；资源发布和 Helmfile 验证通过 Cargo 的 build-support 示例复用 Rust 校验与配置生成，该开发工具不进入发行包。
+`test/chentu-contracts.test.js` 自动加载固定 Chentu 的全部 HTTP 契约，用内嵌入口执行原断言。
+浏览器套件清单也由 Chentu 维护，本仓库只设置宿主模式；不复制安装页面或另列旧 Minimal/模型测试。
+命令路由、旧别名、选定材料和 build-info 的集成断言保留在 `test/chentu.test.js`。
+浏览器测试为隔离替身，不代表真实部署；真实部署仍需比较凭据、PVC 和数据。
 
-首次浏览器验证需先运行 `bunx playwright install chromium`。`test:ui` 从临时目录启动编译后的二进制，
-用隔离的部署替身验证首屏入口、八步配置、场景组合、共存预检与摘要、必选项、失败/重试、刷新恢复、部署后进入访问配置、系统授权取消/重试的页面状态、凭据读取／隐藏／复制／下载、连接检查失败与重试、完成退出、桌面/手机布局以及没有外部网络请求。授权测试使用隔离替身，不弹出真实管理员授权或修改开发机信任库。它不对真实集群执行 sync。
-浏览器测试只用虚构配置，完成后删除配置和替身日志；截图保存在打印出的系统临时目录。`test:instances-ui` 用隔离的 HOME 与 docker/k3d 替身验证实例首屏与列表：登记的安装包实例、创建并由服务端分配端口、切换、诊断采集、卸载确认，桌面与手机布局。
-
-真实 Helmfile 配置读取与编排检查（需要已有宸途工具箱镜像，不挂载 Docker socket 或 kubeconfig，不连接集群）：
-
-```sh
-bun scripts/test-helmfile.js /absolute/path/to/chentu chentu-lab
-```
-
-该检查运行原生 `print-env` / `build`，校验启用项、values 保留与依赖完整性，不执行真实集群部署。
-
-当前尚未发布到 npm registry。SSO、IAM、Task 使用本仓库现有入口；
-`platform init` 已由顶层 `init` 的网页流程替代；部署由顶层 init 调用宸途原生入口，未另设 `platform install/deploy` 命令。
-
-部署流程由 `deployment.installation.topology`（single-k3d / single-k3s / multi-k3s）
-决定，生成的 Helmfile values 含相同 `topology`。不再读取 `profile` 或
-`CHENTU_PROFILE`；旧配置明确报错，不自动转换。发行包 target 必须声明
-`deploymentTopology: true`，与新版 Chentu 一起构建。架构来自目标节点探针，
-K3d 来自运行 Docker 的本机架构；不同架构不混用安装包。原生 K3s 主机支持 Ubuntu 22.04 / AMD64 或 Ubuntu 24.04 / ARM64，发行包必须用 `hostPlatform` 声明匹配的 Ubuntu 版本和架构。当前公开 rc.5 仍只提供 K3d ARM64 资源；主机兼容不代表原生 K3s 资源已经发布。多机不会自动开启 Longhorn 或三副本存储。
+材料组装、内容地址校验和冻结实现位于 Chentu `bundle/release/`；`scripts/` 同名 Python
+入口仅调用固定子模块。apeiron-cli 保留跨产品发行协调、签名、上传和通道验收，相关集成测试
+仍在本仓库。先前 Minimal 工具仅用于旧材料兼容，不能作为新基础站点的发布入口。
 
 ## 公网入口配对（新发行包）
 
@@ -409,35 +298,17 @@ apeiron iam member update <SUBJECT> --file access.json --idempotency-key <UUID> 
 
 `member create`、`member update`、`member reset-password` 的 JSON 文件沿用组织 API 契约，`--file -` 可从 stdin 读取。密码不通过命令参数传递。所有写命令必须指定 UUID 幂等键；未知结果先查询操作记录，再使用原幂等键与原输入重试，不自动生成新操作。开户的邮箱核验声明仍须基于真实组织核验。CLI 不接受任意 API URL 或租户参数，组织由 SSO 身份决定。
 
-Zygos 可在安装向导中选择，需使用包含其 API、Web、Worker、EvalScope 四个镜像的新版 Chentu 安装包。旧版在线包不包含 Zygos，因此当前默认应用选择保持兼容；使用新版包时显式勾选 Zygos。GPU 节点与模型权重单独配置。
+Zygos 在基础站点就绪后通过 Vasi 安装，需要配套应用材料。GPU 节点与模型权重单独配置。
 
-## 单应用安装、更新与卸载
+## 站点交接后的应用管理
 
-对已完成 `apeiron chentu init` 的实例操作，显式指定实例，避免操作到其它集群：
+已交接站点由 Vasi 调用 Chentu API 安装、更新和卸载应用；操作与记录保存在站点管理节点，
+关闭页面不停止执行。更新使用现场固定材料，不代表自动发现新版本。
 
-```sh
-apeiron chentu app list --instance my-team
-apeiron chentu app install zygos --instance my-team --bundle-dir /absolute/chentu-package --dry-run
-apeiron chentu app install zygos --instance my-team --bundle-dir /absolute/chentu-package
-apeiron chentu app update zygos --instance my-team --bundle-dir /absolute/next-package
-apeiron chentu app uninstall zygos --instance my-team --dry-run
-apeiron chentu app uninstall zygos --instance my-team --yes
-```
-
-也可使用 `--config /absolute/config.json`。程序仍是 Rust 单文件，运行不需要 Bun/Node。
-安装包须包含新版 Chentu 的应用生命周期入口，已有集群与资源身份会先被核验。
-`install` 追加应用，依赖应用和共享服务须已安装；`update` 同步当前或指定包中固定的版本，
-不会自动选择公网 latest。单应用包不得同时改变其它已安装组件的制品；整体升级使用安装向导。
-更新及卸载后重装保留运维配置，只推进所选应用的镜像与 Chart。安装/卸载另同步 Apeiron 的应用目录。
-Nexus-first 的资源导入仍会校验并同步既有证书组件和 Nexus，版本须与当前平台兼容。
-
-`uninstall` 停止并移除应用服务，保留 PVC、凭据、共享数据库和对象存储，不提供清空数据开关。
-基础应用和仍被依赖的应用不能卸载。老版本若未在 Helm 记录中声明数据保留策略，须先执行
-`app update`；存在删除 hook 的 release 会拒绝通用卸载。Zygos 卸载前检查活动评测，维护前须结束 Worker 任务。
-
-`--dry-run` 校验资源、目标集群和卸载策略，不修改集群或实例配置，会生成本地预览日志。
-应用选择在操作成功后才保存。失败可能已部分改变集群，不自动回滚数据库；使用完全相同的命令
-和包重试。检查点会拒绝变动资源、错误集群及并发部署。`app list` 展示配置中的选择，不代替服务健康检查。
+`apeiron chentu app` 保留旧的未交接实例兼容；已交接实例会拒绝使用安装机上的过期配置修改站点。
+不要删除交接标志来绕过保护。故障恢复使用管理节点上的 Chentu CLI 和原生工具，详见
+[Vasi RUNBOOK](third_party/chentu/stack/vasi/RUNBOOK.md#站点管理模式开发预览)。
+平台整体升级、备份恢复及灾难恢复不因页面提供应用操作而自动具备。
 
 ## Zygos 内置子命令
 
@@ -456,19 +327,6 @@ CI 使用的 `ZYGOS_READ_TOKEN` 需要同时能读取本仓库、Zygos、Apeiron
 源码通过 `third_party/zygos` Git submodule 锁定确切提交，Cargo 直接引用其中的
 `apps/cli`，不复制业务 CLI 源码。开发与更新方式见 [Zygos 子模块](docs/zygos-submodule.md)。
 克隆开发仓库后先运行 `git submodule update --init --recursive`，最终用户不需要此步骤。
-
-### Minimal 安装包
-
-向导从 Chentu 安装包的 catalog 读取 `distro: minimal`，必选 Nexus、Vasi、Apeiron；
-其余平台依赖由主 Helmfile 决定。Minimal 不要求 Gateway，模型使用 Base URL、API key、
-模型 ID 直连。旧基础版包仍要求 Gateway。密钥只保存到受保护配置与 Kubernetes Secret。
-
-Minimal 要求当前 CLI 包含 scode（`apeiron sudo`）。原生 K3s 包还必须提供匹配目标架构的
-`managementCli` 固定归档和摘要，主机入口在首个控制节点安装 `/usr/local/bin/apeiron`
-并验证内嵌 scode。K3d 使用当前操作机 CLI。管理机的模型凭据另行配置。
-
-开发验证：`APEIRON_TEST_BIN=/absolute/path/apeiron bun scripts/test-minimal-ui.js`。
-该浏览器测试使用确定性 HTTP fixture，不调用真实模型；不能替代原生主机与断网验收。
 
 ## 本机连接运行时
 
@@ -496,48 +354,11 @@ Linux 注销后持续运行需要为当前用户启用 linger。服务端吊销�
 `--agent` 指定命令。agent 使用当前用户的权限和模型配置，配置与工作区应由用户明确选择。
 本仓库保留真实可执行文件的生命周期、TLS、Task 和云端容器契约测试；服务端另行验证连接与执行协议。
 
-### 安装机与目标机器
+## 安装材料与发行边界
 
-向导首页只填写实例名称，创建尚无部署目标、无端口占用的草稿实例。在下一页的部署选项中选择“这台机器”或“远端机器 · SSH”，点击“下一步”后保存目标；本机 K3d 的端口在此时分配，重试复用已分配端口。本机选择 Docker 中运行 K3d 或 Ubuntu 上安装 K3s；SSH 在配置页添加一台或多台节点并检测连接，节点数量决定 single-k3s / multi-k3s，不再让用户另外选择单机、多机。
-`deployment.installation.location` 保存 local / ssh；旧配置的 multi-k3s 按 ssh 读取，其余按 local 读取。SSH 单节点使用远端资源暂存和 Ansible SSH 连接，不会把安装机当作目标节点；未检测节点不能开始部署。
-实例 ID 保留在详情提示中，顶部仅展示实例名与目标位置。正式发行包的安装机平台与多节点规模约束仍由原有验证器执行；本次界面变更不代表 Mac 跨平台 SSH 部署已通过验收。
+新基础站点要求和验收范围以 Chentu 文档及安装清单为准。旧 Minimal 配置、源码快照和
+已发布材料仍保留原身份；本次命令适配不更新 `release/distribution-input.json` 或发行通道。
+先发布并验收配套基础站点材料，再更新默认包，不能仅修改清单中的发行版名称。
 
-### 安装向导的发行版选择
-
-第 2 步为“选择发行版”，目前只提供 Minimal；选项仅展示名称和一行简介，不再展示组件清单、场景组合或逐应用勾选。点击该步的“下一步”才读取安装包清单，要求包内 `distro: minimal`，并包含必选的 Nexus、Vasi、Apeiron 应用入口。旧基础版包不会被重新标为 Minimal；不匹配会停留在发行版页，提示返回部署选项选择匹配的安装包。现有实例的旧配置与应用管理 API 保持兼容。
-
-### Minimal 在线开发预览
-
-在线预览使用小型部署程序包和固定 SHA-256 的资源清单，镜像、Chart、CLI 包按清单从 OSS 下载。
-`scripts/prepare-distro-material.py` 从已有 catalog 复用资源，以 Chentu 原生 Helmfile 渲染结果确定
-Minimal 组件；通过 `--cli-release` 和重复的 `--cli-archive` 提供经发行记录校验的 Rust CLI 包。
-原生 K3s 另需 `--management-cli`。随后由 Chentu 的 `bundle/hosted_release.py` 生成 Nexus 分发材料。
-
-材料上传并回读校验后，可为单个目标制作开发预览：
-
-```sh
-python3 scripts/package-distro-preview.py --profile /external/profile-handoff --out /external/minimal-preview
-bun scripts/publish-deployment.js /external/minimal-preview/upload-plan.json
-# 下载 preview.json 中 archive.url，核对 SHA-256，解压到仓库外目录。
-APEIRON_CHENTU_ROOT=/external/unpacked/chentu apeiron chentu init --config /external/minimal-test/config.json
-```
-
-预览包保留源码与生成文件的摘要，启动前不需要下载完整资源。此开发入口不会修改内置发行版固定值、
-stable/nightly 通道或旧安装实例；不设置 `APEIRON_CHENTU_ROOT` 的已发行 CLI 仍使用其原有安装包。
-`preview.json` 明确记录目标和未验收状态；单个目标的预览不能代表原生主机或离线验收。
-
-开发预览打包器在完整校验输入来源后，可修复旧材料中 `tools` 重复登记
-`sources/deployment-source.tar.gz` 的已知问题，并在 `catalogRepairs` 中记录。
-它只修改生成的目录和对应摘要，不修改源码、资源内容或已发布对象；其它重复资源仍拒绝。
-安装失败时，向导当前阶段显示实际失败原因，不沿用上一条资源校验成功的进度文字。
-
-### Release 目录与预算
-
-新安装包以 Chentu 的 `releaseCatalog` 为准：`helmfile build` 中每个 release 对应一个管理 ID，
-`labels.app: "true"` 仅标记应用入口。Minimal 显示 8 个 release、其中 3 个应用入口，并可展开完整列表。
-新格式的 `applications` 数组只是 release 目录的兼容投影，不定义别名或多 release 应用。
-旧包继续按自身原有目录处理，不能把新格式的别名映射伪装成有效 release。
-
-预算使用包内 `resourceBudget`，由 Chentu 对实际 `helmfile template` 输出计算。
-requests 不代表实际占用；缺失声明时显示未知，不再使用固定基础内存或按应用个数加总。
-DaemonSet 按目标节点数量计量，迁移 Job/CronJob 不计入常驻请求总量。
+平台包的 release、依赖、版本和预算来自原生 Helmfile 及其渲染结果。apeiron-cli 不维护
+第二份应用列表、排序或安装逻辑。统一发行协调的输入与输出见 [发布说明](docs/releases.md)。

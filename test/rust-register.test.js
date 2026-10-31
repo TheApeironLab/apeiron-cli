@@ -51,7 +51,12 @@ test('Rust registration keeps credentials local and enforces gateway slug throug
 
         const page = await call('');
         expect(page.status).toBe(200);
-        expect(page.body.includes('id="model-fast"')).toBe(true);
+        // The tunnel must serve the complete page owned by the pinned Chentu.
+        // Installation fields are covered by Chentu's browser contracts.
+        const nonce = page.body.match(/nonce="([a-f0-9]{48})"/);
+        expect(nonce).not.toBeNull();
+        const normalized = page.body.replaceAll(`nonce="${nonce[1]}"`, 'nonce="APEIRON_NONCE_PLACEHOLDER"');
+        expect(normalized).toBe(await readFile(new URL('../third_party/chentu/rust/assets/setup.html', import.meta.url), 'utf8'));
         expect(enrollments).toBe(1);
         const saved = join(dir, '.apeiron/gateway', `${id}.json`);
         expect((await stat(saved)).mode & 0o777).toBe(0o600);
