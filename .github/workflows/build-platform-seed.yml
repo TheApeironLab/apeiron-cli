@@ -29,6 +29,16 @@ jobs:
         with:
           persist-credentials: false
           path: coordinator
+      - name: Read pinned deployment tooling revision
+        id: deployment-tools
+        run: echo "revision=$(git -C coordinator rev-parse HEAD:third_party/chentu)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: TheApeironLab/chentu
+          ref: ${{ steps.deployment-tools.outputs.revision }}
+          token: ${{ secrets.ZYGOS_READ_TOKEN }}
+          persist-credentials: false
+          path: coordinator/third_party/chentu
       - name: Read the pinned Chentu revision and seeds
         id: recipe
         run: |
